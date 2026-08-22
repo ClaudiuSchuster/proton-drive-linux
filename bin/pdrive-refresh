@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+umask 077
+
+readonly service_name='rclone-proton-drive.service'
+readonly rc_socket="${HOME}/.local/state/rclone/pdrive-rc.sock"
+readonly rclone_bin="${HOME}/.local/bin/rclone"
+readonly watch_bin="${HOME}/.local/bin/pdrive-watch"
+readonly recovery_config="${HOME}/.config/pdrive-recovery.conf"
+readonly vfs_meta_root="${HOME}/.cache/rclone/vfsMeta"
+
+usage() {
+    printf '%s\n' \
+        'Aufruf: pdrive-refresh [OPTION]' \
+        '' \
+        'Ohne Option: lokalen Cache-/Dienstzustand anzeigen; garantiert aktionsfrei.' \
+        '--refresh: Proton- und VFS-Metadaten garantiert neu aufbauen.' \
+        '           Prüft zuerst Queue und Dirty-Dateien und delegiert danach an den' \
+        '           interaktiv bestätigten, validierten rclone-Neustart.' \
+        '-h, --help: nur diese Hilfe anzeigen; garantiert aktionsfrei.' \
+        '' \
+        'Warum ein Neustart: vfs/forget leert nur den oberen Verzeichniscache,' \
+        'nicht Protons prozesslokalen Link-/Keyring-Cache. Ein kontrollierter' \
+        'Neustart ist die einzige garantierte Aktualisierung externer Änderungen.'
+}
+
+configured_cache_mode() {
+    local entries=''
+
+    if [[ ! -r "${recovery_config}" ]]; then
+        printf 'unbekannt'
+        return
+    fi
+    entries="$(awk '
+        /^[[:space:]]*($|#)/ { next }
+        { print }
+    ' "${recovery_config}")"
+    case "${entries}" in
+        proton_metadata_cache=true) printf 'aktiv (schneller Exklusivmodus)' ;;
+        proton_metadata_cache=false) printf 'aus (parallelclient-kompatibel)' ;;
+        *) printf 'ungültig' ;;
+    esac
+}
+
+dirty_stats() {
+    if [[ ! -d "${vfs_meta_root}" ]]; then
+        printf '0 0\n'
+        return
+    fi
+    find "${vfs_meta_root}" -mindepth 2 -type f -path '*/proton*/*' -print0 2>/dev/null \
+        | xargs -0 -r jq -r 'select(.Dirty == true) | (.Size // 0)' 2>/dev/null \
+        | awk '{ count++; bytes += $1 } END { printf "%d %.0f\n", count + 0, bytes + 0 }'
+}
+
+read_queue() {
+    if [[ ! -x "${rclone_bin}" || ! -S "${rc_socket}" ]]; then
+        return 1
+    fi
+    timeout --signal=TERM 10s "${rclone_bin}" rc \
+        --unix-socket "${rc_socket}" vfs/queue 2>/dev/null
+}
+
+show_status() {
+    local properties active sub pid queue_json=''
+    local queue_count='unbekannt' uploading_count='unbekannt'
+    local dirty_count dirty_bytes
+
+    properties="$(systemctl --user show "${service_name}" \
+        -p ActiveState -p SubState -p MainPID --no-pager 2>/dev/null || true)"
+    active="$(awk -F= '$1 == "ActiveState" { print $2; exit }' <<< "${properties}")"
+    sub="$(awk -F= '$1 == "SubState" { print $2; exit }' <<< "${properties}")"
+    pid="$(awk -F= '$1 == "MainPID" { print $2; exit }' <<< "${properties}")"
+    : "${active:=unknown}" "${sub:=unknown}" "${pid:=0}"
+
+    if queue_json="$(read_queue)" \
+        && jq -e '.queue | type == "array"' >/dev/null 2>&1 <<< "${queue_json}"; then
+        queue_count="$(jq -r '.queue | length' <<< "${queue_json}")"
+        uploading_count="$(jq -r '[.queue[] | select(.uploading == true)] | length' <<< "${queue_json}")"
+    fi
+    read -r dirty_count dirty_bytes < <(dirty_stats)
+
+    printf 'Proton-Drive-Cache-Aktualisierung\n\n'
+    printf 'Dienst:       %s/%s, PID %s\n' "${active}" "${sub}" "${pid}"
+    printf 'Metadatencache: %s\n' "$(configured_cache_mode)"
+    printf 'VFS-Queue:    %s Datei(en), davon %s aktiv\n' "${queue_count}" "${uploading_count}"
+    printf 'Dirty lokal:  %s Datei(en), %s Byte\n' "${dirty_count}" "${dirty_bytes}"
+    printf 'RC-Socket:    %s\n' "${rc_socket}"
+    printf '%s\n' \
+        'Hinweis: Ohne --refresh wurde nichts verändert.' \
+        'Nach externen Änderungen bei noch laufendem/suspendiertem Laptop: pdrive-refresh --refresh'
+}
+
+case "${1:-}" in
+    '')
+        (( $# == 0 )) || { usage >&2; exit 2; }
+        show_status
+        ;;
+    -h|--help)
+        (( $# == 1 )) || { printf 'Zu viele Argumente.\n' >&2; exit 2; }
+        usage
+        ;;
+    --refresh)
+        (( $# == 1 )) || { printf 'Zu viele Argumente.\n' >&2; exit 2; }
+        properties="$(systemctl --user show "${service_name}" \
+            -p ActiveState -p SubState --no-pager 2>/dev/null || true)"
+        active="$(awk -F= '$1 == "ActiveState" { print $2; exit }' <<< "${properties}")"
+        if [[ "${active}" != 'active' ]]; then
+            printf '%s\n' \
+                'Kein Refresh nötig: Der rclone-Dienst läuft nicht, daher existiert kein warmer RAM-Metadatencache.' \
+                'Beim nächsten normalen Start werden Proton-Metadaten frisch eingelesen.'
+            exit 0
+        fi
+        if ! queue_json="$(read_queue)" \
+            || ! jq -e '.queue | type == "array"' >/dev/null 2>&1 <<< "${queue_json}"; then
+            printf 'Abgelehnt: Die lokale VFS-Queue konnte nicht sicher geprüft werden.\n' >&2
+            exit 75
+        fi
+        queue_count="$(jq -r '.queue | length' <<< "${queue_json}")"
+        uploading_count="$(jq -r '[.queue[] | select(.uploading == true)] | length' <<< "${queue_json}")"
+        read -r dirty_count dirty_bytes < <(dirty_stats)
+        if (( queue_count != 0 || uploading_count != 0 || dirty_count != 0 )); then
+            printf '%s\n' \
+                "Abgelehnt: VFS-Queue ${queue_count}, aktive Uploads ${uploading_count}, Dirty-Dateien ${dirty_count} (${dirty_bytes} Byte)." \
+                'Der Dienst bleibt unverändert; zuerst ausstehende Schreibvorgänge abschließen lassen.' >&2
+            exit 75
+        fi
+        if [[ ! -x "${watch_bin}" ]]; then
+            printf 'Abgelehnt: %s fehlt oder ist nicht ausführbar.\n' "${watch_bin}" >&2
+            exit 78
+        fi
+        printf '%s\n' \
+            'Vorprüfung erfolgreich: keine Queue, keine aktiven Uploads, keine Dirty-Dateien.' \
+            'Der folgende vorhandene Schutzpfad verlangt zur Bestätigung exakt NEUSTART,' \
+            'startet genau eine neue Dienstinstanz und validiert anschließend PID und Mount.'
+        exec "${watch_bin}" --restart-service
+        ;;
+    *)
+        printf 'Unbekannte Option: %s\n\n' "$1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

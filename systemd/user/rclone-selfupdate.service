@@ -1,0 +1,9 @@
+[Unit]
+Description=Update rclone from its signed official release channel
+Documentation=https://rclone.org/commands/rclone_selfupdate/
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/libexec/rclone-selfupdate

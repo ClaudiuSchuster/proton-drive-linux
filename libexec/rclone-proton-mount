@@ -1,0 +1,208 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+
+readonly mount_dir='/pdrive'
+readonly cache_dir="${HOME}/.cache/rclone"
+readonly state_dir="${HOME}/.local/state/rclone"
+readonly config_file="${HOME}/.config/rclone/rclone.conf"
+readonly transfers_config="${HOME}/.config/pdrive-transfers.conf"
+readonly bwlimit_config="${HOME}/.config/pdrive-bwlimit.conf"
+readonly recovery_config="${HOME}/.config/pdrive-recovery.conf"
+readonly draft_recovery_config="${HOME}/.config/pdrive-draft-recovery.conf"
+readonly rc_socket="${state_dir}/pdrive-rc.sock"
+readonly rclone_bin="${HOME}/.local/bin/rclone"
+
+mkdir -p -- "${cache_dir}" "${state_dir}"
+if [[ ! -d "${mount_dir}" || -L "${mount_dir}" ]]; then
+    echo "Mountpoint is missing or not a real directory: ${mount_dir}" >&2
+    printf 'Create it once with: sudo install -d -m 0700 -o %q -g %q /pdrive\n' \
+        "$(id -un)" "$(id -gn)" >&2
+    exit 73
+fi
+if [[ "$(stat -c %u -- "${mount_dir}")" != "$(id -u)" ]]; then
+    echo "Refusing mountpoint not owned by the current user: ${mount_dir}" >&2
+    exit 73
+fi
+
+unmount_rclone_at() {
+    local candidate="$1"
+    local fstype
+
+    if ! /usr/bin/mountpoint -q -- "${candidate}"; then
+        return 0
+    fi
+
+    fstype="$(/usr/bin/findmnt -rn -M "${candidate}" -o FSTYPE 2>/dev/null || true)"
+    case "${fstype}" in
+        fuse.rclone|fuse)
+            /usr/bin/fusermount3 -uz -- "${candidate}"
+            sleep 1
+            ;;
+        *)
+            echo "Refusing to replace non-rclone mount at ${candidate} (${fstype:-unknown type})." >&2
+            exit 73
+            ;;
+    esac
+}
+
+# /pdrive is a real, short FUSE mountpoint. GVFS does not present mounts
+# outside HOME, /media and /run/media/$USER as devices by default, so Nemo can
+# address it directly for a working Extra Pane without an eject button.
+unmount_rclone_at "${mount_dir}"
+
+# Replacing an existing Proton upload draft changes remote state.  Keep the
+# conservative backend default unless the dedicated recovery helper wrote one
+# exact validated value after an explicit user decision.  Never source this
+# file, and keep this switch separate from the metadata-cache recovery mode.
+replace_existing_draft='false'
+if [[ -e "${draft_recovery_config}" ]]; then
+    if [[ ! -r "${draft_recovery_config}" ]]; then
+        echo "Draft recovery configuration is unreadable: ${draft_recovery_config}" >&2
+        exit 78
+    fi
+    draft_recovery_entries="$(awk '
+        /^[[:space:]]*($|#)/ { next }
+        { print }
+    ' "${draft_recovery_config}")"
+    if [[ "${draft_recovery_entries}" =~ ^replace_existing_draft=(true|false)$ ]]; then
+        replace_existing_draft="${BASH_REMATCH[1]}"
+    else
+        echo "Invalid draft recovery configuration in ${draft_recovery_config}." >&2
+        echo 'Repair it only with: pdrive-draft-recovery --disable' >&2
+        exit 78
+    fi
+fi
+
+if [[ ! -r "${config_file}" ]]; then
+    echo "rclone configuration is missing or unreadable: ${config_file}" >&2
+    exit 66
+fi
+
+# Keep upload concurrency explicit.  The Proton backend can strand every
+# concurrent block request after one storage-side 5xx response, so the small
+# helper allows the exceptional large-file recovery to use one serial slot.
+# This is a global rclone option and does not change the VFS cache namespace.
+transfers='4'
+if [[ -e "${transfers_config}" ]]; then
+    if [[ ! -r "${transfers_config}" ]]; then
+        echo "Transfer configuration is unreadable: ${transfers_config}" >&2
+        exit 78
+    fi
+    transfers_entries="$(awk '
+        /^[[:space:]]*($|#)/ { next }
+        { print }
+    ' "${transfers_config}")"
+    if [[ "${transfers_entries}" =~ ^transfers=([1-8])$ ]]; then
+        transfers="${BASH_REMATCH[1]}"
+    else
+        echo "Invalid transfer configuration in ${transfers_config}." >&2
+        echo 'Repair it with: pdrive-transfers 1' >&2
+        exit 78
+    fi
+fi
+
+# The helper writes a canonical single runtime bandwidth setting.  Never
+# source this file: accepting exactly one validated value keeps manual damage
+# from becoming shell code or silently changing unrelated mount arguments.
+bwlimit='off'
+if [[ -e "${bwlimit_config}" ]]; then
+    if [[ ! -r "${bwlimit_config}" ]]; then
+        echo "Bandwidth configuration is unreadable: ${bwlimit_config}" >&2
+        exit 78
+    fi
+    bwlimit="$(awk -F= '$1 == "bwlimit" { print $2; exit }' "${bwlimit_config}")"
+    rate_component='(off|[0-9]+([.][0-9]+)?([bBkKmMgGtTpP]([iI][bB]?)?)?)'
+    if [[ ! "${bwlimit}" =~ ^${rate_component}(:${rate_component})?$ ]]; then
+        echo "Invalid bandwidth configuration in ${bwlimit_config}." >&2
+        echo 'Repair it with: pdrive-bwlimit off' >&2
+        exit 78
+    fi
+fi
+
+# Proton's link/keyring metadata cache speeds navigation and metadata-heavy
+# operations, but it cannot see changes made concurrently by another Proton
+# client. Keep the safe fallback off and accept only one explicit, validated
+# setting written by pdrive-recovery. Never source this file.
+proton_metadata_cache='false'
+if [[ -e "${recovery_config}" ]]; then
+    if [[ ! -r "${recovery_config}" ]]; then
+        echo "Recovery configuration is unreadable: ${recovery_config}" >&2
+        exit 78
+    fi
+    recovery_entries="$(awk '
+        /^[[:space:]]*($|#)/ { next }
+        { print }
+    ' "${recovery_config}")"
+    if [[ "${recovery_entries}" =~ ^proton_metadata_cache=(true|false)$ ]]; then
+        proton_metadata_cache="${BASH_REMATCH[1]}"
+    else
+        echo "Invalid recovery configuration in ${recovery_config}." >&2
+        echo 'Repair it with: pdrive-recovery --disable' >&2
+        exit 78
+    fi
+fi
+
+# The encrypted rclone configuration is unlocked through GNOME Keyring.  The
+# user manager can start a few seconds before Cinnamon/PAM has unlocked the
+# login collection, so wait instead of failing and hammering Proton logins.
+attempt=0
+until timeout --signal=TERM 5s /usr/bin/secret-tool \
+    lookup service rclone account proton-drive >/dev/null 2>&1; do
+    ((attempt += 1))
+    if (( attempt == 1 || attempt % 20 == 0 )); then
+        echo 'Waiting for the GNOME Keyring item used by rclone...' >&2
+    fi
+    sleep 3
+done
+
+# A Unix socket avoids exposing rclone's powerful RC API on a TCP port.  The
+# service UMask makes the socket owner-only.  --rc-no-auth is needed for
+# core/bwlimit in current rclone; its scope remains constrained by those Unix
+# permissions.  Refuse to replace a live socket and remove only a stale one.
+if [[ -e "${rc_socket}" && ! -S "${rc_socket}" ]]; then
+    echo "Refusing to replace an unexpected non-socket path at ${rc_socket}." >&2
+    exit 73
+fi
+if [[ -S "${rc_socket}" ]]; then
+    if timeout --signal=TERM 3s "${rclone_bin}" rc --unix-socket "${rc_socket}" \
+        core/pid >/dev/null 2>&1; then
+        echo "Refusing to replace a live rclone RC socket at ${rc_socket}." >&2
+        exit 73
+    fi
+    rm -f -- "${rc_socket}"
+fi
+
+# A single transient Proton Storage 502 used to abort all block requests of
+# the current file immediately.  Five paced request attempts are still
+# conservative compared with rclone's default of ten, but give the storage
+# endpoint a chance to recover before the VFS has to restart the whole file.
+exec "${rclone_bin}" mount proton: "${mount_dir}" \
+    --config="${config_file}" \
+    --cache-dir="${cache_dir}" \
+    --vfs-cache-mode=full \
+    --vfs-cache-max-size=25G \
+    --vfs-cache-min-free-space=50G \
+    --vfs-cache-max-age=168h \
+    --vfs-cache-poll-interval=1m \
+    --vfs-write-back=5s \
+    --dir-cache-time=1h \
+    --attr-timeout=1s \
+    --protondrive-enable-caching="${proton_metadata_cache}" \
+    --protondrive-replace-existing-draft="${replace_existing_draft}" \
+    --transfers="${transfers}" \
+    --bwlimit="${bwlimit}" \
+    --low-level-retries=5 \
+    --retries=2 \
+    --umask=077 \
+    '--volname=Proton Drive' \
+    --log-file="${state_dir}/proton-mount.log" \
+    --log-level=INFO \
+    --log-file-max-size=10M \
+    --log-file-max-backups=3 \
+    --log-file-max-age=30d \
+    --log-file-compress \
+    --rc \
+    --rc-no-auth \
+    --rc-addr="unix://${rc_socket}"

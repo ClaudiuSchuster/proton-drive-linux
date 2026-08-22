@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+umask 077
+
+readonly rclone_bin="${HOME}/.local/bin/rclone"
+readonly config_dir="${HOME}/.config/rclone"
+readonly config_file="${config_dir}/rclone.conf"
+readonly state_dir="${HOME}/.local/state/rclone"
+readonly mount_dir='/pdrive'
+
+usage() {
+    printf '%s\n' \
+        'Usage: pdrive-setup [--setup]' \
+        '' \
+        'Without --setup or with --help, this command only prints help.' \
+        '--setup creates an encrypted rclone Proton Drive configuration,' \
+        'stores its random encryption key in GNOME Keyring, performs one' \
+        'bounded login test, and enables the user service and health timers.' \
+        '' \
+        'Existing rclone.conf files are never overwritten.'
+}
+
+case "${1:-}" in
+    '')
+        (( $# == 0 )) || { usage >&2; exit 2; }
+        usage
+        exit 0
+        ;;
+    --setup)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        ;;
+    -h|--help)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        usage
+        exit 0
+        ;;
+    *)
+        printf 'Unknown option: %s\n\n' "$1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac
+
+if [[ ! -t 0 || ! -t 1 ]]; then
+    printf 'Run pdrive-setup --setup in a normal terminal.\n' >&2
+    exit 64
+fi
+for command_name in openssl secret-tool systemctl; do
+    if ! command -v "${command_name}" >/dev/null 2>&1; then
+        printf 'Missing required command: %s\n' "${command_name}" >&2
+        exit 69
+    fi
+done
+if [[ ! -x "${rclone_bin}" ]]; then
+    printf 'Missing rclone wrapper: %s. Run ./install.sh first.\n' "${rclone_bin}" >&2
+    exit 69
+fi
+if [[ ! -d "${mount_dir}" || -L "${mount_dir}" \
+    || "$(stat -c %u -- "${mount_dir}" 2>/dev/null || true)" != "$(id -u)" ]]; then
+    printf 'Mountpoint %s is missing, is a symlink, or is not owned by this user.\n' \
+        "${mount_dir}" >&2
+    printf 'Run ./install.sh again to create and validate it.\n' >&2
+    exit 73
+fi
+if [[ -e "${config_file}" ]]; then
+    printf 'Existing configuration was not overwritten: %s\n' "${config_file}" >&2
+    exit 73
+fi
+
+printf '%s\n' \
+    'Proton Drive rclone setup' \
+    '=========================' \
+    '' \
+    'Credentials remain on this computer. Password input is hidden.' \
+    'The resulting rclone.conf is encrypted with a random key held by' \
+    'your login-unlocked GNOME Keyring.' \
+    ''
+
+read -r -p 'Proton username or email address: ' username
+if [[ -z "${username}" || "${username}" == *$'\n'* || "${username}" == *$'\r'* ]]; then
+    printf 'Invalid username.\n' >&2
+    exit 65
+fi
+
+read -r -s -p 'Proton password: ' password
+printf '\n'
+read -r -s -p 'Repeat password: ' password_confirm
+printf '\n'
+if [[ -z "${password}" || "${password}" != "${password_confirm}" ]]; then
+    unset password password_confirm
+    printf 'Passwords are empty or do not match.\n' >&2
+    exit 65
+fi
+unset password_confirm
+
+read -r -s -p 'Current six-digit 2FA code (empty if 2FA is disabled): ' two_factor
+printf '\n'
+if [[ -n "${two_factor}" && ! "${two_factor}" =~ ^[0-9]{6}$ ]]; then
+    unset password two_factor
+    printf 'The 2FA code must be empty or exactly six digits.\n' >&2
+    exit 65
+fi
+
+mkdir -p -- "${config_dir}" "${state_dir}"
+temporary_config="$(mktemp "${config_dir}/rclone.conf.XXXXXX")"
+cleanup() {
+    unset password two_factor obscured_password config_secret
+    rm -f -- "${temporary_config:-}"
+}
+trap cleanup EXIT
+
+if ! timeout --signal=TERM 5s secret-tool lookup \
+    service rclone account proton-drive >/dev/null 2>&1; then
+    config_secret="$(openssl rand -base64 48 | tr -d '\n')"
+    if [[ -z "${config_secret}" ]]; then
+        printf 'Could not generate a configuration encryption key.\n' >&2
+        exit 70
+    fi
+    if ! printf '%s' "${config_secret}" | secret-tool store \
+        --label='rclone Proton Drive configuration password' \
+        service rclone account proton-drive; then
+        printf 'Could not store the configuration key in GNOME Keyring.\n' >&2
+        exit 70
+    fi
+    unset config_secret
+fi
+
+obscured_password="$(printf '%s\n' "${password}" | "${rclone_bin}" obscure -)"
+unset password
+{
+    printf '%s\n' \
+        '[proton]' \
+        'type = protondrive' \
+        "username = ${username}" \
+        "password = ${obscured_password}" \
+        'original_file_size = true' \
+        'enable_caching = false'
+    if [[ -n "${two_factor}" ]]; then
+        printf '2fa = %s\n' "${two_factor}"
+    fi
+} > "${temporary_config}"
+unset obscured_password
+
+"${rclone_bin}" --config="${temporary_config}" config encryption set
+"${rclone_bin}" --config="${temporary_config}" config encryption check
+mv -f -- "${temporary_config}" "${config_file}"
+chmod 0600 "${config_file}"
+
+printf '\nTesting exactly one bounded Proton login ...\n'
+set +e
+timeout --signal=TERM 90s "${rclone_bin}" \
+    --config="${config_file}" \
+    --cache-dir="${HOME}/.cache/rclone" \
+    --low-level-retries=0 \
+    --retries=1 \
+    lsd proton: --max-depth 1 >/dev/null
+login_rc=$?
+set -e
+
+# A TOTP is valid only once and must not remain in unattended configuration.
+"${rclone_bin}" --config="${config_file}" config update proton 2fa '' --no-output
+unset two_factor
+
+if (( login_rc != 0 )); then
+    printf '%s\n' \
+        'Login test failed. The encrypted configuration was retained, but the' \
+        'mount service was not enabled or started. Do not retry quickly after' \
+        "HTTP 429; wait for Proton's complete backoff, then use pdrive-reauth --reauth." >&2
+    exit "${login_rc}"
+fi
+
+systemctl --user daemon-reload
+systemctl --user enable --now \
+    rclone-proton-drive.service \
+    pdrive-watch.timer \
+    rclone-selfupdate.timer
+
+bookmark_file="${HOME}/.config/gtk-3.0/bookmarks"
+mkdir -p -- "${bookmark_file%/*}"
+touch "${bookmark_file}"
+if ! grep -qFx 'file:///pdrive ProtonDrive' "${bookmark_file}"; then
+    printf 'file:///pdrive ProtonDrive\n' >> "${bookmark_file}"
+fi
+
+printf '%s\n' \
+    '' \
+    'Setup complete. Proton Drive is mounted at /pdrive.' \
+    'Run pdrive-doctor and pdrive-watch for a first health check.'
+if command -v nemo >/dev/null 2>&1; then
+    nemo "${mount_dir}" >/dev/null 2>&1 &
+    disown || true
+fi

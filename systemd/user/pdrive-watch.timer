@@ -1,0 +1,11 @@
+[Unit]
+Description=Check Proton Drive health and safely recover confirmed startup stalls every 90 minutes
+
+[Timer]
+OnActiveSec=2m
+OnUnitActiveSec=90m
+AccuracySec=2m
+Unit=pdrive-watch.service
+
+[Install]
+WantedBy=timers.target

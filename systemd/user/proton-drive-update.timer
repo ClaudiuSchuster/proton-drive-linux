@@ -1,0 +1,11 @@
+[Unit]
+Description=Check daily for Proton Drive CLI updates
+
+[Timer]
+OnBootSec=5min
+OnCalendar=daily
+Persistent=true
+RandomizedDelaySec=4h
+
+[Install]
+WantedBy=timers.target

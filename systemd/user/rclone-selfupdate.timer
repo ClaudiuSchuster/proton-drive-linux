@@ -1,0 +1,11 @@
+[Unit]
+Description=Check weekly for signed rclone updates
+
+[Timer]
+OnBootSec=10min
+OnCalendar=Sun *-*-* 04:00:00
+Persistent=true
+RandomizedDelaySec=2h
+
+[Install]
+WantedBy=timers.target

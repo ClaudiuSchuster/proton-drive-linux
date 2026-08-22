@@ -1,0 +1,12 @@
+[Unit]
+Description=Update Proton Drive CLI from the official Proton release channel
+Documentation=https://proton.me/support/drive-cli
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/libexec/proton-drive-update
+
+[Install]
+WantedBy=default.target

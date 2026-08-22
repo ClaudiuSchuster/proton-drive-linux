@@ -1,0 +1,272 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -uo pipefail
+umask 077
+
+readonly config_file="${HOME}/.config/pdrive-bwlimit.conf"
+readonly state_dir="${HOME}/.local/state/rclone"
+readonly rc_socket="${state_dir}/pdrive-rc.sock"
+readonly rclone_bin="${HOME}/.local/libexec/rclone-bin"
+
+usage() {
+    printf '%s\n' \
+        'Aufruf: pdrive-bwlimit [LIMIT|off|status]' \
+        '' \
+        'Ohne Argument oder mit status: persistentes und laufendes Limit anzeigen.' \
+        'LIMIT: Nur Upload begrenzen; Download bleibt unbegrenzt.' \
+        '       Beispiel: 4.2 = 4,2 MiB/s Upload, Download unbegrenzt.' \
+        'UP:DOWN: Links steht Upload, rechts Download.' \
+        '         Beispiel: 4:1 = 4 MiB/s Upload und 1 MiB/s Download.' \
+        'Zahlen ohne Einheit werden an jeder Stelle automatisch als MiB/s behandelt.' \
+        'Explizite Einheiten sind weiterhin möglich, z. B. 800K oder 0.625M.' \
+        'off: Limit live und persistent vollständig entfernen.' \
+        '' \
+        'Die Einheiten sind Byte pro Sekunde, nicht Bit pro Sekunde.'
+}
+
+# Help must be completely action-free, including in a fresh HOME. In
+# particular, do not create the state directory or lock file before this exit.
+case "${1:-}" in
+    -h|--help|help)
+        if (( $# != 1 )); then
+            printf 'Zu viele Argumente.\n' >&2
+            exit 2
+        fi
+        usage
+        exit 0
+        ;;
+esac
+
+rate_is_safe() {
+    local rate="${1:-}"
+    local component='(off|[0-9]+([.][0-9]+)?([bBkKmMgGtTpP]([iI][bB]?)?)?)'
+
+    [[ "${rate}" =~ ^${component}(:${component})?$ ]]
+}
+
+component_human() {
+    local component="${1:-off}"
+
+    if [[ "${component}" == 'off' ]]; then
+        printf 'unbegrenzt'
+    elif [[ "${component}" == *B ]]; then
+        printf '%s/s' "${component}"
+    else
+        printf '%sB/s' "${component}"
+    fi
+}
+
+describe_rate() {
+    local rate="${1:-off}"
+    local upload download
+
+    if [[ "${rate}" == 'off' ]]; then
+        printf 'kein Limit (Upload und Download unbegrenzt)'
+    elif [[ "${rate}" == *:* ]]; then
+        upload="${rate%%:*}"
+        download="${rate#*:}"
+        printf 'Upload %s, Download %s' \
+            "$(component_human "${upload}")" "$(component_human "${download}")"
+    else
+        printf 'Upload und Download jeweils %s' "$(component_human "${rate}")"
+    fi
+}
+
+load_configured_rate() {
+    configured_rate='off'
+    configured_source='Standard (keine Konfigurationsdatei)'
+    config_warning=''
+
+    if [[ ! -e "${config_file}" ]]; then
+        return 0
+    fi
+    if [[ ! -r "${config_file}" ]]; then
+        config_warning="${config_file} ist nicht lesbar"
+        return 78
+    fi
+
+    configured_rate="$(awk -F= '$1 == "bwlimit" { print $2; exit }' "${config_file}")"
+    configured_source="${config_file}"
+    if ! rate_is_safe "${configured_rate}"; then
+        config_warning="${config_file} enthält keinen gültigen Einzelwert"
+        return 78
+    fi
+}
+
+normalize_numeric_component() {
+    local component="${1:-}"
+
+    if [[ "${component}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+        printf '%sM' "${component}"
+    else
+        printf '%s' "${component}"
+    fi
+}
+
+normalize_requested_rate() {
+    local requested="${1:-}"
+    local upload download
+
+    if [[ "${requested}" == *:* ]]; then
+        upload="${requested%%:*}"
+        download="${requested#*:}"
+        printf '%s:%s' \
+            "$(normalize_numeric_component "${upload}")" \
+            "$(normalize_numeric_component "${download}")"
+    else
+        normalize_numeric_component "${requested}"
+    fi
+}
+
+canonicalize_requested_rate() {
+    local requested="${1:-}"
+    local runtime_rate response canonical
+
+    case "${requested}" in
+        off|aus|unlimited|0)
+            runtime_rate='off'
+            ;;
+        *:*)
+            requested="$(normalize_requested_rate "${requested}")"
+            runtime_rate="${requested}"
+            ;;
+        *)
+            # The common one-value form deliberately limits only upload.
+            requested="$(normalize_requested_rate "${requested}")"
+            runtime_rate="${requested}:off"
+            ;;
+    esac
+
+    if [[ ! -x "${rclone_bin}" ]]; then
+        printf 'Fehler: rclone-Binärdatei fehlt: %s\n' "${rclone_bin}" >&2
+        return 69
+    fi
+    response="$(timeout --signal=TERM 10s "${rclone_bin}" rc --loopback \
+        core/bwlimit "rate=${runtime_rate}" 2>/dev/null)" || {
+        printf 'Ungültiges Limit: %s\n' "${requested:-<leer>}" >&2
+        printf 'Beispiele: 4.2, 800K, 2M, 5M, 0.625M, 5M:1M oder off.\n' >&2
+        return 2
+    }
+    canonical="$(jq -r '.rate // empty' <<< "${response}" 2>/dev/null || true)"
+    if ! rate_is_safe "${canonical}"; then
+        printf 'Fehler: rclone lieferte einen unerwarteten Bandbreitenwert.\n' >&2
+        return 70
+    fi
+    printf '%s\n' "${canonical}"
+}
+
+write_configured_rate() {
+    local rate="${1:-}"
+    local config_dir config_tmp
+
+    if ! rate_is_safe "${rate}"; then
+        printf 'Fehler: unsicherer interner Bandbreitenwert: %s\n' "${rate}" >&2
+        return 2
+    fi
+    config_dir="${config_file%/*}"
+    mkdir -p -- "${config_dir}" || return 1
+    config_tmp="$(mktemp "${config_dir}/pdrive-bwlimit.conf.XXXXXX")" || return 1
+    if ! printf '%s\n' \
+        '# Verwaltet mit: pdrive-bwlimit LIMIT|off' \
+        '# Ein einzelner Wert begrenzt Upload; Download bleibt unbegrenzt.' \
+        '# Rein numerische Eingaben interpretiert der Helfer immer als MiB/s.' \
+        "bwlimit=${rate}" > "${config_tmp}"; then
+        rm -f -- "${config_tmp}"
+        return 1
+    fi
+    if ! mv -f -- "${config_tmp}" "${config_file}"; then
+        rm -f -- "${config_tmp}"
+        return 1
+    fi
+}
+
+rc_call() {
+    timeout --signal=TERM 10s "${rclone_bin}" rc --unix-socket "${rc_socket}" "$@"
+}
+
+query_live_rate() {
+    local response
+
+    [[ -S "${rc_socket}" ]] || return 1
+    response="$(rc_call core/bwlimit 2>/dev/null)" || return 1
+    live_rate="$(jq -r '.rate // empty' <<< "${response}" 2>/dev/null || true)"
+    rate_is_safe "${live_rate}"
+}
+
+mkdir -p -- "${state_dir}"
+exec 9>"${state_dir}/pdrive-bwlimit.lock"
+if ! flock -w 15 9; then
+    printf 'Ein anderer pdrive-bwlimit-Lauf ist noch aktiv; bitte kurz erneut versuchen.\n' >&2
+    exit 75
+fi
+
+case "${1:-status}" in
+    -h|--help|help)
+        if (( $# != 1 )); then
+            printf 'Zu viele Argumente.\n' >&2
+            exit 2
+        fi
+        usage
+        exit 0
+        ;;
+    status)
+        if (( $# > 1 )); then
+            printf 'Zu viele Argumente (Hilfe: pdrive-bwlimit --help).\n' >&2
+            exit 2
+        fi
+        config_valid=true
+        if ! load_configured_rate; then
+            config_valid=false
+        fi
+        printf 'Persistiert:   %s\n' "$(describe_rate "${configured_rate}")"
+        printf 'Konfiguration: %s\n' "${configured_source}"
+        if [[ "${config_valid}" != true ]]; then
+            printf 'WARNUNG:       %s; der nächste Mountstart würde sicherheitshalber abbrechen.\n' \
+                "${config_warning}"
+        fi
+        if query_live_rate; then
+            printf 'Laufender rclone: %s\n' "$(describe_rate "${live_rate}")"
+            printf 'Runtime:       aktiv; Änderungen sind ohne Neustart und Transferabbruch möglich.\n'
+        else
+            printf 'Laufender rclone: Runtime-Steuerung noch nicht verfügbar.\n'
+            printf '%s\n' \
+                'Runtime:       Der aktuelle Prozess wurde vor dieser Funktion gestartet und bleibt' \
+                '               unangetastet. Die Steuerung wird beim nächsten Dienststart aktiv.'
+        fi
+        ;;
+    *)
+        if (( $# != 1 )); then
+            printf 'Genau ein Limit angeben (Hilfe: pdrive-bwlimit --help).\n' >&2
+            exit 2
+        fi
+        requested_rate="${1}"
+        canonical_rate="$(canonicalize_requested_rate "${requested_rate}")" || exit $?
+        if ! write_configured_rate "${canonical_rate}"; then
+            printf 'Fehler: Bandbreitenkonfiguration konnte nicht atomar gespeichert werden.\n' >&2
+            exit 1
+        fi
+
+        if query_live_rate; then
+            if ! response="$(rc_call core/bwlimit "rate=${canonical_rate}" 2>/dev/null)"; then
+                printf 'Persistiert: %s\n' "$(describe_rate "${canonical_rate}")"
+                printf '%s\n' \
+                    'Fehler: Der laufende rclone nahm die Änderung nicht an.' \
+                    'Der gespeicherte Wert gilt spätestens beim nächsten Dienststart.' >&2
+                exit 1
+            fi
+            applied_rate="$(jq -r '.rate // empty' <<< "${response}" 2>/dev/null || true)"
+            if ! rate_is_safe "${applied_rate}"; then
+                printf 'Fehler: Laufzeitantwort von rclone war unerwartet.\n' >&2
+                exit 70
+            fi
+            printf 'Aktiv:         %s\n' "$(describe_rate "${applied_rate}")"
+            printf 'Persistiert:   ja; laufender Transfer wurde nicht unterbrochen.\n'
+        else
+            printf 'Gespeichert:   %s\n' "$(describe_rate "${canonical_rate}")"
+            printf '%s\n' \
+                'Aktueller rclone: unverändert; dieser ältere Prozess besitzt noch keinen RC-Socket.' \
+                'Wirksamkeit:      automatisch ab dem nächsten Dienststart, ohne zusätzlichen Neustart.'
+        fi
+        ;;
+esac

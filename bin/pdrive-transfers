@@ -1,0 +1,118 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+umask 077
+
+readonly transfers_config="${HOME}/.config/pdrive-transfers.conf"
+readonly service_name='rclone-proton-drive.service'
+readonly default_transfers=4
+
+usage() {
+    printf '%s\n' \
+        'Aufruf: pdrive-transfers [ANZAHL|default]' \
+        '' \
+        'Ohne Wert: konfigurierte und tatsächlich laufende Uploadslots anzeigen.' \
+        'ANZAHL:    1 bis 8 parallele Datei-Uploads persistent konfigurieren.' \
+        'default:   rclones Standard von 4 Uploadslots persistent konfigurieren.' \
+        '-h, --help: nur diese Hilfe anzeigen.' \
+        '' \
+        "Konfiguration: ${transfers_config}" \
+        'Eine Änderung startet rclone absichtlich nicht neu und gilt erst beim nächsten Start.' \
+        'Für die aktuelle Großdatei-Recovery ist 1 empfohlen.'
+}
+
+read_configured_transfers() {
+    local entries
+
+    if [[ ! -e "${transfers_config}" ]]; then
+        printf '%s\n' "${default_transfers}"
+        return 0
+    fi
+    if [[ ! -r "${transfers_config}" ]]; then
+        printf 'Konfiguration ist nicht lesbar: %s\n' "${transfers_config}" >&2
+        return 78
+    fi
+    entries="$(awk '
+        /^[[:space:]]*($|#)/ { next }
+        { print }
+    ' "${transfers_config}")"
+    if [[ "${entries}" =~ ^transfers=([1-8])$ ]]; then
+        printf '%s\n' "${BASH_REMATCH[1]}"
+        return 0
+    fi
+    printf 'Ungültige Transferkonfiguration: %s\n' "${transfers_config}" >&2
+    return 78
+}
+
+write_configured_transfers() {
+    local value="$1"
+    local config_dir config_tmp
+
+    config_dir="${transfers_config%/*}"
+    mkdir -p -- "${config_dir}"
+    config_tmp="$(mktemp "${config_dir}/pdrive-transfers.conf.XXXXXX")"
+    printf '%s\n' \
+        '# Verwaltet mit pdrive-transfers; niemals als Shellcode einlesen.' \
+        '# Anzahl gleichzeitig übertragener Dateien; gültig sind 1 bis 8.' \
+        "transfers=${value}" > "${config_tmp}"
+    mv -f -- "${config_tmp}" "${transfers_config}"
+}
+
+running_transfers() {
+    local pid args
+
+    pid="$(systemctl --user show "${service_name}" -p MainPID --value --no-pager 2>/dev/null || printf '0')"
+    if [[ ! "${pid}" =~ ^[1-9][0-9]*$ ]]; then
+        printf 'Dienst läuft nicht'
+        return 0
+    fi
+    args="$(ps -ww -p "${pid}" -o args= 2>/dev/null || true)"
+    if [[ "${args}" =~ --transfers=([1-8])([[:space:]]|$) ]]; then
+        printf '%s (PID %s)' "${BASH_REMATCH[1]}" "${pid}"
+    else
+        printf '%s – rclone-Standard (PID %s)' "${default_transfers}" "${pid}"
+    fi
+}
+
+show_status() {
+    local configured running
+
+    configured="$(read_configured_transfers)"
+    running="$(running_transfers)"
+    printf 'Proton-Drive-Uploadslots\n\n'
+    printf 'Konfiguriert: %s gleichzeitig\n' "${configured}"
+    printf 'Laufend:      %s\n' "${running}"
+    printf 'Datei:        %s\n' "${transfers_config}"
+    if [[ ! "${running}" =~ ^${configured}[[:space:]] ]]; then
+        printf '%s\n' \
+            'Hinweis: Der neue Wert gilt erst nach einem kontrollierten Dienstneustart.'
+    fi
+}
+
+case "${1:-}" in
+    '')
+        show_status
+        ;;
+    default)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        write_configured_transfers "${default_transfers}"
+        printf 'Vier Uploadslots wurden persistent konfiguriert; der laufende Dienst blieb unangetastet.\n'
+        show_status
+        ;;
+    [1-8])
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        write_configured_transfers "$1"
+        printf '%s Uploadslot(s) wurden persistent konfiguriert; der laufende Dienst blieb unangetastet.\n' "$1"
+        show_status
+        ;;
+    -h|--help)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        usage
+        ;;
+    *)
+        printf 'Ungültige Anzahl: %s. Erlaubt sind 1 bis 8 oder default.\n\n' "$1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

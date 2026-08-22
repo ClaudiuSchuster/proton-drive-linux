@@ -1,0 +1,61 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+
+readonly index_url='https://proton.me/download/drive/cli/index.html'
+readonly binary_dir="${HOME}/.local/bin"
+readonly binary_path="${binary_dir}/proton-drive"
+readonly state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/proton-drive-updater"
+readonly version_file="${state_dir}/installed-version"
+
+mkdir -p "${binary_dir}" "${state_dir}"
+
+work_dir="$(mktemp -d "${state_dir}/update.XXXXXX")"
+download_path="$(mktemp "${binary_dir}/.proton-drive.XXXXXX")"
+cleanup() {
+    rm -rf -- "${work_dir}"
+    rm -f -- "${download_path}"
+}
+trap cleanup EXIT
+
+index_path="${work_dir}/index.html"
+curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+    --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 120 \
+    --output "${index_path}" "${index_url}"
+
+version="$(sed -nE 's#.*<h1>Proton Drive CLI ([0-9]+(\.[0-9]+)*)</h1>.*#\1#p' "${index_path}" | head -n 1)"
+row="$(sed -n '/<td>linux\/x64<\/td>/,/<\/tr>/p' "${index_path}")"
+download_url="$(printf '%s\n' "${row}" | sed -nE 's#.*href="(https://proton\.me/download/drive/cli/[^" ]+/linux-x64/proton-drive)".*#\1#p' | head -n 1)"
+expected_sha512="$(printf '%s\n' "${row}" | sed -nE 's#.*<code>([0-9a-fA-F]{128})</code>.*#\1#p' | head -n 1 | tr 'A-F' 'a-f')"
+
+if [[ -z "${version}" || -z "${download_url}" || ! "${expected_sha512}" =~ ^[0-9a-f]{128}$ ]]; then
+    echo 'Could not parse the Proton Drive CLI release metadata.' >&2
+    exit 1
+fi
+
+expected_url="https://proton.me/download/drive/cli/${version}/linux-x64/proton-drive"
+if [[ "${download_url}" != "${expected_url}" ]]; then
+    echo 'The release URL did not match the expected official Proton URL.' >&2
+    exit 1
+fi
+
+if [[ -x "${binary_path}" && -r "${version_file}" && "$(<"${version_file}")" == "${version}" ]]; then
+    exit 0
+fi
+
+curl --proto '=https' --tlsv1.2 --fail --silent --show-error --location \
+    --retry 3 --retry-delay 2 --connect-timeout 20 --max-time 300 \
+    --output "${download_path}" "${download_url}"
+
+actual_sha512="$(sha512sum "${download_path}" | cut -d ' ' -f 1)"
+if [[ "${actual_sha512}" != "${expected_sha512}" ]]; then
+    echo 'SHA-512 verification of the Proton Drive CLI download failed.' >&2
+    exit 1
+fi
+
+chmod 0755 "${download_path}"
+"${download_path}" version >/dev/null
+mv -f -- "${download_path}" "${binary_path}"
+printf '%s\n' "${version}" > "${version_file}"
+echo "Installed Proton Drive CLI ${version}."

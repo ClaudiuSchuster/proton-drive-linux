@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+
+readonly rclone_bin="${HOME}/.local/bin/rclone"
+before="$(${rclone_bin} version | head -n 1)"
+${rclone_bin} selfupdate --stable
+after="$(${rclone_bin} version | head -n 1)"
+
+if [[ "${before}" != "${after}" ]]; then
+    printf '%s\n' \
+        "Updated ${before} to ${after}." \
+        'The running mount was deliberately left untouched; the new binary is used on its next natural start.'
+fi

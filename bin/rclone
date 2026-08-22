@@ -1,0 +1,8 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+
+exec "${HOME}/.local/libexec/rclone-bin" \
+    --password-command "/usr/bin/secret-tool lookup service rclone account proton-drive" \
+    "$@"

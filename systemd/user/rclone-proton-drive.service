@@ -1,0 +1,19 @@
+[Unit]
+Description=Mount Proton Drive directly at /pdrive using rclone
+Documentation=https://rclone.org/protondrive/ https://rclone.org/commands/rclone_mount/
+Wants=network-online.target gnome-keyring-daemon.socket
+After=network-online.target gnome-keyring-daemon.socket
+ConditionPathExists=%h/.config/rclone/rclone.conf
+
+[Service]
+Type=notify
+UMask=0077
+ExecStart=%h/.local/libexec/rclone-proton-mount
+ExecStop=-%h/.local/libexec/rclone-proton-unmount
+Restart=on-failure
+RestartSec=1h
+TimeoutStartSec=infinity
+TimeoutStopSec=30s
+
+[Install]
+WantedBy=default.target

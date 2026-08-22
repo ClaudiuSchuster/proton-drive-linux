@@ -1,0 +1,159 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+umask 022
+
+project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
+bin_dir="${HOME}/.local/bin"
+libexec_dir="${HOME}/.local/libexec"
+unit_dir="${HOME}/.config/systemd/user"
+doc_dir="${HOME}/.local/share/doc/proton-drive-linux"
+config_dir="${HOME}/.config"
+real_rclone="${libexec_dir}/rclone-bin"
+mount_dir='/pdrive'
+enable_proton_cli_updater=false
+
+usage() {
+    printf '%s\n' \
+        'Usage: ./install.sh [--with-proton-cli-updater]' \
+        '' \
+        'Installs or updates the user-local helpers, systemd units and docs.' \
+        'On a fresh install, bootstraps the latest signed stable rclone from an' \
+        'already installed rclone binary. Existing personal configuration,' \
+        'cache, logs and a running mount are never overwritten or restarted.' \
+        '' \
+        '--with-proton-cli-updater  also enable the optional official Proton' \
+        '                           Drive CLI update timer.' \
+        '-h, --help                 only show this help.'
+}
+
+case "${1:-}" in
+    '')
+        (( $# == 0 )) || { usage >&2; exit 2; }
+        ;;
+    --with-proton-cli-updater)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        enable_proton_cli_updater=true
+        ;;
+    -h|--help)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        usage
+        exit 0
+        ;;
+    *)
+        printf 'Unknown option: %s\n\n' "$1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac
+
+missing_commands=()
+for command_name in bash curl findmnt flock fusermount3 jq mountpoint openssl \
+    secret-tool ss sudo systemctl timeout; do
+    command -v "${command_name}" >/dev/null 2>&1 || missing_commands+=("${command_name}")
+done
+if (( ${#missing_commands[@]} != 0 )); then
+    printf 'Missing required commands: %s\n' "${missing_commands[*]}" >&2
+    printf 'Install the packages listed in README.md, then run this installer again.\n' >&2
+    exit 69
+fi
+
+bootstrap_rclone=''
+if [[ -x "${real_rclone}" ]]; then
+    bootstrap_rclone="${real_rclone}"
+elif command -v rclone >/dev/null 2>&1; then
+    bootstrap_rclone="$(command -v rclone)"
+fi
+if [[ -z "${bootstrap_rclone}" || ! -x "${bootstrap_rclone}" ]]; then
+    printf 'No bootstrap rclone found. Install the distribution rclone package first.\n' >&2
+    exit 69
+fi
+
+if [[ -L "${mount_dir}" ]]; then
+    printf 'Refusing symlink mountpoint: %s\n' "${mount_dir}" >&2
+    exit 73
+fi
+if mountpoint -q -- "${mount_dir}"; then
+    mounted_fstype="$(findmnt -rn -M "${mount_dir}" -o FSTYPE 2>/dev/null || true)"
+    case "${mounted_fstype}" in
+        fuse.rclone|fuse) ;;
+        *)
+            printf 'Refusing unexpected filesystem at %s (%s).\n' \
+                "${mount_dir}" "${mounted_fstype:-unknown}" >&2
+            exit 73
+            ;;
+    esac
+else
+    sudo install -d -m 0700 -o "$(id -un)" -g "$(id -gn)" "${mount_dir}"
+fi
+if [[ ! -d "${mount_dir}" \
+    || "$(stat -c %u -- "${mount_dir}" 2>/dev/null || true)" != "$(id -u)" ]]; then
+    printf 'Mountpoint is not a real directory owned by this user: %s\n' "${mount_dir}" >&2
+    exit 73
+fi
+
+mkdir -p -- "${bin_dir}" "${libexec_dir}" "${unit_dir}" "${doc_dir}" "${config_dir}"
+
+if [[ ! -x "${real_rclone}" ]]; then
+    temporary_rclone="$(mktemp "${libexec_dir}/.rclone-bin.XXXXXX")"
+    cleanup_rclone() { rm -f -- "${temporary_rclone:-}"; }
+    trap cleanup_rclone EXIT
+    install -m 0755 "${bootstrap_rclone}" "${temporary_rclone}"
+    "${temporary_rclone}" selfupdate --stable
+    if ! "${temporary_rclone}" help backend protondrive >/dev/null 2>&1; then
+        printf 'The downloaded rclone does not provide the protondrive backend.\n' >&2
+        exit 70
+    fi
+    mv -f -- "${temporary_rclone}" "${real_rclone}"
+    trap - EXIT
+fi
+
+for source_file in "${project_dir}"/bin/*; do
+    install -m 0755 "${source_file}" "${bin_dir}/$(basename -- "${source_file}")"
+done
+for source_file in "${project_dir}"/libexec/*; do
+    install -m 0755 "${source_file}" "${libexec_dir}/$(basename -- "${source_file}")"
+done
+for source_file in "${project_dir}"/systemd/user/*; do
+    install -m 0644 "${source_file}" "${unit_dir}/$(basename -- "${source_file}")"
+done
+install -m 0644 "${project_dir}/README.md" "${doc_dir}/README.md"
+install -m 0644 "${project_dir}/docs/OPERATIONS.md" "${doc_dir}/OPERATIONS.md"
+install -m 0644 "${project_dir}/docs/TROUBLESHOOTING.md" "${doc_dir}/TROUBLESHOOTING.md"
+install -m 0644 "${project_dir}/LICENSE" "${doc_dir}/LICENSE"
+
+create_default() {
+    local path="$1"
+    local line="$2"
+    if [[ ! -e "${path}" ]]; then
+        printf '%s\n' '# Managed by proton-drive-linux; do not source as shell code.' "${line}" > "${path}"
+        chmod 0600 "${path}"
+    fi
+}
+create_default "${config_dir}/pdrive-bwlimit.conf" 'bwlimit=off'
+create_default "${config_dir}/pdrive-recovery.conf" 'proton_metadata_cache=false'
+create_default "${config_dir}/pdrive-draft-recovery.conf" 'replace_existing_draft=false'
+create_default "${config_dir}/pdrive-transfers.conf" 'transfers=4'
+
+systemctl --user daemon-reload
+systemctl --user enable rclone-selfupdate.timer >/dev/null
+if [[ -r "${HOME}/.config/rclone/rclone.conf" ]]; then
+    systemctl --user enable --now rclone-proton-drive.service pdrive-watch.timer >/dev/null
+fi
+if [[ "${enable_proton_cli_updater}" == true ]]; then
+    systemctl --user enable proton-drive-update.timer >/dev/null
+fi
+
+printf '%s\n' \
+    'proton-drive-linux installed.' \
+    'No running rclone process or transfer was restarted.'
+if [[ ! -e "${HOME}/.config/rclone/rclone.conf" ]]; then
+    printf '%s\n' 'Next: run pdrive-setup --setup in a normal Cinnamon terminal.'
+else
+    printf '%s\n' 'Existing encrypted configuration retained. Check with pdrive-doctor.'
+fi
+case ":${PATH}:" in
+    *:"${bin_dir}":*) ;;
+    *) printf 'Note: add %s to PATH to invoke the helpers by name.\n' "${bin_dir}" ;;
+esac

@@ -1,0 +1,14 @@
+# Never publish runtime configuration or secrets.
+rclone.conf
+rclone.conf.*
+*.sock
+*.log
+*.log.gz
+pdrive-watch-state
+pdrive-watch-latest.txt
+pdrive-watch-history.log
+
+# Local test/editor output.
+.tmp/
+*.swp
+*~

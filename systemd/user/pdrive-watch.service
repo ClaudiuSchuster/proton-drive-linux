@@ -1,0 +1,7 @@
+[Unit]
+Description=Health check and bounded stall recovery for the Proton Drive rclone deployment
+Documentation=file:%h/.local/share/doc/proton-drive-linux/README.md
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/pdrive-watch --record

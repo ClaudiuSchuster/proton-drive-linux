@@ -1,0 +1,1217 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -uo pipefail
+umask 077
+
+record_mode=false
+clear_cooldown_mode=false
+restart_service_mode=false
+set_cooldown_mode=false
+set_cooldown_argument=''
+case "${1:-}" in
+    '') ;;
+    --record) record_mode=true ;;
+    --clear-cooldown) clear_cooldown_mode=true ;;
+    --restart-service) restart_service_mode=true ;;
+    --set-cooldown)
+        set_cooldown_mode=true
+        set_cooldown_argument="${2:-}"
+        ;;
+    -h|--help)
+        printf '%s\n' \
+            'Aufruf: pdrive-watch [OPTION] [WERT]' \
+            '' \
+            'Ohne Option: frische, ausführliche Diagnose anzeigen.' \
+            '--set-cooldown ZEIT: Wiederanlaufsperre persistent einstellen;' \
+            '                     erlaubt sind 1h bis 7d, z. B. 90m, 6h, 1d oder default.' \
+            '--clear-cooldown: die automatische Wiederanlaufsperre atomar zurücksetzen;' \
+            '                  rclone und der Timer-Vergleichspunkt bleiben unverändert.' \
+            '--restart-service: nach ausdrücklicher Eingabe von NEUSTART den rclone-Dienst' \
+            '                   kontrolliert neu starten und bis zu 60 Sekunden validieren.' \
+            '--record: zusätzlich Verlauf/Vergleichspunkt aktualisieren und bei Zustandswechseln benachrichtigen.' \
+            '          Dieser Modus ist für pdrive-watch.timer bestimmt und darf nach strenger' \
+            '          Stillstandsprüfung einen begrenzten Wiederanlauf anfordern. Wiederholt' \
+            '          fehlgeschlagene, über zwei Timerläufe ausstehende Dateien werden gemeldet.' \
+            'Konfiguration: ~/.config/pdrive-watch.conf' \
+            'Metadaten-Cache: ~/.config/pdrive-recovery.conf (Bedienung: pdrive-recovery --help)' \
+            'Uploadslots: ~/.config/pdrive-transfers.conf (Bedienung: pdrive-transfers --help)'
+        exit 0
+        ;;
+    *)
+        printf 'Unbekannte Option: %s (Hilfe: pdrive-watch --help)\n' "$1" >&2
+        exit 2
+        ;;
+esac
+if [[ "${set_cooldown_mode}" == true ]] && (( $# != 2 )); then
+    printf 'Aufruf: pdrive-watch --set-cooldown ZEIT (z. B. 90m, 6h, 1d oder default)\n' >&2
+    exit 2
+elif [[ "${set_cooldown_mode}" != true ]] && (( $# > 1 )); then
+    printf 'Es ist genau eine Option erlaubt (Hilfe: pdrive-watch --help).\n' >&2
+    exit 2
+fi
+
+readonly service_name='rclone-proton-drive.service'
+readonly mount_dir='/pdrive'
+readonly mount_log="${HOME}/.local/state/rclone/proton-mount.log"
+readonly state_dir="${HOME}/.local/state/rclone"
+readonly rc_socket="${state_dir}/pdrive-rc.sock"
+readonly rclone_bin="${HOME}/.local/bin/rclone"
+readonly latest_file="${state_dir}/pdrive-watch-latest.txt"
+readonly history_file="${state_dir}/pdrive-watch-history.log"
+readonly monitor_state="${state_dir}/pdrive-watch-state"
+readonly cooldown_config="${HOME}/.config/pdrive-watch.conf"
+readonly recovery_config="${HOME}/.config/pdrive-recovery.conf"
+readonly transfers_config="${HOME}/.config/pdrive-transfers.conf"
+readonly low_space_bytes=59055800320
+readonly stall_success_age_seconds=14400
+readonly stall_queue_age_seconds=7200
+readonly stall_confirmations_required=2
+readonly failed_upload_minimum_tries=2
+readonly failed_upload_confirmations_required=2
+readonly default_auto_restart_cooldown_seconds=43200
+readonly minimum_auto_restart_cooldown_seconds=3600
+readonly maximum_auto_restart_cooldown_seconds=604800
+readonly activity_probe_seconds=20
+readonly activity_read_bytes=1048576
+readonly activity_rchar_bytes=8388608
+readonly activity_tcp_bytes=262144
+
+auto_restart_cooldown_seconds="${default_auto_restart_cooldown_seconds}"
+cooldown_config_source='Standardwert'
+cooldown_config_warning=''
+
+human_duration() {
+    local seconds="${1:-}"
+    if [[ ! "${seconds}" =~ ^[0-9]+$ ]]; then
+        printf 'unbekannt'
+    elif (( seconds < 60 )); then
+        printf '%ss' "${seconds}"
+    elif (( seconds < 3600 )); then
+        printf '%sm %ss' "$((seconds / 60))" "$((seconds % 60))"
+    elif (( seconds < 86400 )); then
+        printf '%sh %sm' "$((seconds / 3600))" "$(((seconds % 3600) / 60))"
+    else
+        printf '%sd %sh' "$((seconds / 86400))" "$(((seconds % 86400) / 3600))"
+    fi
+}
+
+human_bytes() {
+    local bytes="${1:-0}"
+    if [[ "${bytes}" =~ ^[0-9]+$ ]] && command -v numfmt >/dev/null 2>&1; then
+        numfmt --to=iec-i --suffix=B "${bytes}" 2>/dev/null || printf '%s B' "${bytes}"
+    else
+        printf '%s B' "${bytes}"
+    fi
+}
+
+parse_cooldown_duration() {
+    local duration="${1:-}"
+    local amount unit seconds
+
+    if [[ "${duration}" == 'default' ]]; then
+        printf '%s\n' "${default_auto_restart_cooldown_seconds}"
+        return 0
+    fi
+    if [[ ! "${duration}" =~ ^([1-9][0-9]{0,5})(m|h|d)$ ]]; then
+        printf 'Ungültige Dauer: %s. Erlaubt sind z. B. 90m, 6h, 1d oder default.\n' \
+            "${duration:-<leer>}" >&2
+        return 2
+    fi
+
+    amount="${BASH_REMATCH[1]}"
+    unit="${BASH_REMATCH[2]}"
+    case "${unit}" in
+        m) seconds=$((amount * 60)) ;;
+        h) seconds=$((amount * 3600)) ;;
+        d) seconds=$((amount * 86400)) ;;
+    esac
+    if (( seconds < minimum_auto_restart_cooldown_seconds \
+        || seconds > maximum_auto_restart_cooldown_seconds )); then
+        printf 'Ungültige Dauer: %s. Zulässig sind mindestens 1h und höchstens 7d.\n' \
+            "${duration}" >&2
+        return 2
+    fi
+    printf '%s\n' "${seconds}"
+}
+
+load_cooldown_config() {
+    local configured=''
+
+    if [[ ! -e "${cooldown_config}" ]]; then
+        return 0
+    fi
+    if [[ ! -r "${cooldown_config}" ]]; then
+        cooldown_config_warning="${cooldown_config} ist nicht lesbar; Standardwert wird verwendet"
+        return 0
+    fi
+
+    configured="$(awk -F= '$1 == "cooldown_seconds" { print $2; exit }' "${cooldown_config}")"
+    if [[ "${configured}" =~ ^[0-9]+$ ]] \
+        && (( configured >= minimum_auto_restart_cooldown_seconds \
+            && configured <= maximum_auto_restart_cooldown_seconds )); then
+        auto_restart_cooldown_seconds="${configured}"
+        cooldown_config_source="${cooldown_config}"
+    else
+        cooldown_config_warning="${cooldown_config} enthält keinen gültigen Wert; Standardwert wird verwendet"
+    fi
+}
+
+load_recovery_config() {
+    local entries=''
+
+    recovery_configured='false'
+    recovery_config_warning=''
+    if [[ ! -e "${recovery_config}" ]]; then
+        return 0
+    fi
+    if [[ ! -r "${recovery_config}" ]]; then
+        recovery_config_warning="${recovery_config} ist nicht lesbar"
+        return 0
+    fi
+    entries="$(awk '
+        /^[[:space:]]*($|#)/ { next }
+        { print }
+    ' "${recovery_config}")"
+    if [[ "${entries}" =~ ^proton_metadata_cache=(true|false)$ ]]; then
+        recovery_configured="${BASH_REMATCH[1]}"
+    else
+        recovery_config_warning="${recovery_config} enthält keinen gültigen Einzelwert"
+    fi
+}
+
+load_transfers_config() {
+    local entries=''
+
+    transfers_configured='4'
+    transfers_config_warning=''
+    if [[ ! -e "${transfers_config}" ]]; then
+        return 0
+    fi
+    if [[ ! -r "${transfers_config}" ]]; then
+        transfers_config_warning="${transfers_config} ist nicht lesbar"
+        return 0
+    fi
+    entries="$(awk '
+        /^[[:space:]]*($|#)/ { next }
+        { print }
+    ' "${transfers_config}")"
+    if [[ "${entries}" =~ ^transfers=([1-8])$ ]]; then
+        transfers_configured="${BASH_REMATCH[1]}"
+    else
+        transfers_config_warning="${transfers_config} enthält keinen gültigen Einzelwert"
+    fi
+}
+
+write_cooldown_config() {
+    local seconds="${1:-}"
+    local config_dir config_tmp
+
+    if [[ ! "${seconds}" =~ ^[0-9]+$ ]]; then
+        printf 'Ungültiger interner Cooldown-Wert: %s\n' "${seconds}" >&2
+        return 2
+    fi
+    config_dir="${cooldown_config%/*}"
+    mkdir -p -- "${config_dir}"
+    config_tmp="$(mktemp "${config_dir}/pdrive-watch.conf.XXXXXX")"
+    printf '%s\n' \
+        '# Verwaltet mit: pdrive-watch --set-cooldown ZEIT' \
+        "cooldown_seconds=${seconds}" > "${config_tmp}"
+    mv -f -- "${config_tmp}" "${cooldown_config}"
+}
+
+counter_delta() {
+    local current="${1:-0}"
+    local previous="${2:-0}"
+    if [[ ! "${current}" =~ ^[0-9]+$ || ! "${previous}" =~ ^[0-9]+$ ]]; then
+        printf '?'
+    elif (( current >= previous )); then
+        printf '+%s' "$((current - previous))"
+    else
+        printf 'Log neu begonnen'
+    fi
+}
+
+set_cooldown_epoch() {
+    local value="${1:-0}"
+    local state_tmp
+
+    if [[ ! "${value}" =~ ^[0-9]+$ ]]; then
+        printf 'Ungültiger Cooldown-Zeitwert: %s\n' "${value}" >&2
+        return 2
+    fi
+
+    state_tmp="$(mktemp "${state_dir}/pdrive-watch-state.XXXXXX")"
+    if [[ -r "${monitor_state}" ]]; then
+        awk -v value="${value}" '
+            /^last_auto_restart_epoch=/ {
+                print "last_auto_restart_epoch=" value
+                found=1
+                next
+            }
+            { print }
+            END {
+                if (!found) print "last_auto_restart_epoch=" value
+            }
+        ' "${monitor_state}" > "${state_tmp}"
+    else
+        printf 'state_version=4\nlast_auto_restart_epoch=%s\n' "${value}" > "${state_tmp}"
+    fi
+    mv -f -- "${state_tmp}" "${monitor_state}"
+}
+
+restart_service_and_validate() {
+    local confirmation
+    local old_pid="${main_pid}"
+    local old_log_mtime="${log_mtime}"
+    local restart_epoch restart_log_stamp deadline current_epoch
+    local service_data new_active='unknown' new_sub='unknown' new_pid=0
+    local new_result='unknown' new_exec_status='unknown'
+    local new_log_mtime=0 post_restart_successes=0
+    local validation_ok=false dns_after='failed' mount_after='not-mounted' mount_note=''
+
+    if [[ ! -t 0 ]]; then
+        printf '%s\n' \
+            'Abgelehnt: --restart-service benötigt ein interaktives Terminal.' \
+            'Dadurch kann ein Skript oder Timer den manuellen Neustart nicht versehentlich auslösen.' >&2
+        return 2
+    fi
+
+    printf '\nManueller, kontrollierter Proton-Drive-Wiederanlauf\n'
+    printf 'Aktueller Dienst: %s/%s, PID %s, Mount %s\n' \
+        "${active_state}" "${sub_state}" "${old_pid}" "${mount_state}"
+    printf '%s\n' \
+        'Achtung: Ein Neustart unterbricht momentan laufende Dateiübertragungen und startet' \
+        'die persistente VFS-Cacheinventur erneut. Cache und Warteschlange werden nicht gelöscht.'
+    printf 'Zum Fortfahren exakt NEUSTART eingeben: '
+    IFS= read -r confirmation
+    if [[ "${confirmation}" != 'NEUSTART' ]]; then
+        printf 'Abgebrochen; Dienst, Cooldown und Cache blieben unverändert.\n'
+        return 0
+    fi
+
+    # Re-read immediately before the request so a naturally changed process
+    # cannot be mistaken for the process created by this restart.
+    old_pid="$(systemctl --user show "${service_name}" -p MainPID --value --no-pager 2>/dev/null || printf '0')"
+    : "${old_pid:=0}"
+    restart_epoch="$(date +%s)"
+    restart_log_stamp="$(date '+%Y/%m/%d %H:%M:%S')"
+    if ! systemctl --user restart --no-block "${service_name}"; then
+        printf 'Fehler: systemd hat den Wiederanlauf nicht angenommen.\n' >&2
+        return 1
+    fi
+
+    # Also rate-limit follow-up recovery if the manually requested restart
+    # itself encounters a broken network or API path.
+    set_cooldown_epoch "${restart_epoch}"
+    printf 'Wiederanlauf angefordert; prüfe bis zu 60 Sekunden auf eine neue, lebende PID ...\n'
+
+    deadline=$((restart_epoch + 60))
+    while :; do
+        service_data="$(systemctl --user show "${service_name}" \
+            -p ActiveState -p SubState -p MainPID -p Result -p ExecMainStatus --no-pager 2>/dev/null || true)"
+        new_active="$(awk -F= '$1 == "ActiveState" { print $2; exit }' <<< "${service_data}")"
+        new_sub="$(awk -F= '$1 == "SubState" { print $2; exit }' <<< "${service_data}")"
+        new_pid="$(awk -F= '$1 == "MainPID" { print $2; exit }' <<< "${service_data}")"
+        new_result="$(awk -F= '$1 == "Result" { print $2; exit }' <<< "${service_data}")"
+        new_exec_status="$(awk -F= '$1 == "ExecMainStatus" { print $2; exit }' <<< "${service_data}")"
+        : "${new_active:=unknown}" "${new_sub:=unknown}" "${new_pid:=0}"
+        : "${new_result:=unknown}" "${new_exec_status:=unknown}"
+
+        if [[ "${new_pid}" =~ ^[1-9][0-9]*$ && "${new_pid}" != "${old_pid}" \
+            && -r "/proc/${new_pid}/status" \
+            && ( "${new_active}" == 'active' || "${new_active}" == 'activating' ) ]]; then
+            validation_ok=true
+            break
+        fi
+
+        current_epoch="$(date +%s)"
+        if (( current_epoch >= deadline )); then
+            break
+        fi
+        sleep 2
+    done
+
+    if [[ "${validation_ok}" != true ]]; then
+        printf 'Validierung fehlgeschlagen: Dienst %s/%s, PID %s, Result %s, Exit %s.\n' \
+            "${new_active}" "${new_sub}" "${new_pid}" "${new_result}" "${new_exec_status}" >&2
+        printf '%s\n' \
+            'Der Cooldown bleibt als Schutz gesetzt. Prüfen mit:' \
+            'systemctl --user status rclone-proton-drive.service' \
+            'journalctl --user -u rclone-proton-drive.service -n 100 --no-pager' >&2
+        return 1
+    fi
+
+    sleep 3
+    new_log_mtime="$(stat -c %Y -- "${mount_log}" 2>/dev/null || printf '0')"
+    if timeout --signal=TERM 10s getent ahostsv4 drive-api.proton.me >/dev/null 2>&1; then
+        dns_after='ok'
+    fi
+    if findmnt -rn -M "${mount_dir}" -o FSTYPE 2>/dev/null | awk '$1 ~ /^fuse(\.rclone)?$/ { found=1 } END { exit !found }'; then
+        mount_after='ready'
+    fi
+    if [[ -r "${mount_log}" ]]; then
+        post_restart_successes="$(tr -d '\000' < "${mount_log}" | awk -v cutoff="${restart_log_stamp}" '
+            $1 " " $2 >= cutoff && /vfs cache: upload succeeded/ { successes++ }
+            END { printf "%d\n", successes }
+        ')"
+    fi
+    if [[ "${new_active}" == 'activating' ]]; then
+        mount_note=' (während großer Cacheinventur noch erwartbar)'
+    fi
+
+    printf '\nValidierung erfolgreich\n'
+    printf 'Dienst:       %s/%s, neue PID %s (vorher %s), Result %s, Exit %s\n' \
+        "${new_active}" "${new_sub}" "${new_pid}" "${old_pid}" "${new_result}" "${new_exec_status}"
+    printf 'Prozess:      neue PID lebt und gehört zum gestarteten Benutzerdienst\n'
+    printf 'Netzwerk:     DNS %s\n' "${dns_after}"
+    printf 'Mount:        %s%s\n' "${mount_after}" "${mount_note}"
+    if [[ "${new_log_mtime}" =~ ^[0-9]+$ ]] && (( new_log_mtime > old_log_mtime )); then
+        printf 'Log:          seit der Anforderung aktualisiert\n'
+    else
+        printf 'Log:          noch kein neuer Zeitstempel; der Prozesszustand ist dennoch validiert\n'
+    fi
+    printf 'Uploads:      %s Erfolgsmeldung(en) seit der Neustartanforderung\n' "${post_restart_successes}"
+    printf 'Cooldown:     neu auf %s gesetzt, um Wiederanlaufschleifen zu verhindern\n' \
+        "$(human_duration "${auto_restart_cooldown_seconds}")"
+
+    # Refresh the normal diagnosis and latest-state file after releasing the
+    # process lock.  The following invocation is read-only.
+    flock -u 9
+    exec "${BASH_SOURCE[0]}"
+}
+
+timestamp_age() {
+    local timestamp="${1:-none}"
+    local timestamp_epoch
+
+    if [[ "${timestamp}" == 'none' || -z "${timestamp}" ]]; then
+        printf '%s' '-1'
+        return
+    fi
+
+    timestamp_epoch="$(date -d "${timestamp//\//-}" +%s 2>/dev/null || true)"
+    if [[ "${timestamp_epoch}" =~ ^[0-9]+$ ]] && (( now_epoch >= timestamp_epoch )); then
+        printf '%s' "$((now_epoch - timestamp_epoch))"
+    else
+        printf '%s' '-1'
+    fi
+}
+
+process_io_snapshot() {
+    local pid="${1:-0}"
+
+    if [[ ! "${pid}" =~ ^[1-9][0-9]*$ || ! -r "/proc/${pid}/io" ]]; then
+        printf '0 0\n'
+        return
+    fi
+
+    awk '
+        $1 == "rchar:" { rchar=$2 }
+        $1 == "read_bytes:" { read_bytes=$2 }
+        END { printf "%d %d\n", rchar, read_bytes }
+    ' "/proc/${pid}/io" 2>/dev/null || printf '0 0\n'
+}
+
+tcp_bytes_sent() {
+    local pid="${1:-0}"
+
+    if [[ ! "${pid}" =~ ^[1-9][0-9]*$ ]] || ! command -v ss >/dev/null 2>&1; then
+        printf '0\n'
+        return
+    fi
+
+    ss -Htinp state established 2>/dev/null | awk -v needle="pid=${pid}," '
+        index($0, needle) { inspect_next=1; next }
+        inspect_next {
+            for (i=1; i<=NF; i++) {
+                if ($i ~ /^bytes_sent:[0-9]+$/) {
+                    split($i, value, ":")
+                    total += value[2]
+                }
+            }
+            inspect_next=0
+        }
+        END { printf "%d\n", total }
+    '
+}
+
+# Measure actual local reads and sent TCP bytes without contacting Proton.
+# Return 0 for payload activity, 1 for no payload activity, and 2 if the
+# observed rclone process changed during the probe.
+probe_process_activity() {
+    local pid="${1:-0}"
+    local rchar_before=0 read_bytes_before=0 tcp_before=0
+    local rchar_after=0 read_bytes_after=0 tcp_after=0 current_pid=0
+
+    activity_probe='läuft'
+    read -r rchar_before read_bytes_before < <(process_io_snapshot "${pid}")
+    tcp_before="$(tcp_bytes_sent "${pid}")"
+    sleep "${activity_probe_seconds}"
+
+    current_pid="$(systemctl --user show "${service_name}" -p MainPID --value --no-pager 2>/dev/null || true)"
+    if [[ "${current_pid}" != "${pid}" || ! -r "/proc/${pid}/io" ]]; then
+        activity_probe='Prozess wechselte während der Messung'
+        return 2
+    fi
+
+    read -r rchar_after read_bytes_after < <(process_io_snapshot "${pid}")
+    tcp_after="$(tcp_bytes_sent "${pid}")"
+    if [[ "${rchar_before}" =~ ^[0-9]+$ && "${rchar_after}" =~ ^[0-9]+$ ]] \
+        && (( rchar_after >= rchar_before )); then
+        activity_rchar_delta=$((rchar_after - rchar_before))
+    fi
+    if [[ "${read_bytes_before}" =~ ^[0-9]+$ && "${read_bytes_after}" =~ ^[0-9]+$ ]] \
+        && (( read_bytes_after >= read_bytes_before )); then
+        activity_read_delta=$((read_bytes_after - read_bytes_before))
+    fi
+    if [[ "${tcp_before}" =~ ^[0-9]+$ && "${tcp_after}" =~ ^[0-9]+$ ]] \
+        && (( tcp_after >= tcp_before )); then
+        activity_tcp_delta=$((tcp_after - tcp_before))
+    fi
+
+    if (( activity_read_delta >= activity_read_bytes \
+        || activity_rchar_delta >= activity_rchar_bytes \
+        || activity_tcp_delta >= activity_tcp_bytes )); then
+        activity_probe='aktive Datei-/Uploadübertragung erkannt'
+        return 0
+    fi
+    activity_probe='keine Nutzdatenübertragung erkannt'
+    return 1
+}
+
+mkdir -p -- "${state_dir}"
+exec 9>"${state_dir}/pdrive-watch.lock"
+if ! flock -w 30 9; then
+    printf 'Ein anderer pdrive-watch-Lauf ist noch aktiv; bitte kurz erneut versuchen.\n' >&2
+    exit 75
+fi
+
+load_cooldown_config
+load_recovery_config
+load_transfers_config
+cooldown_duration_changed=false
+if [[ "${set_cooldown_mode}" == true ]]; then
+    configured_cooldown_seconds="$(parse_cooldown_duration "${set_cooldown_argument}")" || exit $?
+    if ! write_cooldown_config "${configured_cooldown_seconds}"; then
+        printf 'Fehler: Cooldown-Konfiguration konnte nicht atomar gespeichert werden.\n' >&2
+        exit 1
+    fi
+    auto_restart_cooldown_seconds="${configured_cooldown_seconds}"
+    cooldown_config_source="${cooldown_config}"
+    cooldown_config_warning=''
+    cooldown_duration_changed=true
+fi
+
+now_iso="$(date --iso-8601=seconds)"
+now_epoch="$(date +%s)"
+
+service_properties="$(systemctl --user show "${service_name}" \
+    -p ActiveState -p SubState -p MainPID -p NRestarts --no-pager 2>/dev/null || true)"
+active_state="$(awk -F= '$1 == "ActiveState" { print $2; exit }' <<< "${service_properties}")"
+sub_state="$(awk -F= '$1 == "SubState" { print $2; exit }' <<< "${service_properties}")"
+main_pid="$(awk -F= '$1 == "MainPID" { print $2; exit }' <<< "${service_properties}")"
+restart_count="$(awk -F= '$1 == "NRestarts" { print $2; exit }' <<< "${service_properties}")"
+: "${active_state:=unknown}" "${sub_state:=unknown}" "${main_pid:=0}" "${restart_count:=unknown}"
+
+recovery_running='unknown'
+transfers_running='unknown'
+if [[ "${main_pid}" =~ ^[1-9][0-9]*$ ]]; then
+    process_args="$(ps -ww -p "${main_pid}" -o args= 2>/dev/null || true)"
+    case "${process_args}" in
+        *--protondrive-enable-caching=true*) recovery_running='true' ;;
+        *--protondrive-enable-caching=false*) recovery_running='false' ;;
+    esac
+    if [[ "${process_args}" =~ --transfers=([1-8])([[:space:]]|$) ]]; then
+        transfers_running="${BASH_REMATCH[1]}"
+    else
+        transfers_running='4 (rclone-Standard)'
+    fi
+fi
+
+process_age=-1
+process_cpu='unbekannt'
+process_rss_kib=0
+if [[ "${main_pid}" =~ ^[1-9][0-9]*$ && -r "/proc/${main_pid}/status" ]]; then
+    process_line="$(ps -p "${main_pid}" -o etimes=,%cpu=,rss= 2>/dev/null || true)"
+    read -r process_age process_cpu process_rss_kib <<< "${process_line}"
+    : "${process_age:=-1}" "${process_cpu:=unbekannt}" "${process_rss_kib:=0}"
+fi
+process_rss_bytes=0
+if [[ "${process_rss_kib}" =~ ^[0-9]+$ ]]; then
+    process_rss_bytes=$((process_rss_kib * 1024))
+fi
+
+mount_fstype="$(findmnt -rn -M "${mount_dir}" -o FSTYPE 2>/dev/null || true)"
+if [[ "${mount_fstype}" == 'fuse.rclone' || "${mount_fstype}" == 'fuse' ]]; then
+    mount_state='ready'
+else
+    mount_state='not-mounted'
+fi
+
+success_count=0
+queued_count=0
+error_count=0
+notice_count=0
+last_success='none'
+last_queue='none'
+last_problem='none'
+last_problem_kind='none'
+log_mtime=0
+log_age=-1
+if [[ -r "${mount_log}" ]]; then
+    IFS='|' read -r success_count queued_count error_count notice_count \
+        last_success last_queue last_problem last_problem_kind < <(
+        tr -d '\000' < "${mount_log}" | awk '
+            /vfs cache: upload succeeded/ {
+                successes++
+                last_success=$1 " " $2
+            }
+            /vfs cache: queuing for upload/ {
+                queued++
+                last_queue=$1 " " $2
+            }
+            /(ERROR|CRITICAL)/ {
+                errors++
+                last_problem=$1 " " $2
+                problem_kind="sonstiger Fehler"
+                if (tolower($0) ~ /(dial tcp: lookup|server misbehaving|no such host|temporary failure in name resolution|name or service not known)/) problem_kind="DNS"
+                else if ($0 ~ /(^|[^0-9])429([^0-9]|$)/) problem_kind="HTTP 429"
+                else if ($0 ~ /(^|[^0-9])422([^0-9]|$)/) problem_kind="HTTP 422"
+                else if ($0 ~ /(^|[^0-9])5[0-9][0-9]([^0-9]|$)/) problem_kind="HTTP 5xx"
+            }
+            /NOTICE/ {
+                notices++
+                last_problem=$1 " " $2
+                problem_kind="Hinweis"
+                if (tolower($0) ~ /(dial tcp: lookup|server misbehaving|no such host|temporary failure in name resolution|name or service not known)/) problem_kind="DNS"
+                else if ($0 ~ /(^|[^0-9])429([^0-9]|$)/) problem_kind="HTTP 429"
+                else if ($0 ~ /(^|[^0-9])422([^0-9]|$)/) problem_kind="HTTP 422"
+                else if ($0 ~ /(^|[^0-9])5[0-9][0-9]([^0-9]|$)/) problem_kind="HTTP 5xx"
+            }
+            END {
+                printf "%d|%d|%d|%d|%s|%s|%s|%s\n", successes, queued, errors, notices,
+                    (last_success ? last_success : "none"),
+                    (last_queue ? last_queue : "none"),
+                    (last_problem ? last_problem : "none"),
+                    (problem_kind ? problem_kind : "none")
+            }
+        '
+    )
+    log_mtime="$(stat -c %Y -- "${mount_log}" 2>/dev/null || printf '0')"
+    if [[ "${log_mtime}" =~ ^[0-9]+$ ]] && (( log_mtime > 0 && now_epoch >= log_mtime )); then
+        log_age=$((now_epoch - log_mtime))
+    fi
+fi
+
+last_success_age="$(timestamp_age "${last_success}")"
+last_queue_age="$(timestamp_age "${last_queue}")"
+
+cache_bytes="$(du -s -B1 "${HOME}/.cache/rclone" 2>/dev/null | awk 'NR == 1 { print $1 }')"
+free_bytes="$(df -B1 --output=avail "${HOME}" 2>/dev/null | awk 'NR == 2 { gsub(/[[:space:]]/, ""); print }')"
+: "${cache_bytes:=0}" "${free_bytes:=0}"
+
+# vfs/queue is a local Unix-socket query.  It neither lists the remote nor
+# performs a Proton login.  File identities are reduced to a SHA-256 digest;
+# names never enter the status/history files or desktop notifications.
+queue_state='unavailable'
+queue_count=0
+queue_bytes=0
+queue_uploading_count=0
+failed_queue_count=0
+failed_queue_max_tries=0
+failed_item_hash='none'
+failed_item_tries=0
+failed_item_uploading='false'
+queue_json=''
+failed_item_json=''
+if ! command -v jq >/dev/null 2>&1; then
+    queue_state='jq-missing'
+elif [[ ! -S "${rc_socket}" || ! -x "${rclone_bin}" ]]; then
+    queue_state='socket-missing'
+elif queue_json="$(timeout --signal=TERM 10s "${rclone_bin}" rc \
+        --unix-socket "${rc_socket}" vfs/queue 2>/dev/null)" \
+    && jq -e '.queue | type == "array"' >/dev/null 2>&1 <<< "${queue_json}"; then
+    queue_state='ok'
+    IFS=$'\t' read -r queue_count queue_bytes queue_uploading_count \
+        failed_queue_count failed_queue_max_tries < <(
+        jq -r --argjson minimum_tries "${failed_upload_minimum_tries}" '
+            [
+                (.queue | length),
+                ([.queue[] | (.size // 0)] | add // 0),
+                ([.queue[] | select(.uploading == true)] | length),
+                ([.queue[] | select((.tries // 0) >= $minimum_tries)] | length),
+                ([.queue[] | (.tries // 0)] | max // 0)
+            ] | @tsv
+        ' <<< "${queue_json}"
+    )
+    failed_item_json="$(jq -c --argjson minimum_tries "${failed_upload_minimum_tries}" '
+        [
+            .queue[]
+            | select((.tries // 0) >= $minimum_tries)
+        ]
+        | sort_by((.uploading // false), -(.tries // 0), (.expiry // 0))
+        | .[0] // empty
+    ' <<< "${queue_json}")"
+    if [[ -n "${failed_item_json}" ]]; then
+        failed_item_hash="$(jq -cS '{name: .name, size: (.size // 0)}' \
+            <<< "${failed_item_json}" | sha256sum | awk '{ print $1 }')"
+        failed_item_tries="$(jq -r '.tries // 0' <<< "${failed_item_json}")"
+        failed_item_uploading="$(jq -r '.uploading // false' <<< "${failed_item_json}")"
+    fi
+else
+    queue_state='query-failed'
+fi
+: "${queue_count:=0}" "${queue_bytes:=0}" "${queue_uploading_count:=0}"
+: "${failed_queue_count:=0}" "${failed_queue_max_tries:=0}"
+
+if timeout --signal=TERM 10s getent ahostsv4 drive-api.proton.me >/dev/null 2>&1; then
+    dns_state='ok'
+else
+    dns_state='failed'
+fi
+
+tcp_state='none'
+if [[ "${main_pid}" =~ ^[1-9][0-9]*$ ]] && command -v ss >/dev/null 2>&1; then
+    if ss -H -tpn state established 2>/dev/null \
+        | awk -v needle="pid=${main_pid}," 'index($0, needle) { found=1 } END { exit !found }'; then
+        tcp_state='established'
+    fi
+fi
+
+previous_status='none'
+previous_reason_code='none'
+previous_state_version=0
+previous_check_epoch=0
+previous_log_mtime=0
+previous_success_count=0
+previous_queued_count=0
+previous_error_count=0
+previous_notice_count=0
+previous_stall_confirmations=0
+previous_auto_restart_epoch=0
+previous_failed_item_hash='none'
+previous_failed_upload_confirmations=0
+if [[ -r "${monitor_state}" ]]; then
+    previous_state_version="$(awk -F= '$1 == "state_version" { print $2; exit }' "${monitor_state}")"
+    previous_status="$(awk -F= '$1 == "status" { print $2; exit }' "${monitor_state}")"
+    previous_reason_code="$(awk -F= '$1 == "reason_code" { print $2; exit }' "${monitor_state}")"
+    previous_check_epoch="$(awk -F= '$1 == "check_epoch" { print $2; exit }' "${monitor_state}")"
+    previous_log_mtime="$(awk -F= '$1 == "log_mtime" { print $2; exit }' "${monitor_state}")"
+    previous_success_count="$(awk -F= '$1 == "success_count" { print $2; exit }' "${monitor_state}")"
+    previous_queued_count="$(awk -F= '$1 == "queued_count" { print $2; exit }' "${monitor_state}")"
+    previous_error_count="$(awk -F= '$1 == "error_count" { print $2; exit }' "${monitor_state}")"
+    previous_notice_count="$(awk -F= '$1 == "notice_count" { print $2; exit }' "${monitor_state}")"
+    previous_stall_confirmations="$(awk -F= '$1 == "stall_confirmations" { print $2; exit }' "${monitor_state}")"
+    previous_auto_restart_epoch="$(awk -F= '$1 == "last_auto_restart_epoch" { print $2; exit }' "${monitor_state}")"
+    previous_failed_item_hash="$(awk -F= '$1 == "failed_item_hash" { print $2; exit }' "${monitor_state}")"
+    previous_failed_upload_confirmations="$(awk -F= '$1 == "failed_upload_confirmations" { print $2; exit }' "${monitor_state}")"
+    : "${previous_status:=none}" "${previous_reason_code:=none}" "${previous_state_version:=0}" "${previous_check_epoch:=0}"
+    : "${previous_log_mtime:=0}" "${previous_success_count:=0}" "${previous_queued_count:=0}"
+    : "${previous_error_count:=0}" "${previous_notice_count:=0}"
+    : "${previous_stall_confirmations:=0}" "${previous_auto_restart_epoch:=0}"
+    : "${previous_failed_item_hash:=none}" "${previous_failed_upload_confirmations:=0}"
+fi
+
+baseline_compatible=false
+if [[ "${previous_state_version}" =~ ^(2|3|4)$ && "${previous_check_epoch}" =~ ^[1-9][0-9]*$ ]]; then
+    baseline_compatible=true
+fi
+
+if [[ ! "${previous_stall_confirmations}" =~ ^[0-9]+$ ]]; then
+    previous_stall_confirmations=0
+fi
+if [[ ! "${previous_auto_restart_epoch}" =~ ^[0-9]+$ ]]; then
+    previous_auto_restart_epoch=0
+fi
+if [[ ! "${previous_failed_item_hash}" =~ ^(none|[0-9a-f]{64})$ ]]; then
+    previous_failed_item_hash='none'
+fi
+if [[ ! "${previous_failed_upload_confirmations}" =~ ^[0-9]+$ ]]; then
+    previous_failed_upload_confirmations=0
+fi
+
+auto_restart_age=-1
+if (( previous_auto_restart_epoch > 0 && now_epoch >= previous_auto_restart_epoch )); then
+    auto_restart_age=$((now_epoch - previous_auto_restart_epoch))
+fi
+
+cooldown_cleared=false
+if [[ "${clear_cooldown_mode}" == true ]]; then
+    set_cooldown_epoch 0
+    previous_auto_restart_epoch=0
+    auto_restart_age=-1
+    cooldown_cleared=true
+fi
+
+comparison_age=-1
+if [[ "${previous_check_epoch}" =~ ^[0-9]+$ ]] && (( previous_check_epoch > 0 && now_epoch >= previous_check_epoch )); then
+    comparison_age=$((now_epoch - previous_check_epoch))
+fi
+
+progress_state='baseline'
+if [[ "${previous_status}" != 'none' ]]; then
+    if [[ "${log_mtime}" != "${previous_log_mtime}" \
+        || "${success_count}" != "${previous_success_count}" \
+        || "${queued_count}" != "${previous_queued_count}" ]]; then
+        progress_state='yes'
+    else
+        progress_state='no'
+    fi
+fi
+
+if [[ "${baseline_compatible}" == true ]]; then
+    success_delta="$(counter_delta "${success_count}" "${previous_success_count}")"
+    queued_delta="$(counter_delta "${queued_count}" "${previous_queued_count}")"
+    error_delta="$(counter_delta "${error_count}" "${previous_error_count}")"
+    notice_delta="$(counter_delta "${notice_count}" "${previous_notice_count}")"
+else
+    success_delta='Basis fehlt'
+    queued_delta='Basis fehlt'
+    error_delta='Basis fehlt'
+    notice_delta='Basis fehlt'
+fi
+
+stall_candidate=false
+stall_confirmations=0
+activity_probe='nicht erforderlich'
+activity_rchar_delta=0
+activity_read_delta=0
+activity_tcp_delta=0
+restart_requested=false
+restart_issued=false
+restart_suppressed='none'
+failed_upload_confirmations=0
+failed_upload_observation='keine mehrfach versuchte Problemdatei'
+
+# A queue item only becomes a candidate after at least two upload attempts.
+# The same privacy-preserving item digest must then survive two
+# recorded timer observations.  If that item is currently uploading, a live
+# I/O probe prevents a healthy very large transfer from being called stuck.
+if [[ "${queue_state}" != 'ok' ]]; then
+    failed_item_hash="${previous_failed_item_hash}"
+    failed_upload_confirmations="${previous_failed_upload_confirmations}"
+    failed_upload_observation='Queueprüfung nicht verfügbar; letzter bestätigter Stand bleibt erhalten'
+elif [[ "${failed_item_hash}" == 'none' ]]; then
+    failed_upload_confirmations=0
+elif [[ "${record_mode}" != true ]]; then
+    if [[ "${failed_item_hash}" == "${previous_failed_item_hash}" ]]; then
+        failed_upload_confirmations="${previous_failed_upload_confirmations}"
+    fi
+    failed_upload_observation='Kandidat erkannt; nur Timerläufe erhöhen die Bestätigung'
+elif [[ "${failed_item_hash}" != "${previous_failed_item_hash}" ]]; then
+    failed_upload_confirmations=1
+    failed_upload_observation='erste Timerbeobachtung derselben mehrfach versuchten Datei'
+elif [[ "${failed_item_uploading}" == 'true' \
+    && "${main_pid}" =~ ^[1-9][0-9]*$ ]]; then
+    if probe_process_activity "${main_pid}"; then
+        failed_upload_confirmations=0
+        failed_upload_observation='aktiver Nutzdatenfluss schützt den laufenden großen Upload'
+    else
+        probe_result=$?
+        if (( probe_result == 2 )); then
+            failed_upload_confirmations=0
+            failed_upload_observation='rclone wechselte während der Prüfung; neuer Vergleich nötig'
+        else
+            failed_upload_confirmations=$((previous_failed_upload_confirmations + 1))
+            failed_upload_observation='wiederholter Kandidat ohne messbaren Nutzdatenfluss'
+        fi
+    fi
+else
+    failed_upload_confirmations=$((previous_failed_upload_confirmations + 1))
+    failed_upload_observation='wiederholter Kandidat wartet nach mehreren Fehlversuchen weiter'
+fi
+if (( failed_upload_confirmations > failed_upload_confirmations_required )); then
+    failed_upload_confirmations="${failed_upload_confirmations_required}"
+fi
+
+# A stale success timestamp alone is deliberately insufficient: a single very
+# large file only logs success after it has completely uploaded.  A candidate
+# therefore needs a growing queue, no completed upload over a full timer
+# interval, a live network path, and an unmounted rclone that is still in its
+# synchronous cache-reload/start phase.
+if [[ "${baseline_compatible}" == true \
+    && "${active_state}" == 'activating' \
+    && "${mount_state}" == 'not-mounted' \
+    && "${main_pid}" =~ ^[1-9][0-9]*$ \
+    && "${dns_state}" == 'ok' \
+    && "${last_success_age}" =~ ^[0-9]+$ \
+    && "${last_queue_age}" =~ ^[0-9]+$ \
+    && "${comparison_age}" =~ ^[0-9]+$ ]] \
+    && (( last_success_age >= stall_success_age_seconds \
+        && last_queue_age <= stall_queue_age_seconds \
+        && comparison_age >= 3600 \
+        && success_count == previous_success_count \
+        && queued_count > previous_queued_count )); then
+    stall_candidate=true
+    if probe_process_activity "${main_pid}"; then
+        stall_candidate=false
+        restart_suppressed='active-transfer'
+    else
+        probe_result=$?
+        if (( probe_result == 2 )); then
+            stall_candidate=false
+            restart_suppressed='process-changed'
+        fi
+    fi
+fi
+
+if [[ "${stall_candidate}" == true ]]; then
+    stall_confirmations=$((previous_stall_confirmations + 1))
+elif [[ "${restart_suppressed}" == 'active-transfer' ]]; then
+    stall_confirmations=0
+else
+    stall_confirmations=0
+fi
+
+status='working'
+reason_code='startup-progress'
+reason='rclone-Dienst wird anhand des gespeicherten Vergleichspunkts ausgewertet.'
+hint='Die endgültige Einordnung folgt aus Upload-, Queue- und Live-I/O-Daten.'
+if [[ "${active_state}" != 'active' && "${active_state}" != 'activating' ]]; then
+    status='critical'
+    reason_code='service-down'
+    reason="Dienstzustand ist ${active_state}/${sub_state}."
+    hint='Mit pdrive-doctor und journalctl --user -u rclone-proton-drive.service prüfen; nicht wiederholt neu starten.'
+elif [[ -n "${recovery_config_warning}" ]]; then
+    status='warning'
+    reason_code='invalid-metadata-cache-config'
+    reason='Die Metadatencache-Konfiguration ist ungültig; ein späterer Mountstart würde sicher abbrechen.'
+    hint='Mit pdrive-recovery --disable auf den parallelclient-kompatiblen Wert zurücksetzen.'
+elif [[ -n "${transfers_config_warning}" ]]; then
+    status='warning'
+    reason_code='invalid-transfers-config'
+    reason='Die Uploadslot-Konfiguration ist ungültig; ein späterer Mountstart würde sicher abbrechen.'
+    hint='Mit pdrive-transfers 1 auf den sicheren seriellen Recovery-Wert zurücksetzen.'
+elif [[ "${dns_state}" == 'failed' ]]; then
+    status='warning'
+    reason_code='dns-failed'
+    reason='DNS-Auflösung der Proton-Drive-API ist fehlgeschlagen.'
+    hint='Netzwerk und DNS prüfen. Der Monitor startet rclone nicht neu und löst keinen Login aus.'
+elif [[ "${free_bytes}" =~ ^[0-9]+$ ]] && (( free_bytes < low_space_bytes )); then
+    status='warning'
+    reason_code='low-disk'
+    reason='Freier Speicher liegt unter 55 GiB.'
+    hint='Nicht den rclone-Cache löschen, solange Uploads ausstehen; zuerst Ursache und Warteschlange prüfen.'
+elif [[ "${active_state}" == 'active' && "${mount_state}" == 'ready' \
+    && "${queue_state}" != 'ok' ]]; then
+    status='warning'
+    reason_code='queue-monitor-unavailable'
+    reason="Die lokale VFS-Warteschlange konnte nicht geprüft werden (${queue_state})."
+    hint='Der Mount wird nicht verändert. RC-Socket, jq und pdrive-doctor prüfen; ohne Queueprüfung sind festhängende Einzeldateien nicht zuverlässig erkennbar.'
+elif [[ "${active_state}" == 'active' && "${mount_state}" == 'ready' \
+    && "${failed_upload_confirmations}" =~ ^[0-9]+$ ]] \
+    && (( failed_upload_confirmations >= failed_upload_confirmations_required )); then
+    status='warning'
+    reason_code='persistent-upload-failure'
+    reason="Mindestens eine Datei hängt trotz mehrerer Uploadanläufe weiterhin in der lokalen Warteschlange (Versuche: ${failed_item_tries})."
+    hint='Kein automatischer Neustart und keine Cachelöschung. pdrive-watch sowie das Mountlog prüfen und die lokale Cachekopie bis zur Klärung erhalten.'
+elif [[ "${stall_candidate}" == true ]]; then
+    if [[ "${recovery_configured}" == 'true' ]]; then
+        status='warning'
+        reason_code='upload-stall-cache-protected'
+        reason='Möglicher Uploadstillstand erkannt; der automatische Wiederanlauf ist zum Schutz des warmen Proton-Metadatencaches gesperrt.'
+        hint='Kein automatischer Neustart: warmen Metadatencache erhalten und zunächst manuell diagnostizieren.'
+        restart_suppressed='metadata-cache'
+        stall_confirmations=0
+    elif (( auto_restart_age >= 0 && auto_restart_age < auto_restart_cooldown_seconds )); then
+        status='warning'
+        reason_code='upload-stall-cooldown'
+        reason='Uploadstillstand erkannt, automatischer Neustart aber noch in der konfigurierten Wiederanlaufsperre.'
+        hint='Der Monitor erzwingt keinen weiteren Neustart. pdrive-watch und das Dienstjournal zeigen den Wiederanlaufzustand.'
+        restart_suppressed='cooldown'
+        stall_confirmations=0
+    elif (( stall_confirmations < stall_confirmations_required )); then
+        status='warning'
+        reason_code='upload-stall-confirming'
+        reason="Möglicher Uploadstillstand ohne messbaren Nutzdatenfluss; Bestätigung ${stall_confirmations}/${stall_confirmations_required}."
+        hint='Noch kein Eingriff. Erst eine zweite unabhängige 90-Minuten-Prüfung darf einen Neustart auslösen.'
+    elif [[ "${record_mode}" == true ]]; then
+        status='warning'
+        reason_code='upload-stall-restart-requested'
+        reason='Uploadstillstand in zwei Timerläufen und per Live-I/O-Messung bestätigt.'
+        hint='Der Monitor fordert genau einen kontrollierten, nicht blockierenden Dienstneustart an.'
+        restart_requested=true
+    else
+        status='warning'
+        reason_code='upload-stall-confirmed'
+        reason='Uploadstillstand bestätigt; ein Timerlauf würde jetzt den kontrollierten Neustart auslösen.'
+        hint='Der manuelle Diagnoseaufruf verändert weder Vergleichspunkt noch Dienst.'
+    fi
+elif [[ "${restart_suppressed}" == 'active-transfer' ]]; then
+    status='working'
+    reason_code='large-upload-active'
+    reason='Langer Upload ohne Abschlussmeldung, aber aktuelle Datei-/Netzwerkübertragung ist messbar.'
+    hint='Kein Neustart: Das schützt insbesondere sehr große Einzeldateien, deren Erfolg erst am Ende protokolliert wird.'
+elif [[ "${active_state}" == 'active' && "${mount_state}" == 'ready' ]]; then
+    status='ready'
+    reason_code='mounted'
+    reason='Proton Drive ist gemountet und bereit.'
+    hint='Der Mount ist direkt über /pdrive nutzbar.'
+elif [[ "${active_state}" == 'active' ]]; then
+    status='warning'
+    reason_code='active-without-mount'
+    reason='rclone ist aktiv, aber der FUSE-Mount /pdrive fehlt.'
+    hint='pdrive-doctor ausführen und das Dienstjournal prüfen; nicht parallel einen zweiten Mount starten.'
+elif [[ "${previous_status}" != 'none' && "${progress_state}" == 'no' \
+    && "${log_age}" =~ ^[0-9]+$ ]] && (( log_age > 7200 )); then
+    status='warning'
+    reason_code='startup-stalled'
+    reason='Seit dem vorherigen Timerlauf und seit über zwei Stunden kein lokaler Fortschritt.'
+    hint='Prozess, DNS, TCP und das Dienstjournal prüfen. Einen Neustart nur nach Diagnose erwägen.'
+elif [[ "${log_age}" =~ ^[0-9]+$ ]] && (( log_age > 7200 )); then
+    status='warning'
+    reason_code='stale-log'
+    reason='Das rclone-Log wurde seit über zwei Stunden nicht aktualisiert.'
+    hint='Prozess, DNS, TCP und das Dienstjournal prüfen. Einen Neustart nur nach Diagnose erwägen.'
+fi
+
+if [[ "${reason_code}" == 'startup-progress' ]]; then
+    if [[ "${baseline_compatible}" != true ]]; then
+        reason='rclone läuft; der erste 90-Minuten-Vergleichspunkt wird noch aufgebaut.'
+        hint='Kein Eingriff: Ohne belastbaren Vergleich löst der Watchdog keinen Neustart aus.'
+    elif (( success_count > previous_success_count )); then
+        reason_code='upload-progress'
+        reason="$((success_count - previous_success_count)) Upload(s) seit dem letzten Timerlauf erfolgreich abgeschlossen."
+        hint='Echter Uploadfortschritt bestätigt; der Stillstandszähler bleibt bei 0 und es ist kein Neustart vorgesehen.'
+    elif (( queued_count > previous_queued_count )); then
+        reason_code='inventory-progress'
+        reason="$((queued_count - previous_queued_count)) weitere Cacheobjekte inventarisiert; noch kein neuer Uploadabschluss."
+        hint='Nur Beobachtung: Erst zwei 90 Minuten auseinanderliegende Prüfungen ohne Upload- und Live-I/O-Fortschritt dürften eingreifen.'
+    else
+        reason_code='quiet-observation'
+        reason='Seit dem letzten Timerlauf weder neue Queueeinträge noch neue Uploadabschlüsse.'
+        hint='Leerlauf ist gesund: Ohne wachsende Queue nimmt der Watchdog keinen Uploadstillstand an und startet rclone nicht neu.'
+    fi
+fi
+
+if [[ "${restart_requested}" == true ]]; then
+    if systemctl --user restart --no-block "${service_name}"; then
+        restart_issued=true
+        previous_auto_restart_epoch="${now_epoch}"
+        auto_restart_age=0
+        stall_confirmations=0
+        status='working'
+        reason_code='auto-restart-issued'
+        reason='Kontrollierter Wiederanlauf nach bestätigtem Uploadstillstand wurde angefordert.'
+        hint="Für $(human_duration "${auto_restart_cooldown_seconds}") erfolgt kein weiterer automatischer Neustart. Die persistente VFS-Warteschlange bleibt erhalten."
+    else
+        status='critical'
+        reason_code='auto-restart-failed'
+        reason='Uploadstillstand bestätigt, aber der kontrollierte Dienstneustart konnte nicht angefordert werden.'
+        hint='systemctl --user status und journalctl für pdrive-watch sowie rclone-proton-drive prüfen.'
+    fi
+fi
+
+process_age_human="$(human_duration "${process_age}")"
+log_age_human="$(human_duration "${log_age}")"
+comparison_age_human="$(human_duration "${comparison_age}")"
+cache_human="$(human_bytes "${cache_bytes}")"
+free_human="$(human_bytes "${free_bytes}")"
+rss_human="$(human_bytes "${process_rss_bytes}")"
+queue_bytes_human="$(human_bytes "${queue_bytes}")"
+
+cooldown_duration_human="$(human_duration "${auto_restart_cooldown_seconds}")"
+automation_summary="aktiv; kein Cooldown (konfiguriert: ${cooldown_duration_human}). Eingriff nur nach zwei vollständig bestätigten Stillstandsprüfungen."
+if [[ "${recovery_configured}" == 'true' ]]; then
+    automation_summary='automatischer Wiederanlauf schützt den warmen Metadatencache; manuell bestätigter Neustart bleibt möglich.'
+elif (( auto_restart_age >= 0 && auto_restart_age < auto_restart_cooldown_seconds )); then
+    automation_remaining=$((auto_restart_cooldown_seconds - auto_restart_age))
+    automation_summary="aktiv; Wiederanlauf-Cooldown noch $(human_duration "${automation_remaining}") (konfiguriert: ${cooldown_duration_human})."
+fi
+if [[ ! -e "${cooldown_config}" ]]; then
+    cooldown_config_summary="${cooldown_config} (nicht angelegt; Standard ${cooldown_duration_human})"
+elif [[ -n "${cooldown_config_warning}" ]]; then
+    cooldown_config_summary="${cooldown_config} (vorhanden, aber ungültig; Standard ${cooldown_duration_human})"
+else
+    cooldown_config_summary="${cooldown_config} (aktiv)"
+fi
+if [[ -n "${recovery_config_warning}" ]]; then
+    recovery_summary="WARNUNG: ${recovery_config_warning}"
+elif [[ "${recovery_configured}" == 'true' ]]; then
+    recovery_summary="AKTIV (schneller Exklusivmodus; laufender Prozess: ${recovery_running}); keine parallelen Proton-Clients"
+else
+    recovery_summary="aus (parallelclient-kompatibel; laufender Prozess: ${recovery_running})"
+fi
+if [[ -n "${transfers_config_warning}" ]]; then
+    transfers_summary="WARNUNG: ${transfers_config_warning}"
+else
+    transfers_summary="konfiguriert ${transfers_configured}; laufend ${transfers_running}"
+fi
+
+latest_tmp="$(mktemp "${state_dir}/pdrive-watch-latest.XXXXXX")"
+{
+    printf 'Zeit=%s\n' "${now_iso}"
+    printf 'Modus=%s\n' "$([[ "${record_mode}" == true ]] && printf 'Timer-Aufzeichnung' || printf 'manuelle Diagnose')"
+    printf 'Status=%s\n' "${status}"
+    printf 'Grundcode=%s\n' "${reason_code}"
+    printf 'Grund=%s\n' "${reason}"
+    printf 'Hinweis=%s\n' "${hint}"
+    printf 'Dienst=%s/%s\n' "${active_state}" "${sub_state}"
+    printf 'PID=%s\n' "${main_pid}"
+    printf 'ProzessalterSekunden=%s\n' "${process_age}"
+    printf 'CPUProzent=%s\n' "${process_cpu}"
+    printf 'ArbeitsspeicherBytes=%s\n' "${process_rss_bytes}"
+    printf 'Neustarts=%s\n' "${restart_count}"
+    printf 'Mount=%s\n' "${mount_state}"
+    printf 'DNS=%s\n' "${dns_state}"
+    printf 'TCP=%s\n' "${tcp_state}"
+    printf 'FortschrittSeitTimerlauf=%s\n' "${progress_state}"
+    printf 'SekundenSeitTimerlauf=%s\n' "${comparison_age}"
+    printf 'LogAlterSekunden=%s\n' "${log_age}"
+    printf 'AlterLetzterUploadErfolgSekunden=%s\n' "${last_success_age}"
+    printf 'AlterLetzterQueueeintragSekunden=%s\n' "${last_queue_age}"
+    printf 'UploadsErfolgreichImLog=%s\n' "${success_count}"
+    printf 'CacheeintraegeEingereihtImLog=%s\n' "${queued_count}"
+    printf 'FehlerImLog=%s\n' "${error_count}"
+    printf 'HinweiseImLog=%s\n' "${notice_count}"
+    printf 'DeltaUploads=%s\n' "${success_delta}"
+    printf 'DeltaEingereiht=%s\n' "${queued_delta}"
+    printf 'DeltaFehler=%s\n' "${error_delta}"
+    printf 'DeltaHinweise=%s\n' "${notice_delta}"
+    printf 'LetzterUploadErfolg=%s\n' "${last_success}"
+    printf 'LetzterQueueeintrag=%s\n' "${last_queue}"
+    printf 'LetztesProblem=%s\n' "${last_problem}"
+    printf 'LetzteProblemkategorie=%s\n' "${last_problem_kind}"
+    printf 'QueuePruefung=%s\n' "${queue_state}"
+    printf 'QueueDateien=%s\n' "${queue_count}"
+    printf 'QueueBytes=%s\n' "${queue_bytes}"
+    printf 'QueueAktiveUploads=%s\n' "${queue_uploading_count}"
+    printf 'QueueMehrfachVersucht=%s\n' "${failed_queue_count}"
+    printf 'QueueMaximaleVersuche=%s\n' "${failed_queue_max_tries}"
+    printf 'UploadfehlerBestaetigungen=%s\n' "${failed_upload_confirmations}"
+    printf 'UploadfehlerBeobachtung=%s\n' "${failed_upload_observation}"
+    printf 'CacheBytes=%s\n' "${cache_bytes}"
+    printf 'FreierSpeicherBytes=%s\n' "${free_bytes}"
+    printf 'Stillstandsbestaetigungen=%s\n' "${stall_confirmations}"
+    printf 'Aktivitaetsmessung=%s\n' "${activity_probe}"
+    printf 'AktivitaetRcharBytes=%s\n' "${activity_rchar_delta}"
+    printf 'AktivitaetDatentraegerLesebytes=%s\n' "${activity_read_delta}"
+    printf 'AktivitaetTCPGesendetBytes=%s\n' "${activity_tcp_delta}"
+    printf 'LetzterAutoneustartEpoch=%s\n' "${previous_auto_restart_epoch}"
+    printf 'CooldownDauerSekunden=%s\n' "${auto_restart_cooldown_seconds}"
+    printf 'CooldownKonfigurationsdatei=%s\n' "${cooldown_config}"
+    printf 'CooldownKonfiguration=%s\n' "${cooldown_config_source}"
+    printf 'CooldownKonfigurationswarnung=%s\n' "${cooldown_config_warning:-keine}"
+    printf 'MetadatenCacheKonfigurationsdatei=%s\n' "${recovery_config}"
+    printf 'MetadatenCacheKonfiguriert=%s\n' "${recovery_configured}"
+    printf 'MetadatenCacheLaufend=%s\n' "${recovery_running}"
+    printf 'MetadatenCacheKonfigurationswarnung=%s\n' "${recovery_config_warning:-keine}"
+    printf 'UploadslotsKonfigurationsdatei=%s\n' "${transfers_config}"
+    printf 'UploadslotsKonfiguriert=%s\n' "${transfers_configured}"
+    printf 'UploadslotsLaufend=%s\n' "${transfers_running}"
+    printf 'UploadslotsKonfigurationswarnung=%s\n' "${transfers_config_warning:-keine}"
+    printf 'AutoneustartAngefordert=%s\n' "${restart_issued}"
+    printf 'Automatik=%s\n' "${automation_summary}"
+} > "${latest_tmp}"
+mv -f -- "${latest_tmp}" "${latest_file}"
+
+if [[ "${record_mode}" == true ]]; then
+    printf '%s\tstatus=%s\treason=%s\tservice=%s/%s\tpid=%s\tmount=%s\tdns=%s\ttcp=%s\tprogress=%s\tsuccess=%s\tqueued=%s\terrors=%s\tnotices=%s\tlog_age=%s\tstall_confirmations=%s\tvfs_queue=%s\tvfs_queue_bytes=%s\tvfs_uploading=%s\tvfs_failed=%s\tfailed_confirmations=%s\tactivity_read=%s\tactivity_rchar=%s\tactivity_tcp_sent=%s\tauto_restart=%s\tcache=%s\tfree=%s\n' \
+        "${now_iso}" "${status}" "${reason_code}" "${active_state}" "${sub_state}" "${main_pid}" \
+        "${mount_state}" "${dns_state}" "${tcp_state}" "${progress_state}" "${success_count}" \
+        "${queued_count}" "${error_count}" "${notice_count}" "${log_age}" "${stall_confirmations}" \
+        "${queue_count}" "${queue_bytes}" "${queue_uploading_count}" "${failed_queue_count}" \
+        "${failed_upload_confirmations}" \
+        "${activity_read_delta}" "${activity_rchar_delta}" "${activity_tcp_delta}" "${restart_issued}" \
+        "${cache_bytes}" "${free_bytes}" \
+        >> "${history_file}"
+
+    monitor_tmp="$(mktemp "${state_dir}/pdrive-watch-state.XXXXXX")"
+    {
+        printf 'state_version=4\n'
+        printf 'status=%s\n' "${status}"
+        printf 'reason_code=%s\n' "${reason_code}"
+        printf 'check_epoch=%s\n' "${now_epoch}"
+        printf 'log_mtime=%s\n' "${log_mtime}"
+        printf 'success_count=%s\n' "${success_count}"
+        printf 'queued_count=%s\n' "${queued_count}"
+        printf 'error_count=%s\n' "${error_count}"
+        printf 'notice_count=%s\n' "${notice_count}"
+        printf 'stall_confirmations=%s\n' "${stall_confirmations}"
+        printf 'last_auto_restart_epoch=%s\n' "${previous_auto_restart_epoch}"
+        printf 'failed_item_hash=%s\n' "${failed_item_hash}"
+        printf 'failed_upload_confirmations=%s\n' "${failed_upload_confirmations}"
+    } > "${monitor_tmp}"
+    mv -f -- "${monitor_tmp}" "${monitor_state}"
+
+    if [[ "${status}" != "${previous_status}" || "${reason_code}" != "${previous_reason_code}" ]] \
+        && command -v notify-send >/dev/null 2>&1; then
+        case "${status}" in
+            ready)
+                notify-send --app-name='Proton Drive' 'Proton Drive ist bereit' \
+                    'Der Mount ist direkt unter /pdrive verfügbar.' || true
+                ;;
+            warning|critical)
+                notify-send --urgency=critical --app-name='Proton Drive' \
+                    'Proton-Drive-Monitor: Aufmerksamkeit nötig' "${reason}" || true
+                ;;
+            working)
+                if [[ "${reason_code}" == 'auto-restart-issued' ]]; then
+                    notify-send --urgency=normal --app-name='Proton Drive' \
+                        'Proton Drive wird vorsichtig neu gestartet' \
+                        'Zwei Prüfungen bestätigten einen Uploadstillstand ohne laufende Nutzdatenübertragung.' || true
+                fi
+                ;;
+        esac
+    fi
+fi
+
+printf '\nProton-Drive-Zustand — %s\n' "${now_iso}"
+printf 'Gesamt:       %-8s %s\n' "${status}" "${reason}"
+printf 'Dienst:       %s/%s, PID %s, Laufzeit %s, Neustarts %s\n' \
+    "${active_state}" "${sub_state}" "${main_pid}" "${process_age_human}" "${restart_count}"
+printf 'Prozess:      CPU %s%%, RAM %s\n' "${process_cpu}" "${rss_human}"
+printf 'Zugriff:      Mount %s, DNS %s, TCP %s\n' "${mount_state}" "${dns_state}" "${tcp_state}"
+printf 'Log:          zuletzt aktualisiert vor %s\n' "${log_age_human}"
+printf 'Summen:       Uploads %s, eingereiht %s, Fehler %s, Hinweise %s\n' \
+    "${success_count}" "${queued_count}" "${error_count}" "${notice_count}"
+if [[ "${baseline_compatible}" != true ]]; then
+    printf 'Vergleich:    wird mit dem nächsten Timerlauf aufgebaut\n'
+else
+    printf 'Seit Timer:   vor %s; Fortschritt %s; Uploads %s, eingereiht %s, Fehler %s, Hinweise %s\n' \
+        "${comparison_age_human}" "${progress_state}" "${success_delta}" "${queued_delta}" \
+        "${error_delta}" "${notice_delta}"
+fi
+printf 'Letzter Erfolg: %s\n' "${last_success}"
+printf 'Letzte Queue:   %s\n' "${last_queue}"
+printf 'Letztes Problem: %s (%s)\n' "${last_problem}" "${last_problem_kind}"
+printf 'VFS-Queue:     Prüfung %s; %s Datei(en), %s, davon %s aktiv\n' \
+    "${queue_state}" "${queue_count}" "${queue_bytes_human}" "${queue_uploading_count}"
+printf 'Uploadfehler:  %s mehrfach versucht; Bestätigung %s/%s; %s\n' \
+    "${failed_queue_count}" "${failed_upload_confirmations}" \
+    "${failed_upload_confirmations_required}" "${failed_upload_observation}"
+printf 'Stillstand:    Bestätigung %s/%s; Live-Messung: %s\n' \
+    "${stall_confirmations}" "${stall_confirmations_required}" "${activity_probe}"
+printf 'Automatik:     %s\n' "${automation_summary}"
+printf 'Konfiguration: %s\n' "${cooldown_config_summary}"
+printf 'Metadaten-Cache: %s\n' "${recovery_summary}"
+printf 'Cache-Datei:     %s\n' "${recovery_config}"
+printf 'Uploadslots:   %s\n' "${transfers_summary}"
+printf 'Slot-Datei:    %s\n' "${transfers_config}"
+if [[ -n "${cooldown_config_warning}" ]]; then
+    printf 'Konfiguration: WARNUNG: %s.\n' "${cooldown_config_warning}"
+fi
+if [[ "${activity_probe}" != 'nicht erforderlich' ]]; then
+    printf 'Live-I/O:      Datenträger gelesen %s, Prozess gelesen %s, TCP gesendet %s in %ss\n' \
+        "$(human_bytes "${activity_read_delta}")" "$(human_bytes "${activity_rchar_delta}")" \
+        "$(human_bytes "${activity_tcp_delta}")" "${activity_probe_seconds}"
+fi
+printf 'Speicher:     Cache %s, frei %s\n' "${cache_human}" "${free_human}"
+printf 'Einordnung:   %s\n' "${hint}"
+if [[ "${record_mode}" == true ]]; then
+    printf 'Aufzeichnung: Verlauf und 90-Minuten-Vergleichspunkt wurden aktualisiert.\n'
+else
+    printf 'Aufzeichnung: nur aktuelle Diagnose; der Timer-Vergleichspunkt blieb unverändert.\n'
+fi
+if [[ "${cooldown_cleared}" == true ]]; then
+    printf 'Aktion:        Laufenden Wiederanlauf-Cooldown atomar zurückgesetzt; die konfigurierte Dauer %s bleibt erhalten und rclone blieb unangetastet.\n' \
+        "${cooldown_duration_human}"
+fi
+if [[ "${cooldown_duration_changed}" == true ]]; then
+    printf 'Aktion:        Cooldown-Dauer atomar auf %s gesetzt; sie gilt sofort auch für einen laufenden Cooldown. rclone blieb unangetastet.\n' \
+        "${cooldown_duration_human}"
+fi
+if [[ "${restart_service_mode}" == true ]]; then
+    restart_service_and_validate
+fi

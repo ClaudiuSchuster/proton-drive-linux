@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+
+readonly mount_dir='/pdrive'
+
+unmount_if_rclone() {
+    local candidate="$1"
+    local fstype
+
+    if ! /usr/bin/mountpoint -q -- "${candidate}"; then
+        return 0
+    fi
+
+    fstype="$(/usr/bin/findmnt -rn -M "${candidate}" -o FSTYPE 2>/dev/null || true)"
+    case "${fstype}" in
+        fuse.rclone|fuse)
+            /usr/bin/fusermount3 -uz -- "${candidate}"
+            ;;
+        *)
+            echo "Refusing to unmount non-rclone filesystem at ${candidate} (${fstype:-unknown type})." >&2
+            return 73
+            ;;
+    esac
+}
+
+# Only confirmed FUSE/rclone mounts are touched.
+unmount_if_rclone "${mount_dir}"
