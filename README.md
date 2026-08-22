@@ -122,6 +122,11 @@ semantics:
 - An open file may delay write-back.
 - The VFS cache is not a promise of unlimited offline synchronization.
 
+A finished Nemo copy dialog proves that the local VFS cache accepted the data;
+it does not by itself prove that Proton received it. For important writes,
+confirm a zero live queue and zero Dirty files with `pdrive-refresh`, or the
+corresponding `vfs cache: upload succeeded` log entry.
+
 Before shutdown or uninstall, confirm:
 
 ```bash
@@ -180,6 +185,14 @@ distinguishes an idle empty queue from a stuck upload, protects large active
 files by measuring process reads and TCP bytes, requires repeated confirmation,
 and applies a default 12-hour restart cooldown.
 
+The exact safety gate is documented rather than hidden in the implementation:
+automatic recovery applies only during an unfinished mount startup, after at
+least four hours without a successful upload, with recently queued work, healthy
+DNS, no measured payload in a 20-second probe and the same result in two
+successive timer runs. A ready mount or enabled Proton metadata cache is a hard
+automatic-restart blocker. Persistent individual file failures are notified but
+never trigger an automatic restart. See [Operations](docs/OPERATIONS.md#exact-watchdog-safety-gates).
+
 ```bash
 pdrive-watch --set-cooldown 6h
 pdrive-watch --clear-cooldown
@@ -214,7 +227,10 @@ systemctl --user start proton-drive-update.service
 ```
 
 Avoid writing through the official CLI while the fast exclusive metadata cache
-is active.
+is active. The updater accepts only the versioned `proton.me` x86-64 URL and
+requires the published SHA-512 digest to match before replacing the binary.
+Exact timer schedules and manual verification commands are in
+[Operations](docs/OPERATIONS.md#update-schedule-and-integrity).
 
 ## Uninstall
 
@@ -226,6 +242,9 @@ The uninstaller refuses to proceed with queued or Dirty VFS data and asks for
 the exact confirmation `UNINSTALL`. It removes only managed programs, docs and
 units. Personal rclone configuration, Keyring secret, cache, logs and `/pdrive`
 are retained deliberately so recovery remains possible.
+
+For backup pairs, permissions and the complete restoration sequence, see
+[Backup and restoration](docs/OPERATIONS.md#backup-and-restoration).
 
 ## Repository layout
 
@@ -253,8 +272,9 @@ of deployment-specific paths or secrets.
 
 - The rclone configuration is encrypted, but the unlocked desktop session can
   access its Keyring item by design.
-- The RC API has no application password; it is restricted to a mode-0600 Unix
-  socket in the user's state directory and is never exposed on TCP.
+- The RC API has no application password; it is restricted to a mode-0700 Unix
+  socket (`srwx------`) in the user's state directory and is never exposed on
+  TCP.
 - `/pdrive` is mounted with `umask 077` and is accessible only to its owner.
 - A same-user process can still stop or unmount a same-user FUSE filesystem.
 - Proton Drive's backend and API behavior can change independently of this

@@ -42,5 +42,28 @@ for unit_file in "${project_dir}"/systemd/user/*; do
     }
 done
 
+required_documentation=(
+    'mode-0700 Unix'
+    'Exact watchdog safety gates'
+    'Reading counters correctly'
+    $'FUSE reports `Operation not permitted`'
+    'Keyring remains unavailable after login'
+    $'After `apt autoremove`'
+    'Backup and restoration'
+    'Update schedule and integrity'
+    'A link is not the same as a working route'
+)
+for required_text in "${required_documentation[@]}"; do
+    if ! grep -RiqF -- "${required_text}" \
+        "${project_dir}/README.md" "${project_dir}/docs"; then
+        printf 'Required generic documentation is missing: %s\n' "${required_text}" >&2
+        exit 1
+    fi
+done
+if grep -RiqF -- 'mode-0600 Unix' "${project_dir}/README.md" "${project_dir}/docs"; then
+    printf 'Incorrect RC Unix-socket mode found in documentation.\n' >&2
+    exit 1
+fi
+
 "${project_dir}/tests/test-help.sh"
 printf 'All repository checks passed.\n'

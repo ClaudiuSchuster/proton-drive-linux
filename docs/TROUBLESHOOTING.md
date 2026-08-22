@@ -13,6 +13,25 @@ journalctl --user -u rclone-proton-drive.service -n 100 --no-pager
 Only add `pdrive-doctor --online` when no HTTP 429 backoff is active and a real
 API test is necessary.
 
+## Safe evidence collection
+
+Prefer local, redacted evidence:
+
+```bash
+pdrive-doctor
+pdrive-watch
+systemctl --user status rclone-proton-drive.service --no-pager
+journalctl --user -u rclone-proton-drive.service -b --no-pager
+rclone config redacted proton
+```
+
+Never publish `rclone config show`, a decrypted `rclone.conf`, Keyring output,
+passwords, TOTP seeds or `client_*` session fields. Avoid permanently switching
+the mount to DEBUG: verbose output can expose more metadata and can accompany
+extra API activity. Reproduce with the normal INFO log first and redact private
+paths from excerpts. rclone itself warns that redaction may not be perfect, so
+double-check even `config redacted` before posting it.
+
 ## Mount missing after login
 
 Check the exact chain:
@@ -60,6 +79,23 @@ systemctl --user start rclone-proton-drive.service
 Do not delete `~/.cache/rclone` as a generic fix. It may hold the only complete
 local copy of writes that have not reached Proton.
 
+## FUSE reports `Operation not permitted`
+
+Check the helper, device and optional group first:
+
+```bash
+ls -l /usr/bin/fusermount3
+ls -l /dev/fuse
+getent group fuse
+```
+
+Do not add generic systemd hardening without testing the actual FUSE and
+Keyring path. `NoNewPrivileges=true`, `PrivateMounts=true`,
+`PrivateDevices=true` or a restrictive `ProtectHome=true` can block
+`fusermount3`, the mount namespace, `/dev/fuse`, GNOME Keyring or the user's
+configuration/cache. The shipped mount unit deliberately relies on `UMask=0077`
+instead of these incompatible restrictions.
+
 ## Service remains `activating (start)`
 
 This can be valid during a large persisted VFS-cache inventory or while waiting
@@ -70,6 +106,26 @@ does not repeatedly kill a legitimate Proton backoff or a long startup scan.
 If no queue exists and the Keyring is locked, log out and back into Cinnamon or
 repair the login-Keyring/PAM integration. Do not add automatic password files as
 a shortcut.
+
+## Keyring remains unavailable after login
+
+```bash
+dpkg-query -W gnome-keyring libpam-gnome-keyring libsecret-tools
+systemctl --user status gnome-keyring-daemon.service
+timeout 5 secret-tool lookup service rclone account proton-drive >/dev/null
+echo $?
+```
+
+Exit status zero is expected; keep lookup output redirected so the secret is
+never printed. If the Linux login password changed while the login Keyring kept
+its old password, Cinnamon may no longer unlock it automatically. Repair the
+login Keyring with the desktop's password/keyring application or bind it to the
+current login password.
+
+Creating a new empty Keyring destroys access to the old rclone configuration
+password. Restore encrypted `rclone.conf` and its matching Keyring item as a
+pair, or deliberately create a new encrypted configuration. Do not replace the
+Keyring item while pending Dirty cache data depends on the old remote config.
 
 ## No traffic for several minutes
 
@@ -117,6 +173,23 @@ pdrive-bwlimit 3
 
 Remove the temporary limit later with `pdrive-bwlimit off`. Live changes do not
 interrupt the current transfer.
+
+### A link is not the same as a working route
+
+NetworkManager can report Ethernet as connected even when no IPv4 default route
+was installed, for example after address-conflict handling during resume. Before
+restarting rclone to “move it to the cable”, verify the actual route and sockets:
+
+```bash
+ip route show default
+nmcli device status
+nmcli -f GENERAL.DEVICE,IP4.ADDRESS,IP4.GATEWAY device show
+ss -tpn | grep rclone
+```
+
+Restore the desired gateway first, then perform at most one controlled rclone
+restart if the existing sockets still use the unwanted interface. Plugging in a
+cable alone does not migrate established TCP connections.
 
 ## Bandwidth is only a few KiB/s
 
@@ -177,7 +250,8 @@ pdrive-refresh
 
 Never remove VFS data or metadata while Dirty files exist. Cache cleanup is
 safe only after the queue and Dirty counts are zero and important remote files
-have been independently verified.
+have been independently verified. Prefer a controlled systemd stop; avoid
+`kill -9`, which prevents normal write-back and unmount cleanup.
 
 ## HTTP 401 or expired session
 
@@ -190,6 +264,11 @@ pdrive-reauth --reauth
 
 The helper backs up the encrypted configuration and makes one bounded login
 attempt. It starts the mount only after success.
+
+Proton accounts using a two-password model distinguish the account login
+password from the mailbox password. If that account mode is enabled, configure
+the backend's `mailbox_password` through rclone's interactive configuration;
+repeating the login password or stale 2FA code will not repair it.
 
 ## HTTP 429, CAPTCHA or too many recent logins
 
@@ -255,6 +334,35 @@ pdrive-watch --restart-service
 Return to four after recovery. Changing the configuration alone never restarts
 the service.
 
+## After `apt autoremove`
+
+Package removal can break FUSE, Keyring access or monitoring even when rclone's
+binary still exists. Verify both installation and manual-package status:
+
+```bash
+dpkg-query -W \
+  fuse3 libfuse3-3 libsecret-tools gnome-keyring libpam-gnome-keyring \
+  jq curl openssl iproute2 libnotify-bin
+apt-mark showmanual | grep -E \
+  '^(fuse3|libfuse3-3|libsecret-tools|gnome-keyring|libpam-gnome-keyring|jq)$'
+```
+
+Repair missing core packages with:
+
+```bash
+sudo apt install --reinstall \
+  fuse3 libfuse3-3 libsecret-tools gnome-keyring libpam-gnome-keyring \
+  jq curl openssl iproute2 libnotify-bin
+sudo apt-mark manual \
+  fuse3 libfuse3-3 libsecret-tools gnome-keyring libpam-gnome-keyring jq
+systemctl --user daemon-reload
+pdrive-doctor
+```
+
+Do not restart the mount until queue and Dirty state are understood. Unrelated
+packages such as ISO-mount, Wine or mail-client components are not dependencies
+merely because they were removed in the same autoremove transaction.
+
 ## Disk space and cache cleanup
 
 The mount targets a 25 GiB cache and preserves at least 50 GiB free space, but
@@ -286,6 +394,18 @@ copy of a file. When uncertain, keep it.
 The mount log rotates at 10 MiB, retains three compressed backups and expires
 old rotations after 30 days. Logs can contain personal file paths. Redact them
 before posting a bug report.
+
+If an interrupted older rotation left embedded NUL bytes, inspect without
+rewriting the log:
+
+```bash
+tr -d '\000' < ~/.local/state/rclone/proton-mount.log | tail -n 100
+```
+
+`pdrive-watch` totals count lines in the current uncompressed mount log, not
+unique files or unresolved failures. One block failure can create several ERROR
+and NOTICE lines, and successful later retries do not subtract the historical
+lines. The live VFS queue and Dirty count are the authoritative current state.
 
 ## Reporting an issue
 
