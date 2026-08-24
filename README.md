@@ -201,6 +201,7 @@ recovery unless you deliberately remove them later.
   recovery.
 - [Development guide](docs/DEVELOPMENT.md) — architecture, security, testing,
   language, CI and release conventions.
+
 Contributions are welcome. Run `make check` before opening a pull request; both
 Functional checks and Super-Linter are intended to be required checks.
 

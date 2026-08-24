@@ -120,9 +120,7 @@ def service_state() -> dict[str, Any]:
     sub = raw.get("SubState", "unknown")
     active_since_monotonic = integer(raw.get("ActiveEnterTimestampMonotonic"), -1)
     uptime_seconds = (
-        max(0, int(time.monotonic() - (active_since_monotonic / 1_000_000)))
-        if active_since_monotonic > 0
-        else -1
+        max(0, int(time.monotonic() - (active_since_monotonic / 1_000_000))) if active_since_monotonic > 0 else -1
     )
     return {
         "available": code == 0,

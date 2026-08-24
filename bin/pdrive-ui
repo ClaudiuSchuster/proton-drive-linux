@@ -682,16 +682,16 @@ def bandwidth_slider_position(rate: str) -> float:
     if value <= BANDWIDTH_NEAR_PAUSE_MIB:
         return 0.0
     value = min(BANDWIDTH_SLIDER_MAX_RATE, value)
-    return 100.0 * math.log(value / BANDWIDTH_NEAR_PAUSE_MIB) / math.log(
-        BANDWIDTH_SLIDER_MAX_RATE / BANDWIDTH_NEAR_PAUSE_MIB
+    return (
+        100.0
+        * math.log(value / BANDWIDTH_NEAR_PAUSE_MIB)
+        / math.log(BANDWIDTH_SLIDER_MAX_RATE / BANDWIDTH_NEAR_PAUSE_MIB)
     )
 
 
 def bandwidth_slider_rate(position: float) -> float:
     position = max(0.0, min(100.0, position))
-    return BANDWIDTH_NEAR_PAUSE_MIB * (
-        BANDWIDTH_SLIDER_MAX_RATE / BANDWIDTH_NEAR_PAUSE_MIB
-    ) ** (position / 100.0)
+    return BANDWIDTH_NEAR_PAUSE_MIB * (BANDWIDTH_SLIDER_MAX_RATE / BANDWIDTH_NEAR_PAUSE_MIB) ** (position / 100.0)
 
 
 def bandwidth_slider_label(position: float) -> str:
@@ -779,12 +779,27 @@ window.pdrive-window {
 }
 .config-action:hover { background: rgba(105,215,255,0.08); }
 .config-action:active { background: rgba(105,215,255,0.04); }
-.pdrive-tabs button { transition: 120ms ease-in-out; }
+.pdrive-tabs button {
+  background: transparent;
+  border: 1px solid rgba(155,167,184,0.22);
+  border-radius: 8px;
+  box-shadow: none;
+  color: #aeb9c8;
+  font-weight: 700;
+  margin: 0 3px;
+  transition: 120ms ease-in-out;
+}
 .pdrive-tabs button:hover {
   background: rgba(105,215,255,0.10);
+  border-color: rgba(105,215,255,0.36);
   color: #f4f7fb;
 }
 .pdrive-tabs button:active { background: rgba(105,215,255,0.05); }
+.pdrive-tabs button:checked {
+  background: #263140;
+  border-color: rgba(105,215,255,0.42);
+  color: #ffffff;
+}
 .section-title { color: #f4f7fb; font-size: 16px; font-weight: 700; }
 .section-subtitle { color: #8f9bad; font-size: 11px; }
 .axis-label {
@@ -2343,7 +2358,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         open_web_row.pack_start(label("Open Proton Drive web"), False, False, 0)
         open_web_button.add(open_web_row)
         open_web_button.set_halign(Gtk.Align.START)
-        open_web_button.set_margin_start(10)
+        open_web_button.set_margin_start(22)
         open_web_button.set_tooltip_text(translate("Open Proton Drive on the web"))
         open_web_button.connect("clicked", self.on_open_proton_web)
         add_css(open_web_button, "secondary-web-action")
@@ -2365,7 +2380,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         open_folder_row.pack_start(label("Open PDrive folder"), False, False, 0)
         open_folder_button.add(open_folder_row)
         open_folder_button.set_halign(Gtk.Align.END)
-        open_folder_button.set_margin_end(10)
+        open_folder_button.set_margin_end(22)
         open_folder_button.set_tooltip_text(translate("Open /pdrive in Nemo"))
         open_folder_button.connect("clicked", self.on_open_mount)
         add_css(open_folder_button, "primary-folder-action")
@@ -2617,9 +2632,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.speed_graph = SpeedGraph()
         upload_graph_box.pack_start(self.graph_with_axes(self.speed_graph), True, True, 0)
         self.upload_graph_detail = label("", "section-subtitle")
-        self.upload_graph_detail.set_tooltip_text(
-            translate("Upload speed is reported by rclone transfer statistics.")
-        )
+        self.upload_graph_detail.set_tooltip_text(translate("Upload speed is reported by rclone transfer statistics."))
         upload_graph_box.pack_start(self.upload_graph_detail, False, False, 0)
         graph_grid.attach(card(upload_graph_box), 0, 0, 1, 1)
 
@@ -2695,7 +2708,12 @@ class PDriveWindow(Gtk.ApplicationWindow):
         for key, title, tooltip, callback in (
             ("bandwidth", "Bandwidth", "Change bandwidth limit", self.on_bandwidth),
             ("slots", "Upload slots", "Change upload slots", self.on_transfers),
-            ("metadata", "Metadata cache", "Change metadata cache mode", self.on_metadata_cache),
+            (
+                "metadata",
+                "Metadata cache",
+                "Change metadata cache mode",
+                self.on_metadata_cache,
+            ),
             ("cooldown", "Cooldown", "Change restart cooldown", self.on_cooldown),
         ):
             button = Gtk.Button()
@@ -2757,8 +2775,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
         retention_button = Gtk.Button(label=translate("Cache retention …"))
         retention_button.set_tooltip_text(translate("Change cache retention"))
         add_css(retention_button, "flat-action")
-        retention_button.set_sensitive(not self.demo)
+        set_pointer_on_hover(retention_button)
         retention_button.connect("clicked", self.on_cache_retention)
+        self.retention_button = retention_button
         heading.pack_end(retention_button, False, False, 0)
         box.pack_start(heading, False, False, 0)
 
@@ -3287,9 +3306,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 exit_status=service.get("exit_status", "–"),
             )
         )
-        self.service_detail_values["uptime"].set_text(
-            human_duration(service.get("uptime_seconds", -1))
-        )
+        self.service_detail_values["uptime"].set_text(human_duration(service.get("uptime_seconds", -1)))
         self.service_detail_values["restarts"].set_text(str(int(service.get("restarts") or 0)))
         self.service_detail_values["mount"].set_text(
             translate_format(
@@ -3955,9 +3972,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         apply_button.set_sensitive(False)
         scale.connect(
             "value-changed",
-            lambda current_scale: apply_button.set_sensitive(
-                abs(current_scale.get_value() - initial_position) >= 0.05
-            ),
+            lambda current_scale: apply_button.set_sensitive(abs(current_scale.get_value() - initial_position) >= 0.05),
         )
         dialog.show_all()
         response = dialog.run()
@@ -4007,9 +4022,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         save_button.set_sensitive(False)
         scale.connect(
             "value-changed",
-            lambda current_scale: save_button.set_sensitive(
-                round(current_scale.get_value()) != current
-            ),
+            lambda current_scale: save_button.set_sensitive(round(current_scale.get_value()) != current),
         )
         dialog.show_all()
         response = dialog.run()
@@ -4054,7 +4067,10 @@ class PDriveWindow(Gtk.ApplicationWindow):
         content.pack_start(restart_note, False, False, 0)
         save_button = dialog.get_widget_for_response(Gtk.ResponseType.OK)
         save_button.set_sensitive(False)
-        switch.connect("notify::active", lambda current, _param: save_button.set_sensitive(current.get_active() != enabled))
+        switch.connect(
+            "notify::active",
+            lambda current, _param: save_button.set_sensitive(current.get_active() != enabled),
+        )
         dialog.show_all()
         response = dialog.run()
         selected = switch.get_active()

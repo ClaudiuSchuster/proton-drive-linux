@@ -136,6 +136,9 @@ assert "used" in window.capacity_card.remote_detail.get_text()
 assert "free" in window.capacity_card.local_value.get_text()
 assert "VFS cache used" in window.capacity_card.local_detail.get_text()
 assert "pending upload" in window.cache_card.detail.get_text()
+assert window.retention_button.get_sensitive()
+assert window.retention_button.get_tooltip_text() == "Change cache retention"
+assert window.retention_button.get_events() & module.Gdk.EventMask.ENTER_NOTIFY_MASK
 assert all(value.get_text() != "–" for value in window.live_detail_labels.values())
 assert "queued" in window.live_detail_labels["upload"].get_text()
 assert "rclone process" in window.live_detail_labels["download"].get_text()
