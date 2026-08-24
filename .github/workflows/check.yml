@@ -50,6 +50,7 @@ jobs:
         env:
           ENABLE_GITHUB_PULL_REQUEST_SUMMARY_COMMENT: false
           MULTI_STATUS: false
+          SAVE_SUPER_LINTER_SUMMARY: true
           SUPPRESS_OUTPUT_ON_SUCCESS: true
           VALIDATE_ALL_CODEBASE: true
           VALIDATE_BASH: true
