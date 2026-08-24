@@ -126,6 +126,7 @@ project-specific; CI remains the authority for mechanical formatting rules.
 - `libexec/rclone-proton-mount`: authoritative mount arguments and runtime
   configuration parsing.
 - `libexec/setup-rclone-proton`: bounded initial rclone/Proton configuration.
+- `libexec/reauth-rclone-proton`: isolated transactional credential replacement.
 - `systemd/user`: mount, watchdog, and updater lifecycle.
 - `tests`: action-free help checks, fixtures, setup safety, state schema, and GTK
   behavior.
@@ -190,6 +191,9 @@ project-specific; CI remains the authority for mechanical formatting rules.
 - Release notes must summarize user-visible changes since the previous release,
   state the supported upgrade path and link the full comparison. Do not expose
   private deployment details, maintainer-session notes or credentials.
+- Name GitHub Releases `vX.Y.Z — PDrive Control Center` so the version remains
+  visible in GitHub's narrow release list. Keep the matching Git tag exactly
+  `vX.Y.Z`.
 - Do not move an existing release tag, force-push, rewrite shared history, or
   publish credentials and machine-specific paths.
 - Keep commits focused and use short imperative English subjects. Preserve

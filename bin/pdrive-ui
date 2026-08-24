@@ -44,7 +44,7 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.6.1"
+VERSION = "0.6.2"
 REFRESH_INTERVAL_SECONDS = 2
 REFRESH_INTERVAL_OPTIONS = (1, 2, 5, 10)
 BANDWIDTH_SLIDER_MAX_RATE = 100.0
@@ -70,6 +70,7 @@ DOCUMENTATION_PAGES = (
         "TROUBLESHOOTING.md",
         "docs/TROUBLESHOOTING.md",
     ),
+    ("security", "Security", "SECURITY.md", "SECURITY.md"),
 )
 DEFAULT_PREFERENCES: dict[str, Any] = {
     "close_to_tray": False,
@@ -162,6 +163,7 @@ GERMAN_TRANSLATIONS = {
     "Getting started": "Einstieg",
     "Operations": "Betrieb",
     "Troubleshooting": "Fehlerbehebung",
+    "Security": "Sicherheit",
     "Documentation unavailable": "Handbuch nicht verfügbar",
     "The local documentation files could not be found.": "Die lokalen Handbuchdateien wurden nicht gefunden.",
     "Open the project documentation online": "Projekthandbuch online öffnen",
@@ -539,10 +541,11 @@ def setup_readiness() -> dict[str, Any]:
 
 def documentation_path(installed_name: str, repository_relative: str) -> pathlib.Path | None:
     data_home = xdg_path("XDG_DATA_HOME", pathlib.Path.home() / ".local" / "share")
+    source_candidate = pathlib.Path(__file__).resolve().parent.parent / repository_relative
     candidates = (
+        source_candidate,
         data_home / "doc" / "proton-drive-linux" / installed_name,
         pathlib.Path("/usr/share/doc/proton-drive-linux") / installed_name,
-        pathlib.Path(__file__).resolve().parent.parent / repository_relative,
     )
     for candidate in candidates:
         if candidate.is_file():

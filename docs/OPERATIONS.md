@@ -517,10 +517,20 @@ The no-option form is help only. Use `--reauth` exclusively for an expired or
 invalid session, a changed Proton password, or a diagnosis that clearly points
 to authentication.
 
-The helper requires `JA`, reads password and optional TOTP silently, then stops
-the mount. It backs up the encrypted configuration, clears old client session
-fields, performs exactly one bounded login and removes the one-time TOTP. The
-mount is restarted only when login succeeds.
+The helper requires `REAUTH` and silently reads username, password twice and an
+optional current TOTP. It transports all three fields through an anonymous
+stdin pipe to a narrow internal backend; credentials never appear in process
+arguments or environment variables.
+
+The backend builds a separate encrypted candidate configuration and performs
+exactly one bounded, read-only login using a dedicated temporary cache. A failed
+login leaves the existing encrypted configuration and running mount untouched.
+Only after a successful test does it stop the service, back up the final current
+`rclone.conf`, remove the one-time TOTP, atomically install the replacement and
+start and validate the mount. Temporary configuration and cache paths are
+removed on every exit. Documented non-session backend choices such as an
+obscured two-password mailbox value and custom encoding are preserved; old
+client/session tokens are deliberately not copied into the candidate.
 
 After HTTP 429, leave the service stopped and wait for Proton's complete stated
 backoff plus a small margin. Repeated “tests” can extend the block.
@@ -576,6 +586,14 @@ due and daily with up to four hours of randomized delay. Its updater accepts
 only the parsed official `proton.me` x86-64 version URL, downloads over TLS and
 atomically replaces the binary only after the release page's SHA-512 value
 matches. This CLI is separate from the rclone FUSE mount.
+
+Both updater services use fixed per-machine jitter, explicit time limits, a
+private umask, low CPU/I/O priority and a restricted systemd sandbox. They can
+write only their intended user-local binary/state locations. The watchdog uses
+a similarly bounded read-mostly sandbox. These restrictions are deliberately
+not copied to `rclone-proton-drive.service`: FUSE, `fusermount3`, GNOME Keyring,
+the mount namespace and the VFS cache require capabilities that generic service
+hardening can accidentally block.
 
 Manual checks:
 

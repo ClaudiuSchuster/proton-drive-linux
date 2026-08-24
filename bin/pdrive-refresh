@@ -132,7 +132,7 @@ case "${1:-}" in
         fi
         printf '%s\n' \
             'Vorprüfung erfolgreich: keine Queue, keine aktiven Uploads, keine Dirty-Dateien.' \
-            'Der folgende vorhandene Schutzpfad verlangt zur Bestätigung exakt NEUSTART,' \
+            'Der folgende vorhandene Schutzpfad verlangt zur Bestätigung exakt RESTART,' \
             'startet genau eine neue Dienstinstanz und validiert anschließend PID und Mount.'
         exec "${watch_bin}" --restart-service
         ;;

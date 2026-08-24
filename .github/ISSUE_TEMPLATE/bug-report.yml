@@ -1,0 +1,72 @@
+name: Bug report
+description: Report a reproducible PDrive defect without exposing private data.
+title: "[Bug]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for helping improve PDrive. For credentials, tokens, private paths or a security boundary bypass, stop here and use [private vulnerability reporting](https://github.com/ClaudiuSchuster/proton-drive-linux/security/advisories/new).
+  - type: input
+    id: version
+    attributes:
+      label: PDrive version or commit
+      description: Run `pdrive-ui --version` or provide the tested commit.
+      placeholder: 0.6.2
+    validations:
+      required: true
+  - type: input
+    id: platform
+    attributes:
+      label: Linux and desktop version
+      placeholder: Linux Mint 22.x Cinnamon
+    validations:
+      required: true
+  - type: input
+    id: rclone
+    attributes:
+      label: rclone version
+      description: The first line from `~/.local/libexec/rclone-bin version` is enough.
+      placeholder: rclone v1.x.y
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and its impact.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Reproduction steps
+      description: Use synthetic names and the smallest safe sequence that reproduces the issue.
+      placeholder: |
+        1. Open …
+        2. Change …
+        3. Observe …
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Sanitized diagnostics
+      description: Include only relevant `pdrive-watch` or `pdrive-doctor` output. Remove personal paths, filenames, URLs, share IDs and account data.
+      render: shell
+  - type: checkboxes
+    id: safety
+    attributes:
+      label: Data-safety checks
+      options:
+        - label: I did not delete or clear Dirty VFS cache data while investigating.
+          required: true
+        - label: I removed credentials, tokens, personal paths and private filenames from this report.
+          required: true
+        - label: I checked existing issues for the same behavior.
+          required: true

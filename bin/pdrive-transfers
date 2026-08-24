@@ -19,7 +19,7 @@ usage() {
         '' \
         "Konfiguration: ${transfers_config}" \
         'Eine Änderung startet rclone absichtlich nicht neu und gilt erst beim nächsten Start.' \
-        'Für die aktuelle Großdatei-Recovery ist 1 empfohlen.'
+        'Ein Slot ist nur für gezielte Diagnose oder serielle Recovery gedacht.'
 }
 
 read_configured_transfers() {

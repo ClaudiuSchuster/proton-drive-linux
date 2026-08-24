@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Private security report
+    url: https://github.com/ClaudiuSchuster/proton-drive-linux/security/advisories/new
+    about: Report credentials exposure or a security-boundary bypass privately.
+  - name: Operations and troubleshooting handbooks
+    url: https://github.com/ClaudiuSchuster/proton-drive-linux#documentation-and-development
+    about: Check safe operation and symptom-led recovery before filing a bug.

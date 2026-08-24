@@ -58,13 +58,6 @@ if grep -RInE --exclude-dir=.git --exclude=check.sh \
     exit 1
 fi
 
-for unit_file in "${project_dir}"/systemd/user/*; do
-    grep -q '^\[Unit\]$' "${unit_file}" || {
-        printf 'Missing [Unit] section: %s\n' "${unit_file}" >&2
-        exit 1
-    }
-done
-
 required_documentation=(
     'mode-0700 Unix'
     'Exact watchdog safety gates'
@@ -89,9 +82,12 @@ if grep -RiqF -- 'mode-0600 Unix' "${project_dir}/README.md" "${project_dir}/doc
 fi
 
 "${project_dir}/tests/test-help.sh"
+"${project_dir}/tests/test-systemd.sh"
+"${project_dir}/tests/test-updaters.sh"
 "${project_dir}/tests/test-cache-age.sh"
 "${project_dir}/tests/test-prerequisites.sh"
 "${project_dir}/tests/test-setup.sh"
+"${project_dir}/tests/test-reauth.sh"
 "${project_dir}/tests/test-setup-wizard-ui.sh"
 "${project_dir}/tests/test-state.sh"
 "${project_dir}/tests/test-ui-preferences.sh"

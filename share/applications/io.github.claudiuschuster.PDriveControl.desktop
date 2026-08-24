@@ -2,7 +2,8 @@
 Type=Application
 Version=1.0
 Name=PDrive Control Center
-GenericName=Proton Drive Monitor
+GenericName=Proton Drive Control Center
+GenericName[de]=Proton-Drive-Kontrollzentrum
 Comment=Live transfers, queue and health of the local Proton Drive mount
 Comment[de]=Live-Transfers, Warteschlange und Zustand des lokalen Proton-Drive-Mounts
 Exec=pdrive-ui
@@ -11,5 +12,5 @@ Terminal=false
 StartupNotify=true
 StartupWMClass=io.github.claudiuschuster.PDriveControl
 Categories=Network;FileTransfer;
-Keywords=Proton;Drive;rclone;Cloud;Sync;Upload;Queue;
-Keywords[de]=Proton;Drive;rclone;Cloud;Synchronisierung;Upload;Warteschlange;
+Keywords=Proton;Drive;rclone;Cloud;Sync;Upload;Download;Queue;Cache;Tray;Mount;
+Keywords[de]=Proton;Drive;rclone;Cloud;Synchronisierung;Upload;Download;Warteschlange;Cache;Tray;Mount;

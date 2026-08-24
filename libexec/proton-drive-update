@@ -2,6 +2,7 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 set -euo pipefail
+umask 077
 
 readonly index_url='https://proton.me/download/drive/cli/index.html'
 readonly binary_dir="${HOME}/.local/bin"
@@ -9,13 +10,19 @@ readonly binary_path="${binary_dir}/proton-drive"
 readonly state_dir="${XDG_STATE_HOME:-${HOME}/.local/state}/proton-drive-updater"
 readonly version_file="${state_dir}/installed-version"
 
-mkdir -p "${binary_dir}" "${state_dir}"
+if [[ "$(uname -m)" != 'x86_64' ]]; then
+    printf 'The optional Proton Drive CLI updater currently supports x86-64 only.\n' >&2
+    exit 69
+fi
+
+mkdir -p -- "${binary_dir}" "${state_dir}"
 
 work_dir="$(mktemp -d "${state_dir}/update.XXXXXX")"
 download_path="$(mktemp "${binary_dir}/.proton-drive.XXXXXX")"
+version_path="$(mktemp "${state_dir}/.installed-version.XXXXXX")"
 cleanup() {
     rm -rf -- "${work_dir}"
-    rm -f -- "${download_path}"
+    rm -f -- "${download_path}" "${version_path}"
 }
 trap cleanup EXIT
 
@@ -57,5 +64,6 @@ fi
 chmod 0755 "${download_path}"
 "${download_path}" version >/dev/null
 mv -f -- "${download_path}" "${binary_path}"
-printf '%s\n' "${version}" > "${version_file}"
+printf '%s\n' "${version}" > "${version_path}"
+mv -f -- "${version_path}" "${version_file}"
 echo "Installed Proton Drive CLI ${version}."

@@ -1,0 +1,194 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+umask 077
+
+readonly rclone_bin="${PDRIVE_RCLONE_BIN:-${HOME}/.local/bin/rclone}"
+readonly config_file="${PDRIVE_RCLONE_CONFIG:-${HOME}/.config/rclone/rclone.conf}"
+readonly state_dir="${PDRIVE_STATE_DIR:-${HOME}/.local/state/rclone}"
+readonly backup_dir="${PDRIVE_BACKUP_DIR:-${HOME}/.config/rclone/backups}"
+readonly mount_dir="${PDRIVE_MOUNT_DIR:-/pdrive}"
+readonly service_name='rclone-proton-drive.service'
+readonly reauth_log="${state_dir}/proton-reauth.log"
+
+usage() {
+    printf '%s\n' \
+        'Usage: reauth-rclone-proton --reauth-from-stdin' \
+        '' \
+        'Internal transactional backend for pdrive-reauth.' \
+        'It accepts username, password and optional 2FA as three NUL-delimited' \
+        'stdin fields. Secrets never enter process arguments or environment' \
+        'variables. Direct interactive use is intentionally unsupported.'
+}
+
+case "${1:-}" in
+    --reauth-from-stdin)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        ;;
+    -h|--help|'')
+        (( $# <= 1 )) || { usage >&2; exit 2; }
+        usage
+        exit 0
+        ;;
+    *)
+        printf 'Unknown option: %s\n\n' "$1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac
+
+for command_name in systemctl mountpoint; do
+    if ! command -v "${command_name}" >/dev/null 2>&1; then
+        printf 'Missing required command: %s\n' "${command_name}" >&2
+        exit 69
+    fi
+done
+if [[ ! -x "${rclone_bin}" ]]; then
+    printf 'Missing rclone wrapper: %s\n' "${rclone_bin}" >&2
+    exit 69
+fi
+if [[ ! -f "${config_file}" || -L "${config_file}" || ! -r "${config_file}" ]]; then
+    printf 'Existing rclone configuration is missing, unreadable or unsafe: %s\n' \
+        "${config_file}" >&2
+    exit 73
+fi
+if [[ "$(stat -c %u -- "${config_file}" 2>/dev/null || true)" != "$(id -u)" ]]; then
+    printf 'Refusing a configuration not owned by the current user: %s\n' \
+        "${config_file}" >&2
+    exit 73
+fi
+
+# Preserve only documented, non-session backend options. The decrypted config
+# stream never reaches the terminal; awk drops passwords and all refresh/client
+# tokens before the bounded allowlist enters shell memory.
+if ! preserved_options="$("${rclone_bin}" --config="${config_file}" config show proton \
+    | awk -F ' = ' '
+        $1 == "otp_secret_key" ||
+        $1 == "mailbox_password" ||
+        $1 == "encoding" ||
+        $1 == "original_file_size" ||
+        $1 == "app_version" ||
+        $1 == "replace_existing_draft" ||
+        $1 == "enable_caching" ||
+        $1 == "description" { print }
+    ')"; then
+    printf 'Could not read the existing encrypted Proton configuration.\n' >&2
+    exit 78
+fi
+
+if ! IFS= read -r -d '' username \
+    || ! IFS= read -r -d '' password \
+    || ! IFS= read -r -d '' two_factor; then
+    printf 'Invalid credential transport from pdrive-reauth.\n' >&2
+    exit 65
+fi
+if [[ -z "${username}" || "${username}" == *$'\n'* || "${username}" == *$'\r'* ]]; then
+    unset password two_factor
+    printf 'Invalid Proton username or email address.\n' >&2
+    exit 65
+fi
+if [[ -z "${password}" || "${password}" == *$'\n'* || "${password}" == *$'\r'* ]]; then
+    unset password two_factor
+    printf 'Invalid Proton password.\n' >&2
+    exit 65
+fi
+if [[ -n "${two_factor}" && ! "${two_factor}" =~ ^[0-9]{6}$ ]]; then
+    unset password two_factor
+    printf 'The 2FA code must be empty or exactly six digits.\n' >&2
+    exit 65
+fi
+
+mkdir -p -- "${config_file%/*}" "${state_dir}" "${backup_dir}"
+temporary_config="$(mktemp "${config_file%/*}/rclone.conf.reauth.XXXXXX")"
+test_cache="$(mktemp -d "${state_dir}/reauth-cache.XXXXXX")"
+cleanup() {
+    unset password two_factor obscured_password preserved_options
+    rm -f -- "${temporary_config:-}"
+    rm -rf -- "${test_cache:-}"
+}
+trap cleanup EXIT
+
+obscured_password="$(printf '%s\n' "${password}" | "${rclone_bin}" obscure -)"
+unset password
+{
+    printf '%s\n' \
+        '[proton]' \
+        'type = protondrive' \
+        "username = ${username}" \
+        "password = ${obscured_password}"
+    if [[ -n "${preserved_options}" ]]; then
+        printf '%s\n' "${preserved_options}"
+    fi
+    if ! grep -q '^original_file_size = ' <<< "${preserved_options}"; then
+        printf 'original_file_size = true\n'
+    fi
+    if ! grep -q '^enable_caching = ' <<< "${preserved_options}"; then
+        printf 'enable_caching = false\n'
+    fi
+    if [[ -n "${two_factor}" ]]; then
+        printf '2fa = %s\n' "${two_factor}"
+    fi
+} > "${temporary_config}"
+unset obscured_password preserved_options username
+
+"${rclone_bin}" --config="${temporary_config}" config encryption set
+"${rclone_bin}" --config="${temporary_config}" config encryption check
+: > "${reauth_log}"
+
+# Verify the replacement configuration before touching the working service or
+# its current encrypted configuration. A dedicated cache keeps the one bounded
+# read-only login test isolated from production VFS state.
+set +e
+timeout --signal=TERM 90s "${rclone_bin}" \
+    --config="${temporary_config}" \
+    --cache-dir="${test_cache}" \
+    --low-level-retries=0 \
+    --retries=1 \
+    --log-file="${reauth_log}" \
+    --log-level=INFO \
+    lsd proton: --max-depth 1 >/dev/null
+login_rc=$?
+set -e
+
+# A one-time TOTP must never remain in unattended configuration, including the
+# failed temporary candidate.
+"${rclone_bin}" --config="${temporary_config}" config update proton 2fa '' --no-output
+unset two_factor
+
+if (( login_rc != 0 )); then
+    printf '%s\n' \
+        'Reauthentication failed. The existing configuration and running mount' \
+        'were left untouched. Do not retry quickly after HTTP 429; wait for the' \
+        'complete Proton backoff and inspect the private reauthentication log.' >&2
+    printf 'Private log: %s\n' "${reauth_log}" >&2
+    exit "${login_rc}"
+fi
+
+# Stop only after the replacement configuration has authenticated. Back up the
+# final pre-stop file because a running backend may refresh its tokens.
+systemctl --user stop "${service_name}"
+timestamp="$(date '+%Y%m%d-%H%M%S')"
+backup_path="${backup_dir}/rclone.conf.before-reauth-${timestamp}"
+install -m 0600 "${config_file}" "${backup_path}"
+chmod 0600 "${temporary_config}"
+mv -f -- "${temporary_config}" "${config_file}"
+
+systemctl --user reset-failed "${service_name}"
+systemctl --user start --no-block "${service_name}"
+
+for _ in {1..30}; do
+    if mountpoint -q -- "${mount_dir}"; then
+        printf '%s\n' \
+            "Reauthentication succeeded; Proton Drive is mounted at ${mount_dir}." \
+            "Encrypted backup: ${backup_path}"
+        exit 0
+    fi
+    sleep 2
+done
+
+printf '%s\n' \
+    'The replacement credentials were verified and installed, but the mount' \
+    'did not become visible within 60 seconds. Run pdrive-doctor.' >&2
+printf 'Encrypted backup: %s\n' "${backup_path}" >&2
+exit 1

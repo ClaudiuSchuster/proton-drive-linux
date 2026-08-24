@@ -89,9 +89,14 @@ files so Cinnamon's caches behave predictably.
 Run the full local suite before every commit:
 
 ```bash
-make check
-git diff --check
+make verify
 ```
+
+`make help` lists action-free developer entry points. `make check-units` runs
+the focused systemd invariants and static verification, while
+`make check-display` exercises both GTK suites on the current desktop. The
+portable `make check` remains the CI entry point and automatically uses Xvfb
+when it is installed.
 
 For UI changes, also run the real-display widget suite where a disposable
 display is unavailable:
@@ -127,14 +132,20 @@ changed and disable again when the original values are restored.
 ## CI and release process
 
 `make check` covers syntax, ShellCheck, action-free help behavior, setup safety,
-state fixtures, version consistency, desktop validation and GTK checks when the
-display stack is available. GitHub Actions also runs Super-Linter for Bash,
-Python, Markdown, YAML, action security and secret scanning.
+transactional reauthentication, systemd semantics, state fixtures, version
+consistency, desktop validation and GTK checks when the display stack is
+available. GitHub Actions also runs Super-Linter for Bash, Python, Markdown,
+YAML, action security and secret scanning.
 
 `VERSION`, `bin/pdrive-ui::VERSION` and `bin/pdrive-state::TOOL_VERSION` must
 match exactly. Releases use immutable annotated `vX.Y.Z` tags on a commit whose
-Functional checks and Super-Linter jobs are green. Do not claim Linux Mint
-Software Manager or APT availability until that publishing channel exists.
+Functional checks and Super-Linter jobs are green. A pushed SemVer tag and its
+matching non-draft GitHub Release are one operation; if release notes are not
+ready, the tag is not pushed. The highest stable release is marked Latest and
+the release is titled `vX.Y.Z — PDrive Control Center`. Notes summarize
+user-visible changes, the upgrade path and the full comparison. Do not claim
+Linux Mint Software Manager or APT availability until that publishing channel
+exists.
 
 ## Contributing
 
@@ -142,3 +153,6 @@ Keep commits focused with short imperative English subjects. Explain observable
 behavior changes and add regression coverage for every fixed failure mode.
 Changes involving credentials, cache eviction, watchdog restarts, RC exposure or
 privileged setup deserve explicit security review.
+Use the [security policy](../SECURITY.md) for private vulnerability reports and
+the repository issue templates for ordinary reproducible defects and feature
+ideas.

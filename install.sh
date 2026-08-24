@@ -146,6 +146,7 @@ install -m 0644 "${project_dir}/README.md" "${doc_dir}/README.md"
 install -m 0644 "${project_dir}/docs/OPERATIONS.md" "${doc_dir}/OPERATIONS.md"
 install -m 0644 "${project_dir}/docs/TROUBLESHOOTING.md" "${doc_dir}/TROUBLESHOOTING.md"
 install -m 0644 "${project_dir}/docs/DEVELOPMENT.md" "${doc_dir}/DEVELOPMENT.md"
+install -m 0644 "${project_dir}/SECURITY.md" "${doc_dir}/SECURITY.md"
 install -m 0644 "${project_dir}/LICENSE" "${doc_dir}/LICENSE"
 install -m 0644 "${project_dir}/VERSION" "${doc_dir}/VERSION"
 install -m 0644 \

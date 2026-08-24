@@ -1,9 +1,31 @@
 [Unit]
 Description=Update rclone from its signed official release channel
-Documentation=https://rclone.org/commands/rclone_selfupdate/
+Documentation=file:%h/.local/share/doc/proton-drive-linux/OPERATIONS.md https://rclone.org/commands/rclone_selfupdate/
 After=network-online.target
 Wants=network-online.target
+ConditionPathExists=%h/.local/libexec/rclone-bin
 
 [Service]
 Type=oneshot
+UMask=0077
 ExecStart=%h/.local/libexec/rclone-selfupdate
+TimeoutStartSec=15min
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=read-only
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadWritePaths=%h/.local/libexec
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native

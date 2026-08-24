@@ -1,12 +1,31 @@
 [Unit]
 Description=Update Proton Drive CLI from the official Proton release channel
-Documentation=https://proton.me/support/drive-cli
+Documentation=file:%h/.local/share/doc/proton-drive-linux/OPERATIONS.md https://proton.me/support/drive-cli
 After=network-online.target
 Wants=network-online.target
+ConditionPathExists=%h/.local/libexec/proton-drive-update
 
 [Service]
 Type=oneshot
+UMask=0077
 ExecStart=%h/.local/libexec/proton-drive-update
-
-[Install]
-WantedBy=default.target
+TimeoutStartSec=10min
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHome=read-only
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=strict
+ReadWritePaths=%h/.local/bin %h/.local/state
+LockPersonality=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native

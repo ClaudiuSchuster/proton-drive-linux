@@ -4,11 +4,8 @@
 set -euo pipefail
 umask 077
 
-readonly rclone_bin="${HOME}/.local/bin/rclone"
-readonly config_file="${HOME}/.config/rclone/rclone.conf"
 readonly state_dir="${HOME}/.local/state/rclone"
-readonly backup_dir="${HOME}/.config/rclone/backups"
-readonly reauth_log="${state_dir}/proton-reauth.log"
+readonly reauth_backend="${PDRIVE_REAUTH_BACKEND:-${HOME}/.local/libexec/reauth-rclone-proton}"
 
 usage() {
     printf '%s\n' \
@@ -26,10 +23,11 @@ usage() {
         '' \
         'Der Lauf mit --reauth:' \
         '  1. verlangt zuerst die exakte Bestätigung JA;' \
-        '  2. liest Passwort und optionalen 2FA-Code verdeckt ein;' \
-        '  3. stoppt anschließend den Mountdienst und sichert rclone.conf;' \
-        '  4. verwirft alte Sitzungstoken und führt genau einen Loginversuch aus;' \
-        '  5. entfernt den einmaligen 2FA-Code wieder und startet nur bei Erfolg.' \
+        '  2. liest Benutzername, Passwort und optionalen 2FA-Code verdeckt ein;' \
+        '  3. testet eine neue verschlüsselte Konfiguration isoliert und genau einmal;' \
+        '  4. lässt bei Fehlschlag Dienst und vorhandene Konfiguration unangetastet;' \
+        '  5. stoppt erst nach Erfolg, sichert rclone.conf und ersetzt sie atomar;' \
+        '  6. entfernt den einmaligen 2FA-Code und validiert den neuen Mount.' \
         '' \
         'Nach HTTP 429 erst die vollständige Proton-Sperrzeit abwarten.' \
         'Ohne Option sowie mit --help: kein Prompt, kein Login, kein Dienststopp' \
@@ -70,7 +68,10 @@ if [[ ! -t 0 || ! -t 1 ]]; then
     exit 64
 fi
 
-mkdir -p -- "${backup_dir}" "${state_dir}"
+if [[ ! -x "${reauth_backend}" ]]; then
+    printf 'Reauthentication backend is missing: %s\n' "${reauth_backend}" >&2
+    exit 69
+fi
 
 echo 'Proton-Drive-rclone-Autorisierung'
 echo
@@ -80,20 +81,33 @@ latest_rate_limit="$(tr -d '\000' < "${state_dir}/proton-mount.log" 2>/dev/null 
 if [[ -n "${latest_rate_limit}" ]]; then
     printf 'Letzter protokollierter 429-Fehler: %.19s\n' "${latest_rate_limit}"
 fi
-echo 'Dieser Helfer führt genau einen Loginversuch aus und startet nur bei Erfolg den Mount.'
+echo 'Dieser Helfer testet genau einmal und stoppt den Mount erst nach erfolgreichem Login.'
 echo
-read -r -p 'Ist die Sperrzeit sicher abgelaufen? Zum Fortfahren JA eingeben: ' answer
-if [[ "${answer}" != 'JA' ]]; then
+read -r -p 'Ist die Sperrzeit sicher abgelaufen? Zum Fortfahren REAUTH eingeben: ' answer
+if [[ "${answer}" != 'REAUTH' ]]; then
     echo 'Abgebrochen; es wurde nichts geändert.'
     exit 0
 fi
 
+read -r -p 'Proton-Benutzername oder E-Mail-Adresse: ' proton_username
+if [[ -z "${proton_username}" ]]; then
+    echo 'Ein leerer Benutzername ist nicht zulässig.' >&2
+    exit 65
+fi
 read -r -s -p 'Aktuelles Proton-Kontopasswort: ' proton_password
 echo
 if [[ -z "${proton_password}" ]]; then
     echo 'Ein leeres Passwort ist nicht zulässig.' >&2
     exit 65
 fi
+read -r -s -p 'Passwort wiederholen: ' proton_password_confirm
+echo
+if [[ "${proton_password}" != "${proton_password_confirm}" ]]; then
+    unset proton_password proton_password_confirm
+    echo 'Die Passwörter stimmen nicht überein.' >&2
+    exit 65
+fi
+unset proton_password_confirm
 
 read -r -s -p 'Aktueller 6-stelliger 2FA-Code (leer, falls 2FA aus ist): ' proton_2fa
 echo
@@ -103,62 +117,10 @@ if [[ -n "${proton_2fa}" && ! "${proton_2fa}" =~ ^[0-9]{6}$ ]]; then
     exit 65
 fi
 
-systemctl --user stop rclone-proton-drive.service
-
-timestamp="$(date '+%Y%m%d-%H%M%S')"
-backup_path="${backup_dir}/rclone.conf.before-reauth-${timestamp}"
-cp -a -- "${config_file}" "${backup_path}"
-
-# rclone obscures the Proton password before the already encrypted config is
-# saved.  Values are read silently and never enter shell history or logs.
-"${rclone_bin}" --config="${config_file}" config update proton \
-    password "${proton_password}" \
-    2fa "${proton_2fa}" \
-    client_uid '' \
-    client_access_token '' \
-    client_refresh_token '' \
-    client_salted_key_pass '' \
-    --obscure --no-output
-unset proton_password proton_2fa
-
-: > "${reauth_log}"
 set +e
-timeout --signal=TERM 90s "${rclone_bin}" \
-    --config="${config_file}" \
-    --low-level-retries=0 \
-    --retries=1 \
-    --log-file="${reauth_log}" \
-    --log-level=INFO \
-    lsd proton: --max-depth 1 >/dev/null
-login_rc=$?
+printf '%s\0' "${proton_username}" "${proton_password}" "${proton_2fa}" \
+    | "${reauth_backend}" --reauth-from-stdin
+reauth_rc=$?
 set -e
-
-# A one-time TOTP must never remain in an unattended mount configuration.
-"${rclone_bin}" --config="${config_file}" config update proton 2fa '' --no-output
-
-if (( login_rc != 0 )); then
-    echo
-    echo 'Autorisierung fehlgeschlagen; der Mount bleibt absichtlich gestoppt.' >&2
-    echo "Verschlüsselte Sicherung: ${backup_path}" >&2
-    tr -d '\000' < "${reauth_log}" \
-        | grep -E 'NOTICE|ERROR|CRITICAL|429|422|CAPTCHA|timeout' \
-        | tail -n 12 >&2 || true
-    exit "${login_rc}"
-fi
-
-systemctl --user reset-failed rclone-proton-drive.service
-systemctl --user start rclone-proton-drive.service
-
-for _ in {1..30}; do
-    if mountpoint -q -- /pdrive; then
-        echo
-        echo 'Autorisierung erfolgreich; Proton Drive ist unter /pdrive gemountet.'
-        echo "Verschlüsselte Sicherung: ${backup_path}"
-        exit 0
-    fi
-    sleep 2
-done
-
-echo 'Login war erfolgreich, aber der Mount wurde nicht innerhalb von 60 Sekunden sichtbar.' >&2
-echo 'Bitte pdrive-doctor ausführen.' >&2
-exit 1
+unset proton_username proton_password proton_2fa
+exit "${reauth_rc}"

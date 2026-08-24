@@ -6,6 +6,9 @@ OnBootSec=5min
 OnCalendar=daily
 Persistent=true
 RandomizedDelaySec=4h
+FixedRandomDelay=true
+AccuracySec=15min
+Unit=proton-drive-update.service
 
 [Install]
 WantedBy=timers.target

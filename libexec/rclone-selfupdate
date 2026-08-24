@@ -3,9 +3,9 @@
 
 set -euo pipefail
 
-readonly rclone_bin="${HOME}/.local/bin/rclone"
+readonly rclone_bin="${HOME}/.local/libexec/rclone-bin"
 before="$(${rclone_bin} version | head -n 1)"
-${rclone_bin} selfupdate --stable
+"${rclone_bin}" selfupdate --stable
 after="$(${rclone_bin} version | head -n 1)"
 
 if [[ "${before}" != "${after}" ]]; then

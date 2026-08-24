@@ -31,6 +31,8 @@ printf '%s\n' \
 # shellcheck disable=SC2016
 printf '%s\n' \
     '#!/usr/bin/env bash' \
+    'printf " %q" "$@" >> "${PDRIVE_TEST_RCLONE_ARGV_LOG}"' \
+    'printf "\n" >> "${PDRIVE_TEST_RCLONE_ARGV_LOG}"' \
     'config=""' \
     'for argument in "$@"; do' \
     '  case "${argument}" in --config=*) config="${argument#--config=}" ;; esac' \
@@ -50,6 +52,7 @@ printf '%s\n' \
 chmod 0755 "${fake_bin}/secret-tool" "${fake_bin}/systemctl" "${fake_bin}/rclone"
 
 systemctl_log="${test_root}/systemctl.log"
+rclone_argv_log="${test_root}/rclone-argv.log"
 setup_output="${test_root}/setup.out"
 setup_error="${test_root}/setup.err"
 if ! printf '%s\0' 'person@example.test' 'correct horse battery staple' '123456' \
@@ -57,6 +60,7 @@ if ! printf '%s\0' 'person@example.test' 'correct horse battery staple' '123456'
         PATH="${fake_bin}:/usr/bin:/bin" \
         PDRIVE_MOUNT_DIR="${mount_dir}" \
         PDRIVE_RCLONE_BIN="${fake_bin}/rclone" \
+        PDRIVE_TEST_RCLONE_ARGV_LOG="${rclone_argv_log}" \
         PDRIVE_TEST_SYSTEMCTL_LOG="${systemctl_log}" \
         "${project_dir}/libexec/setup-rclone-proton" --setup-from-stdin \
         > "${setup_output}" 2> "${setup_error}"; then
@@ -70,8 +74,14 @@ config_file="${test_home}/.config/rclone/rclone.conf"
 [[ "$(stat -c '%a' "${config_file}")" == 600 ]]
 grep -qFx 'username = person@example.test' "${config_file}"
 grep -qFx 'password = obscured-password' "${config_file}"
-if grep -qF '123456' "${config_file}" || grep -qF 'correct horse battery staple' "${setup_output}"; then
-    printf 'A one-time code or password escaped the setup transaction.\n' >&2
+if grep -qF '123456' "${config_file}" \
+    || grep -RqsE 'correct horse battery staple|123456' \
+        "${setup_output}" "${setup_error}"; then
+    printf 'A one-time code or password escaped the setup output or configuration.\n' >&2
+    exit 1
+fi
+if grep -Eq 'correct\\ horse\\ battery\\ staple|123456' "${rclone_argv_log}"; then
+    printf 'A password or one-time code escaped into an rclone process argument.\n' >&2
     exit 1
 fi
 grep -qF 'enable rclone-proton-drive.service pdrive-watch.timer rclone-selfupdate.timer' "${systemctl_log}"
@@ -84,6 +94,7 @@ if printf '%s\0' 'person@example.test' 'correct horse battery staple' '123456' \
         PATH="${fake_bin}:/usr/bin:/bin" \
         PDRIVE_MOUNT_DIR="${mount_dir}" \
         PDRIVE_RCLONE_BIN="${fake_bin}/rclone" \
+        PDRIVE_TEST_RCLONE_ARGV_LOG="${rclone_argv_log}" \
         PDRIVE_TEST_LOGIN_FAIL=1 \
         PDRIVE_TEST_SYSTEMCTL_LOG="${systemctl_log}" \
         "${project_dir}/libexec/setup-rclone-proton" --setup-from-stdin \
@@ -93,5 +104,9 @@ if printf '%s\0' 'person@example.test' 'correct horse battery staple' '123456' \
 fi
 [[ ! -e "${failed_home}/.config/rclone/rclone.conf" ]]
 [[ -z "$(find "${failed_home}/.config/rclone" -maxdepth 1 -type f -name 'rclone.conf.*' -print -quit)" ]]
+if grep -Eq 'correct\\ horse\\ battery\\ staple|123456' "${rclone_argv_log}"; then
+    printf 'A failed setup exposed a password or one-time code in process arguments.\n' >&2
+    exit 1
+fi
 
 printf 'PDrive transactional setup checks passed.\n'

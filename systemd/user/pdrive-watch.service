@@ -1,7 +1,25 @@
 [Unit]
 Description=Health check and bounded stall recovery for the Proton Drive rclone deployment
-Documentation=file:%h/.local/share/doc/proton-drive-linux/README.md
+Documentation=file:%h/.local/share/doc/proton-drive-linux/OPERATIONS.md
 
 [Service]
 Type=oneshot
+UMask=0077
 ExecStart=%h/.local/bin/pdrive-watch --record
+TimeoutStartSec=5min
+Nice=10
+IOSchedulingClass=idle
+NoNewPrivileges=true
+PrivateDevices=true
+PrivateTmp=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectHostname=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectSystem=full
+LockPersonality=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+SystemCallArchitectures=native

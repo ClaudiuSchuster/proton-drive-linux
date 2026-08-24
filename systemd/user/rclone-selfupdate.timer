@@ -6,6 +6,9 @@ OnBootSec=10min
 OnCalendar=Sun *-*-* 04:00:00
 Persistent=true
 RandomizedDelaySec=2h
+FixedRandomDelay=true
+AccuracySec=15min
+Unit=rclone-selfupdate.service
 
 [Install]
 WantedBy=timers.target

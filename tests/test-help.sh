@@ -32,6 +32,9 @@ fi
 HOME="${test_home}" bash "${project_dir}/install.sh" --help >/dev/null
 HOME="${test_home}" bash "${project_dir}/uninstall.sh" --help >/dev/null
 HOME="${test_home}" bash "${project_dir}/libexec/setup-rclone-proton" >/dev/null
+HOME="${test_home}" bash "${project_dir}/libexec/reauth-rclone-proton" --help >/dev/null
+HOME="${test_home}" make -s -C "${project_dir}" help >/dev/null
+HOME="${test_home}" make -s -C "${project_dir}" version >/dev/null
 after="$(snapshot)"
 
 if [[ "${before}" != "${after}" ]]; then

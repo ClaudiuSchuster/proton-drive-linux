@@ -216,7 +216,7 @@ documentation_windows = [
 ]
 assert len(documentation_windows) == 1
 documentation_window = documentation_windows[0]
-assert len(documentation_window.stack.get_children()) == 3
+assert len(documentation_window.stack.get_children()) == 4
 guide = documentation_window.stack.get_child_by_name("guide")
 assert guide is not None
 guide_text = guide.text_view.get_buffer().get_text(
@@ -249,6 +249,21 @@ for documented_control in (
     "Safely restart service",
 ):
     assert documented_control in operations_text
+security = documentation_window.stack.get_child_by_name("security")
+assert security is not None
+security_text = security.text_view.get_buffer().get_text(
+    security.text_view.get_buffer().get_start_iter(),
+    security.text_view.get_buffer().get_end_iter(),
+    True,
+)
+normalized_security_text = " ".join(security_text.split())
+for security_boundary in (
+    "Reporting a vulnerability",
+    "anonymous stdin pipes",
+    "owner-only Unix socket",
+    "Out of scope and inherited risk",
+):
+    assert security_boundary in normalized_security_text, security_boundary
 documentation_window.destroy()
 
 original_dialog_run = module.Gtk.Dialog.run

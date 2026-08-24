@@ -11,6 +11,15 @@ pdrive-watch-history.log
 # Local test/editor output.
 .tmp/
 __pycache__/
+.ruff_cache/
+.pytest_cache/
+.mypy_cache/
+.venv/
+build/
+dist/
+*.egg-info/
+.coverage
+coverage.xml
 *.py[cod]
 *.swp
 *~

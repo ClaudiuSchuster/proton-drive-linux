@@ -282,8 +282,13 @@ account password changed:
 pdrive-reauth --reauth
 ```
 
-The helper backs up the encrypted configuration and makes one bounded login
-attempt. It starts the mount only after success.
+The helper verifies a separate encrypted replacement configuration with one
+bounded login attempt before it stops anything. A failed password, stale 2FA or
+HTTP 429 therefore leaves the current configuration and mount untouched. After
+success it stops the service, backs up the final current configuration, installs
+the tested replacement atomically, removes the one-time code and validates the
+new mount. Credentials travel only through anonymous stdin, never argv or the
+environment.
 
 Proton accounts using a two-password model distinguish the account login
 password from the mailbox password. If that account mode is enabled, configure

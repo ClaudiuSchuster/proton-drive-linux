@@ -111,7 +111,7 @@ if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "${applications_dir}" >/dev/null 2>&1 || true
 fi
 for file_name in proton-drive-update rclone-bin rclone-proton-mount \
-    rclone-proton-unmount rclone-selfupdate setup-rclone-proton; do
+    rclone-proton-unmount rclone-selfupdate reauth-rclone-proton setup-rclone-proton; do
     rm -f -- "${libexec_dir}/${file_name}"
 done
 for file_name in pdrive-watch.service pdrive-watch.timer \
@@ -135,7 +135,7 @@ if [[ -d "${doc_dir}" ]]; then
     find "${doc_dir}" -mindepth 1 -maxdepth 1 -type f \
         \( -name README.md -o -name OPERATIONS.md -o -name TROUBLESHOOTING.md \
         -o -name DEVELOPMENT.md \
-        -o -name LICENSE -o -name VERSION \) \
+        -o -name SECURITY.md -o -name LICENSE -o -name VERSION \) \
         -delete
     rmdir "${doc_dir}" 2>/dev/null || true
 fi

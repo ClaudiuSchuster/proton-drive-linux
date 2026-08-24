@@ -1,0 +1,47 @@
+name: Feature request
+description: Suggest a focused improvement to the Proton Drive experience.
+title: "[Feature]: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        PDrive aims to handle one Proton Drive mount exceptionally well rather than become a generic rclone GUI. Explain the user problem first; an implementation idea is optional.
+  - type: textarea
+    id: problem
+    attributes:
+      label: User problem
+      description: What becomes difficult, unsafe or unnecessarily technical today?
+    validations:
+      required: true
+  - type: textarea
+    id: outcome
+    attributes:
+      label: Desired outcome
+      description: Describe the behavior and how a user would know it works.
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Control Center UX
+        - Mount and VFS behavior
+        - Health monitoring and recovery
+        - Setup, updates or packaging
+        - Documentation
+        - Other focused PDrive behavior
+    validations:
+      required: true
+  - type: textarea
+    id: safety
+    attributes:
+      label: Safety and tradeoffs
+      description: Mention effects on active transfers, Dirty cache data, metadata consistency, credentials or additional dependencies.
+  - type: checkboxes
+    id: scope
+    attributes:
+      label: Scope check
+      options:
+        - label: This request is specifically useful for the PDrive Proton Drive workflow.
+          required: true
