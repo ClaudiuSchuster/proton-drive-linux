@@ -45,6 +45,36 @@ menu_buttons = [
     if isinstance(widget, module.Gtk.MenuButton)
 ]
 assert len(menu_buttons) == 1
+header = window.get_titlebar()
+assert isinstance(header, module.Gtk.HeaderBar)
+assert header.get_show_close_button()
+header_buttons = [
+    widget
+    for widget in descendants(header)
+    if isinstance(widget, module.Gtk.Button)
+]
+header_actions = {
+    button.get_tooltip_text(): button
+    for button in header_buttons
+    if button.get_tooltip_text()
+}
+for tooltip in (
+    "Open /pdrive in Nemo",
+    "Open Proton Drive on the web",
+    "Refresh now",
+    "Controls",
+):
+    assert tooltip in header_actions
+for tooltip in ("Open /pdrive in Nemo", "Open Proton Drive on the web"):
+    assert header.child_get_property(header_actions[tooltip], "pack-type") == module.Gtk.PackType.START
+for tooltip in ("Refresh now", "Controls"):
+    assert header.child_get_property(header_actions[tooltip], "pack-type") == module.Gtk.PackType.END
+for decoration_layout in ("close,maximize,minimize:", ":minimize,maximize,close"):
+    header.set_decoration_layout(decoration_layout)
+    while module.Gtk.events_pending():
+        module.Gtk.main_iteration_do(False)
+    assert header.get_decoration_layout() == decoration_layout
+    assert all(action.get_visible() for action in header_actions.values())
 window_labels = [
     widget.get_text()
     for widget in descendants(window)
