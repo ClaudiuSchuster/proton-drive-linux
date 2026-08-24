@@ -151,9 +151,12 @@ assert about_dialog.get_program_name() == "PDrive Control Center"
 assert about_dialog.get_version() == module.VERSION
 assert about_dialog.get_website() == module.PROJECT_URL
 assert about_dialog.get_website_label() == "GitHub project"
+assert about_dialog.get_license_type() == module.Gtk.License.GPL_3_0
 assert about_dialog.get_authors() == [
     "Claudiu Schuster — creator and maintainer",
     "OpenAI Codex — design and engineering collaborator",
+    "Fabian Schneider — comic relief, lively development chats and plenty of screenshot feedback\n"
+    "https://github.com/Fabian123333",
 ]
 assert about_dialog.get_comments().startswith("We — Claudiu & Codex — loved turning")
 assert "Made with love for people on this beautiful world" in about_dialog.get_comments()
@@ -162,12 +165,13 @@ about_buttons = [
     for widget in descendants(about_dialog)
     if isinstance(widget, module.Gtk.Button)
 ]
-license_button = next(
+license_buttons = [
     button
     for button in about_buttons
-    if (button.get_label() or "") == "License"
-)
-assert about_dialog.get_response_for_widget(license_button) == module.Gtk.ResponseType.APPLY
+    if (button.get_label() or "").replace("_", "").casefold() in {"license", "lizenz"}
+]
+assert len(license_buttons) == 1
+license_button = license_buttons[0]
 license_button.clicked()
 while module.Gtk.events_pending():
     module.Gtk.main_iteration_do(False)

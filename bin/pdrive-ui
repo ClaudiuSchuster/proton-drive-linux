@@ -176,6 +176,7 @@ GERMAN_TRANSLATIONS = {
     "GitHub project": "GitHub-Projekt",
     "Claudiu Schuster — creator and maintainer": "Claudiu Schuster — Schöpfer und Maintainer",
     "OpenAI Codex — design and engineering collaborator": "OpenAI Codex — Design- und Engineering-Partner",
+    "Fabian Schneider — comic relief, lively development chats and plenty of screenshot feedback": "Fabian Schneider — Quatschkomödie, lebhafte Entwicklungschats und jede Menge Screenshot-Feedback",
     "We — Claudiu & Codex — loved turning a stubborn real-world mount into something observable, careful and genuinely pleasant to use. Made with love for people on this beautiful world who want Linux to feel like home. 💜": "Wir — Claudiu & Codex — haben es geliebt, aus einem widerspenstigen realen Mount etwas Beobachtbares, Sorgfältiges und wirklich Angenehmes zu machen. Mit Liebe gemacht für Menschen auf dieser wunderschönen Welt, die möchten, dass Linux sich wie Zuhause anfühlt. 💜",
     "Loading status …": "Status wird geladen …",
     "Connecting to the local RC socket.": "Live-Verbindung zum lokalen RC-Socket wird aufgebaut.",
@@ -1112,6 +1113,14 @@ def set_pointer_on_hover(widget: Gtk.Widget) -> None:
     widget.add_events(Gdk.EventMask.ENTER_NOTIFY_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
     widget.connect("enter-notify-event", lambda control, _event: update_cursor(control, True))
     widget.connect("leave-notify-event", lambda control, _event: update_cursor(control, False))
+
+
+def widget_descendants(widget: Gtk.Widget) -> list[Gtk.Widget]:
+    descendants = [widget]
+    if isinstance(widget, Gtk.Container):
+        for child in widget.get_children():
+            descendants.extend(widget_descendants(child))
+    return descendants
 
 
 def card(child: Gtk.Widget, *classes: str) -> Gtk.Frame:
@@ -3845,10 +3854,15 @@ class PDriveWindow(Gtk.ApplicationWindow):
             dialog.set_logo_icon_name(APP_ID)
             dialog.set_website(PROJECT_URL)
             dialog.set_website_label(translate("GitHub project"))
+            dialog.set_license_type(Gtk.License.GPL_3_0)
             dialog.set_authors(
                 [
                     translate("Claudiu Schuster — creator and maintainer"),
                     translate("OpenAI Codex — design and engineering collaborator"),
+                    translate(
+                        "Fabian Schneider — comic relief, lively development chats and plenty of screenshot feedback"
+                    )
+                    + "\nhttps://github.com/Fabian123333",
                 ]
             )
             dialog.set_comments(
@@ -3858,21 +3872,28 @@ class PDriveWindow(Gtk.ApplicationWindow):
                     "want Linux to feel like home. 💜"
                 )
             )
-            dialog.add_button(translate("License"), Gtk.ResponseType.APPLY)
-            dialog.connect("response", self.on_about_response)
+            dialog.connect("response", lambda about, _response: about.destroy())
             dialog.connect(
                 "destroy",
                 lambda _dialog: setattr(self, "about_dialog", None),
             )
             self.about_dialog = dialog
             dialog.show_all()
+            license_labels = {"license", "lizenz", translate("License").casefold()}
+            license_buttons = [
+                widget
+                for widget in widget_descendants(dialog)
+                if isinstance(widget, Gtk.Button)
+                and (widget.get_label() or "").replace("_", "").casefold() in license_labels
+            ]
+            if len(license_buttons) == 1:
+                license_buttons[0].connect("clicked", self.on_about_license)
         self.about_dialog.present()
 
-    def on_about_response(self, dialog: Gtk.AboutDialog, response: int) -> None:
-        show_license = response == Gtk.ResponseType.APPLY
-        dialog.destroy()
-        if show_license:
-            self.open_documentation_page("license")
+    def on_about_license(self, _button: Gtk.Button) -> None:
+        if self.about_dialog is not None:
+            self.about_dialog.destroy()
+        self.open_documentation_page("license")
 
     def open_documentation_page(self, page_name: str) -> None:
         self.on_documentation(None)
