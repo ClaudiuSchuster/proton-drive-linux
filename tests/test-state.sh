@@ -92,6 +92,8 @@ jq -e '
     and .vfs.cache_bytes == 3145728
     and .bandwidth.live == "4M:off"
     and .configuration.metadata_cache == true
+    and .watchdog.summary == "Proton Drive is mounted and ready."
+    and .watchdog.hint == "Run pdrive-watch for a detailed local diagnosis."
     and .history[0].vfs_queue == 1
 ' "${state_json}" >/dev/null
 

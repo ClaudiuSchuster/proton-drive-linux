@@ -24,7 +24,13 @@ loader.exec_module(module)
 assert module.load_preferences() == {
     "close_to_tray": False,
     "start_in_tray": False,
+    "language": "en",
 }
+assert module.translate("Preferences") == "Preferences"
+module.CURRENT_LANGUAGE = "de"
+assert module.translate("Preferences") == "Einstellungen"
+assert module.translate("Keep running in the tray when the window closes").startswith("Beim Schließen")
+module.CURRENT_LANGUAGE = "en"
 
 module.PDriveApplication.sync_autostart(True)
 autostart = module.autostart_path()
@@ -34,12 +40,13 @@ assert module.AUTOSTART_MARKER in autostart.read_text(encoding="utf-8")
 
 module.atomic_write(
     module.preferences_path(),
-    json.dumps({"close_to_tray": False, "start_in_tray": True}),
+    json.dumps({"close_to_tray": False, "start_in_tray": True, "language": "de"}),
     0o600,
 )
 assert module.load_preferences() == {
     "close_to_tray": True,
     "start_in_tray": True,
+    "language": "de",
 }
 assert module.preferences_path().stat().st_mode & 0o777 == 0o600
 
@@ -51,7 +58,7 @@ autostart.write_text("[Desktop Entry]\nExec=some-other-app\n", encoding="utf-8")
 try:
     module.PDriveApplication.sync_autostart(True)
 except OSError as error:
-    assert "Fremde Autostartdatei" in str(error)
+    assert "Refusing to overwrite an unmarked autostart file" in str(error)
 else:
     raise AssertionError("foreign autostart file was overwritten")
 assert "some-other-app" in autostart.read_text(encoding="utf-8")

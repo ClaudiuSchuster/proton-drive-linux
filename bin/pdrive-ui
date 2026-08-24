@@ -32,10 +32,190 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 REFRESH_INTERVAL_SECONDS = 2
 AUTOSTART_MARKER = "X-PDrive-Control-Center=true"
-DEFAULT_PREFERENCES = {"close_to_tray": False, "start_in_tray": False}
+DEFAULT_PREFERENCES: dict[str, Any] = {
+    "close_to_tray": False,
+    "start_in_tray": False,
+    "language": "en",
+}
+SUPPORTED_LANGUAGES = {"en": "English", "de": "Deutsch"}
+CURRENT_LANGUAGE = "en"
+
+GERMAN_TRANSLATIONS = {
+    "Ready": "Bereit",
+    "Attention": "Achtung",
+    "Unknown": "Unbekannt",
+    "Mount ready": "Mount bereit",
+    "Persistent upload failure": "Upload wiederholt fehlgeschlagen",
+    "Service inactive": "Dienst nicht aktiv",
+    "Mount not ready": "Mount noch nicht bereit",
+    "Mount missing": "Mount fehlt",
+    "Live interface unavailable": "Live-Schnittstelle nicht erreichbar",
+    "DNS unavailable": "DNS nicht erreichbar",
+    "Low disk space": "Wenig freier Speicher",
+    "Upload progress stalled": "Uploadfortschritt steht",
+    "Queue monitor unavailable": "Queue-Überwachung nicht erreichbar",
+    "Stall detected, cache protected": "Stillstand erkannt, Cache geschützt",
+    "Stall detected, restart cooling down": "Stillstand erkannt, Neustart im Cooldown",
+    "Confirming possible upload stall": "Möglicher Uploadstillstand wird bestätigt",
+    "Controlled restart requested": "Kontrollierter Neustart angefordert",
+    "Upload stall confirmed": "Uploadstillstand bestätigt",
+    "Large upload active": "Großer Upload aktiv",
+    "Startup progress stalled": "Startfortschritt steht",
+    "Mount log is stale": "Mount-Log ist veraltet",
+    "Building first baseline": "Erster Vergleichspunkt wird aufgebaut",
+    "Upload progress": "Uploadfortschritt",
+    "Queue inventory progress": "Queue-Inventur läuft",
+    "Quiet observation": "Ruhiger Beobachtungszeitraum",
+    "Automatic restart issued": "Automatischer Neustart ausgelöst",
+    "Automatic restart failed": "Automatischer Neustart fehlgeschlagen",
+    "Invalid metadata-cache configuration": "Ungültige Metadatencache-Konfiguration",
+    "Invalid upload-slot configuration": "Ungültige Uploadslot-Konfiguration",
+    "A local live view of your existing rclone service": "Lokaler Live-Blick auf deinen bestehenden rclone-Dienst",
+    "Open /pdrive in Nemo": "/pdrive in Nemo öffnen",
+    "Refresh now": "Jetzt aktualisieren",
+    "Controls": "Steuerung",
+    "Overview": "Übersicht",
+    "History": "Verlauf",
+    "Health history": "Gesundheitsverlauf",
+    "CONTROLS": "STEUERUNG",
+    "Bandwidth limit …": "Bandbreitenlimit …",
+    "Upload slots …": "Uploadslots …",
+    "Reset restart cooldown": "Neustart-Cooldown zurücksetzen",
+    "Refresh metadata …": "Metadaten neu laden …",
+    "Safely restart service …": "Dienst sicher neu starten …",
+    "Preferences …": "Einstellungen …",
+    "Demo: actions are disabled": "Demo: Aktionen sind deaktiviert",
+    "Loading status …": "Status wird geladen …",
+    "Connecting to the local RC socket.": "Live-Verbindung zum lokalen RC-Socket wird aufgebaut.",
+    "UPLOAD SPEED": "UPLOADTEMPO",
+    "ACTIVE": "AKTIV",
+    "QUEUE": "WARTESCHLANGE",
+    "NEW ISSUES": "NEUE PROBLEME",
+    "FREE SPACE": "FREIER SPEICHER",
+    "Live upload": "Live-Upload",
+    "Last five minutes · refreshed every two seconds": "Letzte fünf Minuten · Aktualisierung alle zwei Sekunden",
+    "What’s happening": "Gerade passiert",
+    "No live data yet.": "Noch keine Live-Daten.",
+    "Configuration": "Konfiguration",
+    "Bandwidth": "Bandbreite",
+    "Upload slots": "Uploadslots",
+    "Metadata cache": "Metadatencache",
+    "Active transfers": "Aktive Transfers",
+    "Progress, speed and ETA directly from rclone’s local RC socket": "Fortschritt, Geschwindigkeit und ETA direkt aus rclones lokalem RC-Socket",
+    "VFS queue": "VFS-Warteschlange",
+    "Pending uploads remain safe in the existing VFS cache across restarts": "Ausstehende Uploads bleiben auch bei Neustarts sicher im vorhandenen VFS-Cache",
+    "Recently completed": "Kürzlich abgeschlossen",
+    "The in-memory transfer list of the current rclone process": "Die laufzeitinterne Transferliste des aktuellen rclone-Prozesses",
+    "Conservative 90-minute samples from the existing pdrive-watch timer": "Schonende 90-Minuten-Messpunkte des bestehenden pdrive-watch-Timers",
+    "No active transfers": "Keine aktiven Transfers",
+    "rclone is not using the connection right now.": "rclone nutzt die Verbindung gerade nicht.",
+    "Queue is empty": "Warteschlange leer",
+    "All local changes have been uploaded.": "Alle lokalen Änderungen sind hochgeladen.",
+    "No transfers yet": "Noch keine Transfers",
+    "The current rclone process has not completed a transfer yet.": "Der aktuelle rclone-Prozess hat noch keinen Transfer abgeschlossen.",
+    "Status unavailable": "Status nicht erreichbar",
+    "of {slots} upload slots in use": "von {slots} Uploadslots belegt",
+    "Notices {notices} · since the last timer run": "Hinweise {notices} · seit dem letzten Timerlauf",
+    "{files} local cache files": "{files} lokale Cachedateien",
+    "on the cache filesystem": "auf dem Cache-Dateisystem",
+    "{active} active transfer(s) · {count} file(s) queued · {speed}": "{active} aktive Transfer(s) · {count} Datei(en) in der Queue · {speed}",
+    "{count} file(s) are queued; rclone is preparing the next upload.": "{count} Datei(en) warten; rclone bereitet den nächsten Upload vor.",
+    "Everything is in sync. The service keeps its fast metadata cache warm and waits for changes.": "Alles ist synchronisiert. Der Dienst hält seinen schnellen Metadatencache warm und wartet auf Änderungen.",
+    "enabled": "aktiv",
+    "disabled": "aus",
+    "Service {active}/{sub} · PID {pid}": "Dienst {active}/{sub} · PID {pid}",
+    "No details available.": "Keine Detailmeldung verfügbar.",
+    "Unknown file": "Unbekannte Datei",
+    "Uploading": "Upload läuft",
+    "Waiting": "Wartet",
+    "Attempt {tries}": "Versuch {tries}",
+    "{tries} attempt(s)": "{tries} Versuch(e)",
+    "Failed": "Fehler",
+    "Completed": "Fertig",
+    "No history yet": "Noch kein Verlauf",
+    "The pdrive-watch timer has not recorded a sample yet.": "Der pdrive-watch-Timer hat noch keinen Messpunkt gespeichert.",
+    "Queue {queue} · active {active} · error counter {errors} · notices {notices}": "Queue {queue} · aktiv {active} · Fehlerzähler {errors} · Hinweise {notices}",
+    "Could not open mount": "Mount konnte nicht geöffnet werden",
+    "Preferences": "Einstellungen",
+    "Cancel": "Abbrechen",
+    "Save": "Speichern",
+    "Behavior": "Verhalten",
+    "Keep running in the tray when the window closes": "Beim Schließen im Tray weiterlaufen",
+    "Start hidden in the tray with the desktop session": "Mit der Sitzung versteckt im Tray starten",
+    "Language": "Sprache",
+    "Language changes take effect after restarting PDrive Control Center.": "Sprachänderungen gelten nach einem Neustart des PDrive Control Centers.",
+    "Session startup uses ~/.config/autostart. A manual launch from the application menu still opens the window visibly.": "Der Sitzungsstart verwendet ~/.config/autostart. Ein manueller Start aus dem Anwendungsmenü öffnet das Fenster weiterhin sichtbar.",
+    "Could not save preferences": "Einstellungen konnten nicht gespeichert werden",
+    "Restart required": "Neustart erforderlich",
+    "Quit and reopen PDrive Control Center to apply the selected language.": "Beende und öffne das PDrive Control Center erneut, um die gewählte Sprache anzuwenden.",
+    "Bandwidth limit": "Bandbreitenlimit",
+    "Apply": "Übernehmen",
+    "Upload limit in MiB/s": "Uploadlimit in MiB/s",
+    "for example 4.2 or off": "zum Beispiel 4.2 oder off",
+    "Unitless numbers are interpreted as MiB/s. This does not interrupt an active transfer.": "Zahlen ohne Einheit werden als MiB/s verstanden. Dies unterbricht keinen aktiven Transfer.",
+    "Parallel file uploads": "Parallele Datei-Uploads",
+    "The saved value takes effect after the next controlled service start.": "Der gespeicherte Wert gilt nach dem nächsten kontrollierten Dienststart.",
+    "Restart cooldown": "Neustart-Cooldown",
+    "Refresh metadata?": "Metadaten neu laden?",
+    "The guarded helper checks the queue and Dirty files first, then asks for confirmation in a terminal.": "Der sichere Helfer prüft zuerst Queue und Dirty-Dateien und fragt anschließend im Terminal nach Bestätigung.",
+    "Metadata refresh": "Metadaten-Refresh",
+    "Safely restart the service?": "Dienst sicher neu starten?",
+    "An active upload would be interrupted. pdrive-watch checks and validates the new process; final confirmation happens in a terminal.": "Ein aktiver Upload würde unterbrochen. pdrive-watch prüft und validiert den neuen Prozess; die endgültige Bestätigung erfolgt im Terminal.",
+    "Safe service restart": "Sicherer Dienstneustart",
+    "Action completed.": "Aktion abgeschlossen.",
+    "The helper exited with status {status}. Run {command} in a terminal for its full diagnostic output.": "Der Helfer endete mit Status {status}. Führe {command} im Terminal aus, um die vollständige Diagnose zu sehen.",
+    "No terminal application was found.": "Kein Terminalprogramm gefunden.",
+    "Continue": "Fortfahren",
+    "Open PDrive Control Center": "PDrive Control Center öffnen",
+    "Open /pdrive": "/pdrive öffnen",
+    "Quit": "Beenden",
+    "Preferences cannot be changed in demo mode.": "Im Demo-Modus können Einstellungen nicht geändert werden.",
+}
+
+GERMAN_HEALTH_SUMMARIES = {
+    "mounted-active": "{active} Upload(s) laufen über den bestehenden Proton-Drive-Dienst.",
+    "mounted-queued": "{count} Datei(en) warten sicher in der VFS-Warteschlange.",
+    "mounted": "Proton Drive ist gemountet und bereit.",
+    "service-inactive": "Der Proton-Drive-Dienst ist nicht aktiv.",
+    "service-down": "Der Proton-Drive-Dienst ist nicht aktiv.",
+    "mount-not-ready": "Der Dienst läuft, aber /pdrive ist noch nicht bereit.",
+    "active-without-mount": "rclone ist aktiv, aber der FUSE-Mount /pdrive fehlt.",
+    "rc-unavailable": "Der Mount ist bereit, aber einige Livewerte sind vorübergehend nicht erreichbar.",
+    "dns-failed": "Die DNS-Auflösung der Proton-Drive-API ist fehlgeschlagen.",
+    "low-disk": "Der freie Speicher liegt unter dem sicheren Grenzwert.",
+    "low-space": "Der freie Speicher liegt unter dem sicheren Grenzwert.",
+    "queue-monitor-unavailable": "Die lokale VFS-Warteschlange konnte nicht geprüft werden.",
+    "persistent-upload-failure": "Mindestens eine Datei ist trotz mehrerer Versuche weiterhin nicht hochgeladen.",
+    "upload-stall-cache-protected": "Ein möglicher Uploadstillstand wurde erkannt; der warme Metadatencache verhindert einen automatischen Neustart.",
+    "upload-stall-cooldown": "Ein Uploadstillstand wurde erkannt; der automatische Neustart befindet sich noch im Cooldown.",
+    "upload-stall-confirming": "Ein möglicher Uploadstillstand wird durch weitere Messungen bestätigt.",
+    "upload-stall-restart-requested": "Ein kontrollierter Neustart nach bestätigtem Uploadstillstand wurde angefordert.",
+    "upload-stall-confirmed": "Der Uploadstillstand wurde durch mehrere unabhängige Messungen bestätigt.",
+    "large-upload-active": "Ein langer Upload ist aktiv und überträgt weiterhin Daten.",
+    "startup-stalled": "Seit über zwei Stunden wurde kein lokaler Fortschritt gemessen.",
+    "stale-log": "Das rclone-Log wurde seit über zwei Stunden nicht aktualisiert.",
+    "startup-progress": "rclone läuft; der erste Vergleichspunkt wird noch aufgebaut.",
+    "upload-progress": "Seit dem letzten Timerlauf wurden Uploads erfolgreich abgeschlossen.",
+    "inventory-progress": "Weitere Cacheobjekte wurden inventarisiert; ein Uploadabschluss steht noch aus.",
+    "quiet-observation": "Seit dem letzten Timerlauf gab es keine neuen Queueeinträge oder Uploadabschlüsse.",
+    "auto-restart-issued": "Ein kontrollierter Neustart nach bestätigtem Uploadstillstand wurde angefordert.",
+    "auto-restart-failed": "Der kontrollierte Dienstneustart konnte nicht angefordert werden.",
+    "invalid-metadata-cache-config": "Die Metadatencache-Konfiguration ist ungültig.",
+    "invalid-transfers-config": "Die Uploadslot-Konfiguration ist ungültig.",
+}
+
+
+def translate(text: str) -> str:
+    if CURRENT_LANGUAGE == "de":
+        return GERMAN_TRANSLATIONS.get(text, text)
+    return text
+
+
+def translate_format(text: str, **values: Any) -> str:
+    return translate(text).format(**values)
 
 
 def xdg_path(environment_name: str, fallback: pathlib.Path) -> pathlib.Path:
@@ -70,13 +250,15 @@ def atomic_write(path: pathlib.Path, content: str, mode: int) -> None:
         temporary.unlink(missing_ok=True)
 
 
-def load_preferences() -> dict[str, bool]:
+def load_preferences() -> dict[str, Any]:
     preferences = dict(DEFAULT_PREFERENCES)
     try:
         payload = json.loads(preferences_path().read_text(encoding="utf-8"))
-        for key in preferences:
+        for key in ("close_to_tray", "start_in_tray"):
             if isinstance(payload.get(key), bool):
                 preferences[key] = payload[key]
+        if payload.get("language") in SUPPORTED_LANGUAGES:
+            preferences["language"] = payload["language"]
     except (FileNotFoundError, OSError, json.JSONDecodeError, AttributeError):
         pass
     if preferences["start_in_tray"]:
@@ -187,21 +369,41 @@ popover { background: #1b202a; border: 1px solid rgba(255,255,255,0.10); }
 
 
 STATUS_META = {
-    "ready": ("emblem-ok-symbolic", "Bereit", "good"),
-    "warning": ("dialog-warning-symbolic", "Aufmerksamkeit", "warning"),
+    "ready": ("emblem-ok-symbolic", "Ready", "good"),
+    "warning": ("dialog-warning-symbolic", "Attention", "warning"),
     "critical": ("dialog-error-symbolic", "Problem", "danger"),
-    "unknown": ("dialog-question-symbolic", "Unbekannt", "muted"),
+    "unknown": ("dialog-question-symbolic", "Unknown", "muted"),
 }
 
 REASON_LABELS = {
-    "mounted": "Mount bereit",
-    "persistent-upload-failure": "Upload wiederholt fehlgeschlagen",
-    "service-inactive": "Dienst nicht aktiv",
-    "mount-not-ready": "Mount noch nicht bereit",
-    "rc-unavailable": "Live-Schnittstelle nicht erreichbar",
-    "dns-failed": "DNS nicht erreichbar",
-    "low-space": "Wenig freier Speicher",
-    "stalled": "Uploadfortschritt steht",
+    "mounted": "Mount ready",
+    "persistent-upload-failure": "Persistent upload failure",
+    "service-inactive": "Service inactive",
+    "service-down": "Service inactive",
+    "mount-not-ready": "Mount not ready",
+    "active-without-mount": "Mount missing",
+    "rc-unavailable": "Live interface unavailable",
+    "dns-failed": "DNS unavailable",
+    "low-space": "Low disk space",
+    "low-disk": "Low disk space",
+    "queue-monitor-unavailable": "Queue monitor unavailable",
+    "stalled": "Upload progress stalled",
+    "upload-stall-cache-protected": "Stall detected, cache protected",
+    "upload-stall-cooldown": "Stall detected, restart cooling down",
+    "upload-stall-confirming": "Confirming possible upload stall",
+    "upload-stall-restart-requested": "Controlled restart requested",
+    "upload-stall-confirmed": "Upload stall confirmed",
+    "large-upload-active": "Large upload active",
+    "startup-stalled": "Startup progress stalled",
+    "stale-log": "Mount log is stale",
+    "startup-progress": "Building first baseline",
+    "upload-progress": "Upload progress",
+    "inventory-progress": "Queue inventory progress",
+    "quiet-observation": "Quiet observation",
+    "auto-restart-issued": "Automatic restart issued",
+    "auto-restart-failed": "Automatic restart failed",
+    "invalid-metadata-cache-config": "Invalid metadata-cache configuration",
+    "invalid-transfers-config": "Invalid upload-slot configuration",
 }
 
 
@@ -256,13 +458,14 @@ def local_time(value: str) -> str:
         return "–"
     try:
         parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
-        return parsed.astimezone().strftime("%d.%m. %H:%M")
+        time_format = "%d.%m. %H:%M" if CURRENT_LANGUAGE == "de" else "%b %d, %H:%M"
+        return parsed.astimezone().strftime(time_format)
     except ValueError:
         return value
 
 
 def label(text: str = "", css: str | None = None, xalign: float = 0.0) -> Gtk.Label:
-    widget = Gtk.Label(label=text, xalign=xalign)
+    widget = Gtk.Label(label=translate(text), xalign=xalign)
     if css:
         widget.get_style_context().add_class(css)
     return widget
@@ -377,7 +580,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.history_signature: tuple[Any, ...] = ()
         self.set_title("PDrive Control Center")
         self.set_icon_name(APP_ID)
-        self.set_default_size(1120, 790)
+        self.set_default_size(1120, 900 if demo else 790)
         self.set_size_request(820, 620)
         add_css(self, "pdrive-window")
         self.connect("destroy", self.on_destroy)
@@ -403,21 +606,21 @@ class PDriveWindow(Gtk.ApplicationWindow):
         header = Gtk.HeaderBar()
         header.set_show_close_button(True)
         header.set_title("PDrive Control Center")
-        header.set_subtitle("Lokaler Live-Blick auf deinen bestehenden rclone-Dienst")
+        header.set_subtitle(translate("A local live view of your existing rclone service"))
 
         open_button = Gtk.Button.new_from_icon_name("folder-open-symbolic", Gtk.IconSize.BUTTON)
-        open_button.set_tooltip_text("/pdrive in Nemo öffnen")
+        open_button.set_tooltip_text(translate("Open /pdrive in Nemo"))
         open_button.connect("clicked", self.on_open_mount)
         header.pack_start(open_button)
 
         refresh_button = Gtk.Button.new_from_icon_name("view-refresh-symbolic", Gtk.IconSize.BUTTON)
-        refresh_button.set_tooltip_text("Jetzt aktualisieren")
+        refresh_button.set_tooltip_text(translate("Refresh now"))
         refresh_button.connect("clicked", lambda _button: self.request_refresh())
         header.pack_end(refresh_button)
 
         menu_button = Gtk.MenuButton()
         menu_button.set_image(Gtk.Image.new_from_icon_name("open-menu-symbolic", Gtk.IconSize.BUTTON))
-        menu_button.set_tooltip_text("Steuerung")
+        menu_button.set_tooltip_text(translate("Controls"))
         menu_button.set_popover(self.build_actions_popover())
         header.pack_end(menu_button)
         self.set_titlebar(header)
@@ -437,9 +640,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
         root.pack_start(navigation, False, False, 0)
         root.pack_start(self.stack, True, True, 0)
 
-        self.stack.add_titled(self.build_overview(), "overview", "Übersicht")
+        self.stack.add_titled(self.build_overview(), "overview", translate("Overview"))
         self.stack.add_titled(self.build_transfers_page(), "transfers", "Transfers")
-        self.stack.add_titled(self.build_history_page(), "history", "Verlauf")
+        self.stack.add_titled(self.build_history_page(), "history", translate("History"))
 
     def build_actions_popover(self) -> Gtk.Popover:
         popover = Gtk.Popover()
@@ -449,13 +652,13 @@ class PDriveWindow(Gtk.ApplicationWindow):
         box.set_margin_start(12)
         box.set_margin_end(12)
         box.set_size_request(250, -1)
-        box.pack_start(label("STEUERUNG", "card-title"), False, False, 2)
+        box.pack_start(label("CONTROLS", "card-title"), False, False, 2)
         actions = [
-            ("speedometer-symbolic", "Bandbreitenlimit …", self.on_bandwidth),
-            ("view-list-symbolic", "Uploadslots …", self.on_transfers),
-            ("edit-clear-all-symbolic", "Cooldown zurücksetzen", self.on_clear_cooldown),
-            ("view-refresh-symbolic", "Metadaten neu laden …", self.on_metadata_refresh),
-            ("system-reboot-symbolic", "Dienst sicher neu starten …", self.on_restart),
+            ("speedometer-symbolic", "Bandwidth limit …", self.on_bandwidth),
+            ("view-list-symbolic", "Upload slots …", self.on_transfers),
+            ("edit-clear-all-symbolic", "Reset restart cooldown", self.on_clear_cooldown),
+            ("view-refresh-symbolic", "Refresh metadata …", self.on_metadata_refresh),
+            ("system-reboot-symbolic", "Safely restart service …", self.on_restart),
         ]
         for icon_name, text, callback in actions:
             button = Gtk.Button()
@@ -480,13 +683,13 @@ class PDriveWindow(Gtk.ApplicationWindow):
             False,
             0,
         )
-        preferences_row.pack_start(label("Einstellungen …"), True, True, 0)
+        preferences_row.pack_start(label("Preferences …"), True, True, 0)
         preferences_button.add(preferences_row)
         preferences_button.connect("clicked", self.on_preferences)
         preferences_button.set_sensitive(not self.demo)
         box.pack_start(preferences_button, False, False, 0)
         if self.demo:
-            notice = label("Demo: Aktionen sind deaktiviert", "section-subtitle")
+            notice = label("Demo: actions are disabled", "section-subtitle")
             notice.set_margin_top(4)
             box.pack_start(notice, False, False, 0)
         popover.add(box)
@@ -497,8 +700,8 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.status_icon = Gtk.Image.new_from_icon_name("dialog-question-symbolic", Gtk.IconSize.DIALOG)
         self.status_box.pack_start(self.status_icon, False, False, 0)
         text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-        self.status_title = label("Status wird geladen …", "status-title")
-        self.status_summary = label("Live-Verbindung zum lokalen RC-Socket wird aufgebaut.", "status-detail")
+        self.status_title = label("Loading status …", "status-title")
+        self.status_summary = label("Connecting to the local RC socket.", "status-detail")
         self.status_summary.set_line_wrap(True)
         text_box.pack_start(self.status_title, False, False, 0)
         text_box.pack_start(self.status_summary, False, False, 0)
@@ -523,12 +726,12 @@ class PDriveWindow(Gtk.ApplicationWindow):
         page.pack_start(self.build_status_banner(), False, False, 0)
 
         grid = Gtk.Grid(column_spacing=14, row_spacing=14)
-        self.speed_card = StatCard("Uploadtempo", "network-transmit-symbolic")
-        self.active_card = StatCard("Aktiv", "media-playback-start-symbolic")
-        self.queue_card = StatCard("Warteschlange", "view-list-symbolic")
-        self.problem_card = StatCard("Neue Probleme", "dialog-warning-symbolic")
+        self.speed_card = StatCard("Upload speed", "network-transmit-symbolic")
+        self.active_card = StatCard("Active", "media-playback-start-symbolic")
+        self.queue_card = StatCard("Queue", "view-list-symbolic")
+        self.problem_card = StatCard("New issues", "dialog-warning-symbolic")
         self.cache_card = StatCard("VFS-Cache", "drive-harddisk-symbolic")
-        self.free_card = StatCard("Freier Speicher", "folder-symbolic")
+        self.free_card = StatCard("Free space", "folder-symbolic")
         cards = [self.speed_card, self.active_card, self.queue_card, self.problem_card, self.cache_card, self.free_card]
         for index, widget in enumerate(cards):
             widget.set_hexpand(True)
@@ -537,19 +740,19 @@ class PDriveWindow(Gtk.ApplicationWindow):
 
         graph_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         graph_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        graph_header.pack_start(label("Live-Upload", "section-title"), True, True, 0)
+        graph_header.pack_start(label("Live upload", "section-title"), True, True, 0)
         self.graph_peak = label("Peak –", "section-subtitle", 1.0)
         graph_header.pack_end(self.graph_peak, False, False, 0)
         graph_box.pack_start(graph_header, False, False, 0)
         self.speed_graph = SpeedGraph()
         graph_box.pack_start(self.speed_graph, True, True, 0)
-        graph_box.pack_start(label("Letzte fünf Minuten · Aktualisierung alle zwei Sekunden", "section-subtitle"), False, False, 0)
+        graph_box.pack_start(label("Last five minutes · refreshed every two seconds", "section-subtitle"), False, False, 0)
         page.pack_start(card(graph_box), True, True, 0)
 
         bottom = Gtk.Grid(column_spacing=14, row_spacing=14)
         self.live_summary_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
-        self.live_summary_box.pack_start(label("Gerade passiert", "section-title"), False, False, 0)
-        self.live_summary = label("Noch keine Live-Daten.", "section-subtitle")
+        self.live_summary_box.pack_start(label("What’s happening", "section-title"), False, False, 0)
+        self.live_summary = label("No live data yet.", "section-subtitle")
         self.live_summary.set_line_wrap(True)
         self.live_summary_box.pack_start(self.live_summary, False, False, 0)
         live_card = card(self.live_summary_box)
@@ -557,9 +760,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
         bottom.attach(live_card, 0, 0, 1, 1)
 
         config_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
-        config_box.pack_start(label("Konfiguration", "section-title"), False, False, 0)
+        config_box.pack_start(label("Configuration", "section-title"), False, False, 0)
         self.config_labels: dict[str, Gtk.Label] = {}
-        for key, title in (("bandwidth", "Bandbreite"), ("slots", "Uploadslots"), ("metadata", "Metadatencache"), ("cooldown", "Cooldown")):
+        for key, title in (("bandwidth", "Bandwidth"), ("slots", "Upload slots"), ("metadata", "Metadata cache"), ("cooldown", "Cooldown")):
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             row.pack_start(label(title, "section-subtitle"), True, True, 0)
             value = label("–", "pill", 1.0)
@@ -590,13 +793,13 @@ class PDriveWindow(Gtk.ApplicationWindow):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
         add_css(page, "page")
         active_card, self.active_list = self.build_list_section(
-            "Aktive Transfers", "Fortschritt, Geschwindigkeit und ETA direkt aus rclones lokalem RC-Socket"
+            "Active transfers", "Progress, speed and ETA directly from rclone’s local RC socket"
         )
         queue_card, self.queue_list = self.build_list_section(
-            "VFS-Warteschlange", "Persistente Uploads bleiben auch bei Neustarts sicher im vorhandenen VFS-Cache"
+            "VFS queue", "Pending uploads remain safe in the existing VFS cache across restarts"
         )
         recent_card, self.recent_list = self.build_list_section(
-            "Kürzlich abgeschlossen", "Nur die laufzeitinterne Transferliste des aktuellen rclone-Prozesses"
+            "Recently completed", "The in-memory transfer list of the current rclone process"
         )
         page.pack_start(active_card, False, False, 0)
         page.pack_start(queue_card, False, False, 0)
@@ -610,9 +813,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
         add_css(page, "page")
         heading = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
-        heading.pack_start(label("Gesundheitsverlauf", "section-title"), False, False, 0)
+        heading.pack_start(label("Health history", "section-title"), False, False, 0)
         heading.pack_start(
-            label("Schonende 90-Minuten-Messpunkte des bestehenden pdrive-watch-Timers", "section-subtitle"),
+            label("Conservative 90-minute samples from the existing pdrive-watch timer", "section-subtitle"),
             False,
             False,
             0,
@@ -635,9 +838,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.clear_list(self.active_list)
         self.clear_list(self.queue_list)
         self.clear_list(self.recent_list)
-        self.active_list.add(EmptyState("media-playback-pause-symbolic", "Keine aktiven Transfers", "rclone hat gerade nichts auf der Leitung."))
-        self.queue_list.add(EmptyState("emblem-ok-symbolic", "Warteschlange leer", "Alle lokalen Änderungen sind hochgeladen."))
-        self.recent_list.add(EmptyState("document-open-recent-symbolic", "Noch keine Transfers", "Der aktuelle rclone-Prozess hat noch nichts abgeschlossen."))
+        self.active_list.add(EmptyState("media-playback-pause-symbolic", "No active transfers", "rclone is not using the connection right now."))
+        self.queue_list.add(EmptyState("emblem-ok-symbolic", "Queue is empty", "All local changes have been uploaded."))
+        self.recent_list.add(EmptyState("document-open-recent-symbolic", "No transfers yet", "The current rclone process has not completed a transfer yet."))
 
     def on_destroy(self, _widget: Gtk.Widget) -> None:
         self.closed = True
@@ -669,7 +872,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 timeout=8,
             )
             if completed.returncode != 0:
-                raise RuntimeError(completed.stderr.strip() or f"pdrive-state endete mit {completed.returncode}")
+                raise RuntimeError(completed.stderr.strip() or f"pdrive-state exited with {completed.returncode}")
             payload = json.loads(completed.stdout)
             GLib.idle_add(self.apply_state, payload)
         except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, RuntimeError) as error:
@@ -677,7 +880,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
 
     def apply_error(self, message: str) -> bool:
         self.refreshing = False
-        self.update_status("critical", "Status nicht erreichbar", message)
+        self.update_status("critical", "Status unavailable", message)
         return GLib.SOURCE_REMOVE
 
     def apply_state(self, state: dict[str, Any]) -> bool:
@@ -694,7 +897,11 @@ class PDriveWindow(Gtk.ApplicationWindow):
         bandwidth = state.get("bandwidth", {})
 
         status = str(health.get("status", "unknown"))
-        self.update_status(status, STATUS_META.get(status, STATUS_META["unknown"])[1], str(health.get("summary", "")))
+        self.update_status(
+            status,
+            translate(STATUS_META.get(status, STATUS_META["unknown"])[1]),
+            self.localized_health_summary(state),
+        )
         self.updated_label.set_text(dt.datetime.now().strftime("%H:%M:%S"))
 
         speed = float(stats.get("speed") or 0)
@@ -703,36 +910,73 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.speed_card.update(human_rate(speed), f"Limit {bandwidth.get('live', '–')}")
         active = len(transfers.get("active", [])) or int(queue.get("active") or 0)
         slots = int(config.get("running_transfers") or config.get("transfers") or 0)
-        self.active_card.update(str(active), f"von {slots} Uploadslots belegt")
+        self.active_card.update(str(active), translate_format("of {slots} upload slots in use", slots=slots))
         self.queue_card.update(str(queue.get("count", 0)), human_bytes(queue.get("bytes", 0)))
         delta_errors = str(watchdog.get("delta_errors", "–"))
         delta_notices = str(watchdog.get("delta_notices", "–"))
-        self.problem_card.update(delta_errors, f"Hinweise {delta_notices} · seit letztem Timer")
-        self.cache_card.update(human_bytes(vfs.get("cache_bytes", 0)), f"{vfs.get('cache_files', 0)} lokale Cachedateien")
-        self.free_card.update(human_bytes(vfs.get("free_bytes", 0)), "auf dem Cache-Dateisystem")
+        self.problem_card.update(
+            delta_errors,
+            translate_format("Notices {notices} · since the last timer run", notices=delta_notices),
+        )
+        self.cache_card.update(
+            human_bytes(vfs.get("cache_bytes", 0)),
+            translate_format("{files} local cache files", files=vfs.get("cache_files", 0)),
+        )
+        self.free_card.update(human_bytes(vfs.get("free_bytes", 0)), translate("on the cache filesystem"))
         self.graph_peak.set_text(f"Peak {human_rate(max(self.speed_samples, default=0))}")
 
         if active:
-            summary = f"{active} Transfer(s) aktiv · {queue.get('count', 0)} Datei(en) in der Queue · {human_rate(speed)}"
+            summary = translate_format(
+                "{active} active transfer(s) · {count} file(s) queued · {speed}",
+                active=active,
+                count=queue.get("count", 0),
+                speed=human_rate(speed),
+            )
         elif queue.get("count", 0):
-            summary = f"{queue.get('count')} Datei(en) warten auf Upload; rclone bereitet den nächsten Transfer vor."
+            summary = translate_format(
+                "{count} file(s) are queued; rclone is preparing the next upload.",
+                count=queue.get("count"),
+            )
         else:
-            summary = "Alles synchronisiert. Der Dienst hält den schnellen Metadatencache warm und wartet auf Änderungen."
+            summary = translate("Everything is in sync. The service keeps its fast metadata cache warm and waits for changes.")
         self.live_summary.set_text(summary)
         self.config_labels["bandwidth"].set_text(str(bandwidth.get("live", "–")))
         self.config_labels["slots"].set_text(f"{slots} parallel")
-        self.config_labels["metadata"].set_text("aktiv" if config.get("metadata_cache") else "aus")
+        self.config_labels["metadata"].set_text(translate("enabled" if config.get("metadata_cache") else "disabled"))
         self.config_labels["cooldown"].set_text(human_duration(config.get("cooldown_seconds", -1)))
 
         self.update_transfers(transfers, queue)
         self.update_history(state.get("history", []))
         self.status_title.set_tooltip_text(
-            f"Dienst {service.get('active_state', '–')}/{service.get('sub_state', '–')} · PID {service.get('pid', 0)}"
+            translate_format(
+                "Service {active}/{sub} · PID {pid}",
+                active=service.get("active_state", "–"),
+                sub=service.get("sub_state", "–"),
+                pid=service.get("pid", 0),
+            )
         )
         application = self.get_application()
         if isinstance(application, PDriveApplication):
             application.update_indicator(state)
         return GLib.SOURCE_REMOVE
+
+    @staticmethod
+    def localized_health_summary(state: dict[str, Any]) -> str:
+        health = state.get("health", {})
+        summary = str(health.get("summary", ""))
+        if CURRENT_LANGUAGE != "de":
+            return summary
+        reason = str(health.get("reason_code", "unknown"))
+        if reason == "mounted":
+            queue = state.get("queue", {})
+            active = int(queue.get("active") or 0)
+            count = int(queue.get("count") or 0)
+            if active:
+                return GERMAN_HEALTH_SUMMARIES["mounted-active"].format(active=active)
+            if count:
+                return GERMAN_HEALTH_SUMMARIES["mounted-queued"].format(count=count)
+            return GERMAN_HEALTH_SUMMARIES["mounted"]
+        return GERMAN_HEALTH_SUMMARIES.get(reason, summary)
 
     def update_status(self, status: str, title_text: str, summary: str) -> None:
         for css_class in ("status-ready", "status-warning", "status-critical", "status-unknown"):
@@ -741,25 +985,25 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.status_frame.get_style_context().add_class(f"status-{selected}")
         icon_name, fallback_title, _color = STATUS_META[selected]
         self.status_icon.set_from_icon_name(icon_name, Gtk.IconSize.DIALOG)
-        self.status_title.set_text(title_text or fallback_title)
-        self.status_summary.set_text(summary or "Keine Detailmeldung verfügbar.")
+        self.status_title.set_text(translate(title_text or fallback_title))
+        self.status_summary.set_text(summary or translate("No details available."))
 
     def transfer_row(self, item: dict[str, Any], queue: bool = False, recent: bool = False) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
         add_css(row, "transfer-row")
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        name = label(short_name(str(item.get("name", "Unbekannte Datei"))), "transfer-name")
+        name = label(short_name(str(item.get("name", "Unknown file"))), "transfer-name")
         name.set_ellipsize(3)
         name.set_tooltip_text(str(item.get("name", "")))
         top.pack_start(name, True, True, 0)
         if queue:
-            status = "Upload läuft" if item.get("uploading") else "wartet"
+            status = "Uploading" if item.get("uploading") else "Waiting"
             if int(item.get("tries") or 0) >= 2:
-                status = f"Versuch {item.get('tries')}"
+                status = translate_format("Attempt {tries}", tries=item.get("tries"))
             top.pack_end(label(status, "pill"), False, False, 0)
         elif recent:
-            text = "Fehler" if item.get("error") else "Fertig"
+            text = "Failed" if item.get("error") else "Completed"
             top.pack_end(label(text, "pill"), False, False, 0)
         else:
             top.pack_end(label(human_rate(item.get("speed", 0)), "pill"), False, False, 0)
@@ -776,7 +1020,10 @@ class PDriveWindow(Gtk.ApplicationWindow):
             if eta != "–":
                 detail += f" · ETA {eta}"
         elif queue:
-            detail = f"{human_bytes(item.get('size', 0))} · {item.get('tries', 0)} Versuch(e)"
+            detail = (
+                f"{human_bytes(item.get('size', 0))} · "
+                + translate_format("{tries} attempt(s)", tries=item.get("tries", 0))
+            )
         else:
             detail = f"{human_bytes(item.get('bytes') or item.get('size', 0))} · {local_time(str(item.get('completed_at', '')))}"
         box.pack_start(label(detail, "transfer-meta"), False, False, 0)
@@ -799,17 +1046,17 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 for item in uploading:
                     self.active_list.add(self.transfer_row(item, queue=True))
             else:
-                self.active_list.add(EmptyState("media-playback-pause-symbolic", "Keine aktiven Transfers", "rclone hat gerade nichts auf der Leitung."))
+                self.active_list.add(EmptyState("media-playback-pause-symbolic", "No active transfers", "rclone is not using the connection right now."))
         if queue_items:
             for item in queue_items:
                 self.queue_list.add(self.transfer_row(item, queue=True))
         else:
-            self.queue_list.add(EmptyState("emblem-ok-symbolic", "Warteschlange leer", "Alle lokalen Änderungen sind hochgeladen."))
+            self.queue_list.add(EmptyState("emblem-ok-symbolic", "Queue is empty", "All local changes have been uploaded."))
         if recent_items:
             for item in reversed(recent_items[-12:]):
                 self.recent_list.add(self.transfer_row(item, recent=True))
         else:
-            self.recent_list.add(EmptyState("document-open-recent-symbolic", "Noch keine Transfers", "Der aktuelle rclone-Prozess hat noch nichts abgeschlossen."))
+            self.recent_list.add(EmptyState("document-open-recent-symbolic", "No transfers yet", "The current rclone process has not completed a transfer yet."))
         self.active_list.show_all()
         self.queue_list.show_all()
         self.recent_list.show_all()
@@ -824,7 +1071,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.history_signature = signature
         self.clear_list(self.history_list)
         if not entries:
-            self.history_list.add(EmptyState("document-open-recent-symbolic", "Noch kein Verlauf", "Der pdrive-watch-Timer hat noch keinen Messpunkt gespeichert."))
+            self.history_list.add(EmptyState("document-open-recent-symbolic", "No history yet", "The pdrive-watch timer has not recorded a sample yet."))
             self.history_list.show_all()
             return
         for entry in reversed(entries[-24:]):
@@ -840,8 +1087,13 @@ class PDriveWindow(Gtk.ApplicationWindow):
             reason = str(entry.get("reason", "unknown"))
             text_box.pack_start(label(REASON_LABELS.get(reason, reason.replace("-", " ").capitalize()), "transfer-name"), False, False, 0)
             detail = (
-                f"Queue {entry.get('vfs_queue', 0)} · aktiv {entry.get('vfs_uploading', 0)} · "
-                f"Fehlerzähler {entry.get('errors', 0)} · Hinweise {entry.get('notices', 0)}"
+                translate_format(
+                    "Queue {queue} · active {active} · error counter {errors} · notices {notices}",
+                    queue=entry.get("vfs_queue", 0),
+                    active=entry.get("vfs_uploading", 0),
+                    errors=entry.get("errors", 0),
+                    notices=entry.get("notices", 0),
+                )
             )
             text_box.pack_start(label(detail, "transfer-meta"), False, False, 0)
             box.pack_start(text_box, True, True, 0)
@@ -854,14 +1106,14 @@ class PDriveWindow(Gtk.ApplicationWindow):
         try:
             Gio.AppInfo.launch_default_for_uri(pathlib.Path("/pdrive").as_uri(), None)
         except GLib.Error as error:
-            self.message("Mount konnte nicht geöffnet werden", str(error), Gtk.MessageType.ERROR)
+            self.message("Could not open mount", str(error), Gtk.MessageType.ERROR)
 
     def on_preferences(self, _button: Gtk.Button) -> None:
         application = self.get_application()
         if not isinstance(application, PDriveApplication):
             return
-        dialog = Gtk.Dialog(title="Einstellungen", transient_for=self, modal=True)
-        dialog.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Speichern", Gtk.ResponseType.OK)
+        dialog = Gtk.Dialog(title=translate("Preferences"), transient_for=self, modal=True)
+        dialog.add_buttons(translate("Cancel"), Gtk.ResponseType.CANCEL, translate("Save"), Gtk.ResponseType.OK)
         content = dialog.get_content_area()
         content.set_spacing(11)
         content.set_margin_top(16)
@@ -869,16 +1121,30 @@ class PDriveWindow(Gtk.ApplicationWindow):
         content.set_margin_start(16)
         content.set_margin_end(16)
         content.set_size_request(430, -1)
-        content.pack_start(label("Verhalten", "section-title"), False, False, 0)
-        close_toggle = Gtk.CheckButton(label="Beim Schließen im Tray weiterlaufen")
+        content.pack_start(label("Behavior", "section-title"), False, False, 0)
+        close_toggle = Gtk.CheckButton(label=translate("Keep running in the tray when the window closes"))
         close_toggle.set_active(application.preferences["close_to_tray"])
         content.pack_start(close_toggle, False, False, 0)
-        start_toggle = Gtk.CheckButton(label="Mit der Sitzung versteckt im Tray starten")
+        start_toggle = Gtk.CheckButton(label=translate("Start hidden in the tray with the desktop session"))
         start_toggle.set_active(application.preferences["start_in_tray"])
         content.pack_start(start_toggle, False, False, 0)
+        language_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        language_row.pack_start(label("Language"), True, True, 0)
+        language_combo = Gtk.ComboBoxText()
+        for language_id, language_name in SUPPORTED_LANGUAGES.items():
+            language_combo.append(language_id, language_name)
+        language_combo.set_active_id(str(application.preferences["language"]))
+        language_row.pack_end(language_combo, False, False, 0)
+        content.pack_start(language_row, False, False, 0)
+        language_note = label(
+            "Language changes take effect after restarting PDrive Control Center.",
+            "section-subtitle",
+        )
+        language_note.set_line_wrap(True)
+        content.pack_start(language_note, False, False, 0)
         explanation = label(
-            "Der Sitzungsstart verwendet ~/.config/autostart. Ein manueller Start aus dem "
-            "Anwendungsmenü öffnet das Fenster weiterhin sichtbar.",
+            "Session startup uses ~/.config/autostart. A manual launch from the application "
+            "menu still opens the window visibly.",
             "section-subtitle",
         )
         explanation.set_line_wrap(True)
@@ -893,29 +1159,37 @@ class PDriveWindow(Gtk.ApplicationWindow):
         response = dialog.run()
         close_to_tray = close_toggle.get_active()
         start_in_tray = start_toggle.get_active()
+        selected_language = language_combo.get_active_id() or "en"
+        previous_language = str(application.preferences["language"])
         dialog.destroy()
         if response != Gtk.ResponseType.OK:
             return
-        error = application.update_preferences(close_to_tray, start_in_tray)
+        error = application.update_preferences(close_to_tray, start_in_tray, selected_language)
         if error:
-            self.message("Einstellungen konnten nicht gespeichert werden", error, Gtk.MessageType.ERROR)
+            self.message("Could not save preferences", error, Gtk.MessageType.ERROR)
+        elif selected_language != previous_language:
+            self.message(
+                "Restart required",
+                "Quit and reopen PDrive Control Center to apply the selected language.",
+                Gtk.MessageType.INFO,
+            )
 
     def on_bandwidth(self, _button: Gtk.Button) -> None:
-        dialog = Gtk.Dialog(title="Bandbreitenlimit", transient_for=self, modal=True)
-        dialog.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Übernehmen", Gtk.ResponseType.OK)
+        dialog = Gtk.Dialog(title=translate("Bandwidth limit"), transient_for=self, modal=True)
+        dialog.add_buttons(translate("Cancel"), Gtk.ResponseType.CANCEL, translate("Apply"), Gtk.ResponseType.OK)
         content = dialog.get_content_area()
         content.set_spacing(10)
         content.set_margin_top(15)
         content.set_margin_bottom(15)
         content.set_margin_start(15)
         content.set_margin_end(15)
-        content.pack_start(label("Uploadlimit in MiB/s", "section-title"), False, False, 0)
+        content.pack_start(label("Upload limit in MiB/s", "section-title"), False, False, 0)
         entry = Gtk.Entry()
         current = str(self.current_state.get("bandwidth", {}).get("configured", "off"))
         entry.set_text("off" if current == "off" else current.split(":", 1)[0].replace("Mi", "").replace("M", ""))
-        entry.set_placeholder_text("z. B. 4.2 oder off")
+        entry.set_placeholder_text(translate("for example 4.2 or off"))
         content.pack_start(entry, False, False, 0)
-        help_label = label("Zahlen werden automatisch als MiB/s verstanden. Die Änderung unterbricht keinen Transfer.", "section-subtitle")
+        help_label = label("Unitless numbers are interpreted as MiB/s. This does not interrupt an active transfer.", "section-subtitle")
         help_label.set_line_wrap(True)
         content.pack_start(help_label, False, False, 0)
         dialog.show_all()
@@ -923,23 +1197,23 @@ class PDriveWindow(Gtk.ApplicationWindow):
         value = entry.get_text().strip()
         dialog.destroy()
         if response == Gtk.ResponseType.OK and value:
-            self.run_helper(["pdrive-bwlimit", value], "Bandbreitenlimit")
+            self.run_helper(["pdrive-bwlimit", value], "Bandwidth limit")
 
     def on_transfers(self, _button: Gtk.Button) -> None:
-        dialog = Gtk.Dialog(title="Uploadslots", transient_for=self, modal=True)
-        dialog.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Speichern", Gtk.ResponseType.OK)
+        dialog = Gtk.Dialog(title=translate("Upload slots"), transient_for=self, modal=True)
+        dialog.add_buttons(translate("Cancel"), Gtk.ResponseType.CANCEL, translate("Save"), Gtk.ResponseType.OK)
         content = dialog.get_content_area()
         content.set_spacing(10)
         content.set_margin_top(15)
         content.set_margin_bottom(15)
         content.set_margin_start(15)
         content.set_margin_end(15)
-        content.pack_start(label("Parallele Datei-Uploads", "section-title"), False, False, 0)
+        content.pack_start(label("Parallel file uploads", "section-title"), False, False, 0)
         current = int(self.current_state.get("configuration", {}).get("transfers", 4))
         spinner = Gtk.SpinButton.new_with_range(1, 8, 1)
         spinner.set_value(current)
         content.pack_start(spinner, False, False, 0)
-        note = label("Der gespeicherte Wert gilt beim nächsten kontrollierten Dienststart.", "section-subtitle")
+        note = label("The saved value takes effect after the next controlled service start.", "section-subtitle")
         note.set_line_wrap(True)
         content.pack_start(note, False, False, 0)
         dialog.show_all()
@@ -947,35 +1221,42 @@ class PDriveWindow(Gtk.ApplicationWindow):
         value = spinner.get_value_as_int()
         dialog.destroy()
         if response == Gtk.ResponseType.OK:
-            self.run_helper(["pdrive-transfers", str(value)], "Uploadslots")
+            self.run_helper(["pdrive-transfers", str(value)], "Upload slots")
 
     def on_clear_cooldown(self, _button: Gtk.Button) -> None:
-        self.run_helper(["pdrive-watch", "--clear-cooldown"], "Cooldown")
+        self.run_helper(["pdrive-watch", "--clear-cooldown"], "Restart cooldown")
 
     def on_metadata_refresh(self, _button: Gtk.Button) -> None:
         if self.confirm(
-            "Metadaten neu laden?",
-            "Der sichere Helfer prüft zuerst Queue und Dirty-Dateien und verlangt anschließend im Terminal eine Bestätigung.",
+            "Refresh metadata?",
+            "The guarded helper checks the queue and Dirty files first, then asks for confirmation in a terminal.",
         ):
-            self.launch_terminal("pdrive-refresh --refresh", "Metadaten-Refresh")
+            self.launch_terminal("pdrive-refresh --refresh", "Metadata refresh")
 
     def on_restart(self, _button: Gtk.Button) -> None:
         if self.confirm(
-            "Dienst sicher neu starten?",
-            "Ein laufender Upload würde unterbrochen. pdrive-watch prüft und validiert den neuen Prozess; die endgültige Bestätigung erfolgt im Terminal.",
+            "Safely restart the service?",
+            "An active upload would be interrupted. pdrive-watch checks and validates the new process; final confirmation happens in a terminal.",
         ):
-            self.launch_terminal("pdrive-watch --restart-service", "Sicherer Dienstneustart")
+            self.launch_terminal("pdrive-watch --restart-service", "Safe service restart")
 
     def run_helper(self, command: list[str], title: str) -> None:
         def worker() -> None:
             try:
                 completed = subprocess.run(command, check=False, capture_output=True, text=True, timeout=30)
-                output = (completed.stdout or completed.stderr).strip()
+                if completed.returncode == 0:
+                    output = translate("Action completed.")
+                else:
+                    output = translate_format(
+                        "The helper exited with status {status}. Run {command} in a terminal for its full diagnostic output.",
+                        status=completed.returncode,
+                        command=" ".join(command),
+                    )
                 GLib.idle_add(
                     self.helper_finished,
                     title,
                     completed.returncode == 0,
-                    output or "Aktion abgeschlossen.",
+                    output,
                 )
             except (OSError, subprocess.TimeoutExpired) as error:
                 GLib.idle_add(self.helper_finished, title, False, str(error))
@@ -990,9 +1271,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
     def launch_terminal(self, command: str, title: str) -> None:
         terminal = shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal")
         if not terminal:
-            self.message(title, "Kein Terminalprogramm gefunden.", Gtk.MessageType.ERROR)
+            self.message(title, "No terminal application was found.", Gtk.MessageType.ERROR)
             return
-        script = f"{command}; result=$?; printf '\\nEnter zum Schließen …'; read -r _; exit $result"
+        script = f"{command}; result=$?; printf '\\nPress Enter to close …'; read -r _; exit $result"
         try:
             subprocess.Popen([terminal, "-e", "bash", "-lc", script])
         except OSError as error:
@@ -1004,10 +1285,10 @@ class PDriveWindow(Gtk.ApplicationWindow):
             modal=True,
             message_type=Gtk.MessageType.WARNING,
             buttons=Gtk.ButtonsType.CANCEL,
-            text=title,
+            text=translate(title),
         )
-        dialog.format_secondary_text(detail)
-        dialog.add_button("Fortfahren", Gtk.ResponseType.OK)
+        dialog.format_secondary_text(translate(detail))
+        dialog.add_button(translate("Continue"), Gtk.ResponseType.OK)
         response = dialog.run()
         dialog.destroy()
         return response == Gtk.ResponseType.OK
@@ -1018,20 +1299,22 @@ class PDriveWindow(Gtk.ApplicationWindow):
             modal=True,
             message_type=message_type,
             buttons=Gtk.ButtonsType.OK,
-            text=title,
+            text=translate(title),
         )
-        dialog.format_secondary_text(detail[:4000])
+        dialog.format_secondary_text(translate(detail)[:4000])
         dialog.run()
         dialog.destroy()
 
 
 class PDriveApplication(Gtk.Application):
     def __init__(self, demo: bool = False, background: bool = False) -> None:
+        global CURRENT_LANGUAGE
         flags = Gio.ApplicationFlags.NON_UNIQUE if demo else Gio.ApplicationFlags.FLAGS_NONE
         super().__init__(application_id=APP_ID, flags=flags)
         self.demo = demo
         self.background = background and not demo
         self.preferences = dict(DEFAULT_PREFERENCES) if demo else load_preferences()
+        CURRENT_LANGUAGE = str(self.preferences["language"])
         self.window: PDriveWindow | None = None
         self.initial_activation = True
         self.force_quit = False
@@ -1083,14 +1366,14 @@ class PDriveApplication(Gtk.Application):
 
     def tray_menu(self) -> Gtk.Menu:
         menu = Gtk.Menu()
-        open_item = Gtk.MenuItem(label="PDrive Control Center öffnen")
+        open_item = Gtk.MenuItem(label=translate("Open PDrive Control Center"))
         open_item.connect("activate", self.show_window)
         menu.append(open_item)
-        mount_item = Gtk.MenuItem(label="/pdrive öffnen")
+        mount_item = Gtk.MenuItem(label=translate("Open /pdrive"))
         mount_item.connect("activate", self.open_mount_from_tray)
         menu.append(mount_item)
         menu.append(Gtk.SeparatorMenuItem())
-        quit_item = Gtk.MenuItem(label="Beenden")
+        quit_item = Gtk.MenuItem(label=translate("Quit"))
         quit_item.connect("activate", self.quit_from_tray)
         menu.append(quit_item)
         menu.show_all()
@@ -1142,7 +1425,7 @@ class PDriveApplication(Gtk.Application):
         health = state.get("health", {})
         speed = float(state.get("stats", {}).get("speed") or 0)
         status = str(health.get("status", "unknown"))
-        tooltip = f"{STATUS_META.get(status, STATUS_META['unknown'])[1]} · {human_rate(speed)}"
+        tooltip = f"{translate(STATUS_META.get(status, STATUS_META['unknown'])[1])} · {human_rate(speed)}"
         if self.indicator is not None:
             indicator_label = f"↑ {human_rate(speed)}" if speed >= 1024 else ""
             self.indicator.set_label(indicator_label, "↑ 999.9 MiB/s")
@@ -1156,7 +1439,7 @@ class PDriveApplication(Gtk.Application):
         except GLib.Error as error:
             if self.window is not None:
                 self.show_window()
-                self.window.message("Mount konnte nicht geöffnet werden", str(error), Gtk.MessageType.ERROR)
+                self.window.message("Could not open mount", str(error), Gtk.MessageType.ERROR)
 
     def quit_from_tray(self, *_args: Any) -> None:
         self.force_quit = True
@@ -1166,12 +1449,18 @@ class PDriveApplication(Gtk.Application):
             self.window = None
         self.quit()
 
-    def update_preferences(self, close_to_tray: bool, start_in_tray: bool) -> str | None:
+    def update_preferences(
+        self,
+        close_to_tray: bool,
+        start_in_tray: bool,
+        language: str,
+    ) -> str | None:
         if self.demo:
-            return "Im Demo-Modus werden keine Einstellungen verändert."
+            return "Preferences cannot be changed in demo mode."
         new_preferences = {
             "close_to_tray": bool(close_to_tray or start_in_tray),
             "start_in_tray": bool(start_in_tray),
+            "language": language if language in SUPPORTED_LANGUAGES else "en",
         }
         old_preferences = dict(self.preferences)
         try:
@@ -1200,9 +1489,9 @@ class PDriveApplication(Gtk.Application):
                 try:
                     existing = path.read_text(encoding="utf-8")
                 except OSError as error:
-                    raise OSError(f"Bestehender Autostart kann nicht geprüft werden: {error}") from error
+                    raise OSError(f"Could not inspect the existing autostart file: {error}") from error
                 if AUTOSTART_MARKER not in existing:
-                    raise OSError(f"Fremde Autostartdatei wird nicht überschrieben: {path}")
+                    raise OSError(f"Refusing to overwrite an unmarked autostart file: {path}")
             atomic_write(path, autostart_contents(), 0o600)
             return
         if not path.exists():
@@ -1210,7 +1499,7 @@ class PDriveApplication(Gtk.Application):
         try:
             existing = path.read_text(encoding="utf-8")
         except OSError as error:
-            raise OSError(f"Bestehender Autostart kann nicht geprüft werden: {error}") from error
+            raise OSError(f"Could not inspect the existing autostart file: {error}") from error
         if AUTOSTART_MARKER in existing:
             path.unlink()
 
@@ -1251,7 +1540,7 @@ def demo_state() -> dict[str, Any]:
         )
     return {
         "generated_at": now,
-        "health": {"status": "ready", "summary": "Upload läuft stabil über den bestehenden Proton-Drive-Dienst."},
+        "health": {"status": "ready", "summary": "Upload is running smoothly through the existing Proton Drive service."},
         "service": {"active_state": "active", "sub_state": "running", "pid": 4242},
         "stats": {"speed": speed},
         "transfers": {"active": [active], "recent": []},
@@ -1267,18 +1556,18 @@ def demo_state() -> dict[str, Any]:
 def argument_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="pdrive-ui",
-        description="Native lokale Oberfläche für den bestehenden proton-drive-linux-Dienst.",
+        description="Native local interface for the existing proton-drive-linux service.",
     )
-    parser.add_argument("--demo", action="store_true", help="Oberfläche mit synthetischen Beispieldaten öffnen")
+    parser.add_argument("--demo", action="store_true", help="open the interface with synthetic sample data")
     parser.add_argument(
         "--background",
         action="store_true",
-        help="Fenster beim Sitzungsstart versteckt im Tray halten",
+        help="keep the window hidden in the tray during desktop-session startup",
     )
     parser.add_argument(
         "--check",
         action="store_true",
-        help="GTK-Laufzeit und Statushelfer prüfen, ohne ein Fenster zu öffnen",
+        help="check GTK and the state helper without opening a window",
     )
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     return parser
@@ -1288,11 +1577,11 @@ def main() -> int:
     parser = argument_parser()
     args = parser.parse_args()
     if args.demo and args.background:
-        parser.error("--demo und --background können nicht kombiniert werden")
+        parser.error("--demo and --background cannot be combined")
     if args.check:
         state_command = PDriveWindow.find_state_command()
         if not pathlib.Path(state_command).is_file() and not shutil.which(state_command):
-            print(f"pdrive-state nicht gefunden: {state_command}", file=sys.stderr)
+            print(f"pdrive-state not found: {state_command}", file=sys.stderr)
             return 69
         tray_backend = "Ayatana AppIndicator" if AyatanaAppIndicator3 is not None else "GTK StatusIcon fallback"
         print(

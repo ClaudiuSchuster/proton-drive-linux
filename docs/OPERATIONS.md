@@ -161,9 +161,11 @@ validation:
 disables every mutating control. `--check` validates GTK and locates
 `pdrive-state` without opening a window.
 
-The Settings dialog persists only two booleans in mode-0600
-`~/.config/pdrive-ui.json`: close into tray and start with the desktop session.
-Enabling the latter atomically manages
+The Preferences dialog persists two booleans plus the selected `en`/`de`
+interface language in mode-0600 `~/.config/pdrive-ui.json`. English is the hard
+default; selecting German takes effect after restarting the Control Center.
+The booleans control close into tray and start with the desktop session.
+Enabling session startup atomically manages
 `~/.config/autostart/io.github.claudiuschuster.PDriveControl.desktop`, marked
 with `X-PDrive-Control-Center=true`, whose command is `pdrive-ui --background`.
 The application refuses to overwrite a same-named unmarked file and removes

@@ -392,7 +392,7 @@ make the dashboard work; repair the existing mount service instead. The
 development-only `pdrive-ui --demo` uses synthetic values and proves only that
 the GTK layout works.
 
-If the window disappears on close, check whether **Settings → close into tray**
+If the window disappears on close, check whether **Preferences → close into tray**
 is enabled and open it again from Cinnamon's panel indicator. Autostart state is
 inspectable without starting the UI:
 

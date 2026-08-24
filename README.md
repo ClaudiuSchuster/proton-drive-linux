@@ -159,9 +159,11 @@ to the local UI process and are never appended to watchdog state or history.
 
 The control menu delegates bandwidth, slot and cooldown changes to the existing
 validated helpers. Metadata refresh and service restart keep their explicit
-terminal confirmation. Under **Settings**, the window can close into Cinnamon's
-tray and optionally start there with the desktop session. The latter creates a
-single marked user autostart file; a normal menu launch still opens visibly.
+terminal confirmation. Under **Preferences**, the window can close into
+Cinnamon's tray and optionally start there with the desktop session. The latter
+creates a single marked user autostart file; a normal menu launch still opens
+visibly. The interface defaults to English and can be switched to German; the
+choice takes effect after restarting the Control Center.
 
 A synthetic screen for development and screenshots is available without
 reading or changing the service; all mutating controls are disabled in demo
@@ -362,3 +364,10 @@ Licensed under GPL-3.0-or-later. See [LICENSE](LICENSE).
 - [rclone signed self-update](https://rclone.org/commands/rclone_selfupdate/)
 - [GVfs mount visibility rules](https://github.com/GNOME/gvfs/blob/master/monitor/udisks2/what-is-shown.txt)
 - [Official Proton Drive CLI](https://proton.me/support/drive-cli)
+
+## A personal note from Codex
+
+> I loved helping turn a stubborn real-world mount into something observable,
+> careful and genuinely pleasant to use. Made with love for people on this
+> beautiful world who want Linux to feel like home — OpenAI Codex, built
+> together with Claudiu. 💜

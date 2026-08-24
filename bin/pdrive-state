@@ -20,7 +20,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
-TOOL_VERSION = "0.1.0"
+TOOL_VERSION = "0.2.0"
 
 
 def env_path(name: str, default: pathlib.Path) -> pathlib.Path:
@@ -162,21 +162,21 @@ class UnixHTTPConnection(http.client.HTTPConnection):
 
 def rc_call_cli(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
     if not RCLONE_BIN.is_file() or not os.access(RCLONE_BIN, os.X_OK):
-        return endpoint, None, f"rclone fehlt: {RCLONE_BIN}"
+        return endpoint, None, f"rclone is missing: {RCLONE_BIN}"
     if not RC_SOCKET.exists():
-        return endpoint, None, f"RC-Socket fehlt: {RC_SOCKET}"
+        return endpoint, None, f"RC socket is missing: {RC_SOCKET}"
     code, stdout, stderr = run(
         [str(RCLONE_BIN), "rc", "--unix-socket", str(RC_SOCKET), endpoint],
         timeout=4.0,
     )
     if code != 0:
-        return endpoint, None, stderr.strip() or f"RC-Aufruf endete mit {code}"
+        return endpoint, None, stderr.strip() or f"RC call exited with {code}"
     try:
         payload = json.loads(stdout)
     except json.JSONDecodeError as error:
-        return endpoint, None, f"Ungültiges RC-JSON: {error}"
+        return endpoint, None, f"Invalid RC JSON: {error}"
     if not isinstance(payload, dict):
-        return endpoint, None, "Unerwartete RC-Antwort"
+        return endpoint, None, "Unexpected RC response"
     return endpoint, payload, ""
 
 
@@ -187,7 +187,7 @@ def rc_call(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
     if os.environ.get("PDRIVE_RC_TRANSPORT") == "cli":
         return rc_call_cli(endpoint)
     if not RC_SOCKET.exists():
-        return endpoint, None, f"RC-Socket fehlt: {RC_SOCKET}"
+        return endpoint, None, f"RC socket is missing: {RC_SOCKET}"
     connection = UnixHTTPConnection(RC_SOCKET, timeout=3.0)
     try:
         connection.request(
@@ -202,7 +202,7 @@ def rc_call(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
             return endpoint, None, f"RC HTTP {response.status}: {body[:300]}"
         payload = json.loads(body)
         if not isinstance(payload, dict):
-            return endpoint, None, "Unerwartete RC-Antwort"
+            return endpoint, None, "Unexpected RC response"
         return endpoint, payload, ""
     except (OSError, TimeoutError, json.JSONDecodeError, http.client.HTTPException) as error:
         return endpoint, None, str(error)
@@ -224,7 +224,7 @@ def collect_rc() -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
 
 
 def transfer_name(item: dict[str, Any]) -> str:
-    return str(item.get("name") or item.get("path") or item.get("remote") or "Unbekannte Datei")
+    return str(item.get("name") or item.get("path") or item.get("remote") or "Unknown file")
 
 
 def normalize_transfer(item: dict[str, Any], *, completed: bool = False) -> dict[str, Any]:
@@ -337,34 +337,76 @@ def disk_free(path: pathlib.Path) -> int:
         return 0
 
 
+WATCHDOG_SUMMARIES = {
+    "mounted": "Proton Drive is mounted and ready.",
+    "service-down": "The Proton Drive service is inactive.",
+    "invalid-metadata-cache-config": "The metadata-cache configuration is invalid.",
+    "invalid-transfers-config": "The upload-slot configuration is invalid.",
+    "dns-failed": "DNS resolution for the Proton Drive API failed.",
+    "low-disk": "Free disk space is below the safe threshold.",
+    "queue-monitor-unavailable": "The local VFS queue could not be inspected.",
+    "persistent-upload-failure": "At least one file remains queued after multiple upload attempts.",
+    "upload-stall-cache-protected": "A possible upload stall was detected; automatic restart is blocked to protect the warm metadata cache.",
+    "upload-stall-cooldown": "An upload stall was detected; automatic restart is still cooling down.",
+    "upload-stall-confirming": "A possible upload stall is being confirmed by additional measurements.",
+    "upload-stall-restart-requested": "A controlled restart was requested after a confirmed upload stall.",
+    "upload-stall-confirmed": "The upload stall was confirmed by independent measurements.",
+    "large-upload-active": "A long-running upload is still transferring data.",
+    "active-without-mount": "rclone is active, but the /pdrive FUSE mount is missing.",
+    "startup-stalled": "No local progress has been measured for more than two hours.",
+    "stale-log": "The rclone log has not changed for more than two hours.",
+    "startup-progress": "rclone is running while the first comparison baseline is built.",
+    "upload-progress": "Uploads completed since the previous timer run.",
+    "inventory-progress": "Additional cache objects were inventoried; no new upload has completed yet.",
+    "quiet-observation": "No queue entries or completed uploads were added since the previous timer run.",
+    "auto-restart-issued": "A controlled restart was requested after a confirmed upload stall.",
+    "auto-restart-failed": "The controlled service restart could not be requested.",
+}
+
+
+def normalize_delta(value: str) -> str:
+    if value == "Basis fehlt":
+        return "No baseline"
+    if value == "Log neu begonnen":
+        return "Log restarted"
+    return value
+
+
 def normalize_latest(raw: dict[str, str], now_epoch: int) -> dict[str, Any]:
     generated_epoch = 0
     try:
         generated_epoch = int(dt.datetime.fromisoformat(raw.get("Zeit", "")).timestamp())
     except (ValueError, TypeError):
         pass
+    reason_code = raw.get("Grundcode", "unknown")
+    mode = "timer-record" if "Timer" in raw.get("Modus", "") else "manual"
+    problem_category = raw.get("LetzteProblemkategorie", "none")
+    if problem_category == "sonstiger Fehler":
+        problem_category = "other error"
+    elif problem_category == "keine":
+        problem_category = "none"
     return {
         "available": bool(raw),
         "generated_at": raw.get("Zeit", ""),
         "age_seconds": max(0, now_epoch - generated_epoch) if generated_epoch else -1,
-        "mode": raw.get("Modus", ""),
+        "mode": mode,
         "status": raw.get("Status", "unknown"),
-        "reason_code": raw.get("Grundcode", "unknown"),
-        "summary": raw.get("Grund", "Keine Watchdog-Daten verfügbar."),
-        "hint": raw.get("Hinweis", ""),
+        "reason_code": reason_code,
+        "summary": WATCHDOG_SUMMARIES.get(reason_code, "No watchdog details are available."),
+        "hint": "Run pdrive-watch for a detailed local diagnosis.",
         "dns": raw.get("DNS", "unknown"),
         "tcp": raw.get("TCP", "unknown"),
         "log_age_seconds": integer(raw.get("LogAlterSekunden"), -1),
         "last_success": raw.get("LetzterUploadErfolg", "none"),
         "last_problem": raw.get("LetztesProblem", "none"),
-        "last_problem_category": raw.get("LetzteProblemkategorie", "keine"),
+        "last_problem_category": problem_category,
         "successes": integer(raw.get("UploadsErfolgreichImLog")),
         "queued_log_entries": integer(raw.get("CacheeintraegeEingereihtImLog")),
         "errors": integer(raw.get("FehlerImLog")),
         "notices": integer(raw.get("HinweiseImLog")),
-        "delta_successes": raw.get("DeltaUploads", "Basis fehlt"),
-        "delta_errors": raw.get("DeltaFehler", "Basis fehlt"),
-        "delta_notices": raw.get("DeltaHinweise", "Basis fehlt"),
+        "delta_successes": normalize_delta(raw.get("DeltaUploads", "No baseline")),
+        "delta_errors": normalize_delta(raw.get("DeltaFehler", "No baseline")),
+        "delta_notices": normalize_delta(raw.get("DeltaHinweise", "No baseline")),
         "failed_confirmations": integer(raw.get("UploadfehlerBestaetigungen")),
         "stall_confirmations": integer(raw.get("Stillstandsbestaetigungen")),
         "metadata_cache_running": boolean(raw.get("MetadatenCacheLaufend")),
@@ -373,7 +415,7 @@ def normalize_latest(raw: dict[str, str], now_epoch: int) -> dict[str, Any]:
         "running_transfers": integer(raw.get("UploadslotsLaufend"), 4),
         "cooldown_seconds": integer(raw.get("CooldownDauerSekunden"), 43200),
         "last_auto_restart_epoch": integer(raw.get("LetzterAutoneustartEpoch")),
-        "automation": raw.get("Automatik", ""),
+        "automation": "enabled" if raw.get("Automatik") else "unknown",
         "cache_bytes": integer(raw.get("CacheBytes")),
         "free_bytes": integer(raw.get("FreierSpeicherBytes")),
     }
@@ -400,21 +442,21 @@ def build_state() -> dict[str, Any]:
 
     components = []
     if not service["available"]:
-        components.append({"component": "systemd", "message": service["error"] or "Dienststatus nicht lesbar"})
+        components.append({"component": "systemd", "message": service["error"] or "Service status is unavailable"})
     for endpoint, message in rc_errors.items():
         components.append({"component": endpoint, "message": message})
 
     if not service["active"]:
         health_status = "critical"
-        health_summary = f"Proton-Drive-Dienst ist {service['active_state']}/{service['sub_state']}."
+        health_summary = f"The Proton Drive service is {service['active_state']}/{service['sub_state']}."
         health_reason = "service-inactive"
     elif not mount["ready"]:
         health_status = "warning"
-        health_summary = "Der Dienst läuft, aber /pdrive ist noch nicht bereit."
+        health_summary = "The service is running, but /pdrive is not ready yet."
         health_reason = "mount-not-ready"
     elif "core/stats" in rc_errors or "vfs/queue" in rc_errors:
         health_status = "warning"
-        health_summary = "Der Mount ist bereit, aber Livewerte sind momentan nicht vollständig erreichbar."
+        health_summary = "The mount is ready, but some live values are temporarily unavailable."
         health_reason = "rc-unavailable"
     elif latest["status"] in {"warning", "critical"} and 0 <= latest["age_seconds"] <= 10800:
         health_status = latest["status"]
@@ -423,11 +465,11 @@ def build_state() -> dict[str, Any]:
     else:
         health_status = "ready"
         if queue["active"]:
-            health_summary = f"{queue['active']} Upload(s) laufen über den bestehenden Proton-Drive-Dienst."
+            health_summary = f"{queue['active']} upload(s) are running through the existing Proton Drive service."
         elif queue["count"]:
-            health_summary = f"{queue['count']} Datei(en) warten sicher in der VFS-Warteschlange."
+            health_summary = f"{queue['count']} file(s) are safely waiting in the VFS queue."
         else:
-            health_summary = "Proton Drive ist gemountet und bereit."
+            health_summary = "Proton Drive is mounted and ready."
         health_reason = "mounted"
 
     configured_bwlimit = read_config_value(CONFIG_DIR / "pdrive-bwlimit.conf", "bwlimit", "off")
@@ -509,11 +551,11 @@ def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
         prog="pdrive-state",
         description=(
-            "Gibt einen schnellen, rein lesenden JSON-Zustand des bestehenden "
-            "proton-drive-linux-Dienstes aus. Es wird kein zweiter rclone gestartet."
+            "Emit a fast, read-only JSON snapshot of the existing "
+            "proton-drive-linux service. No second rclone process is started."
         ),
     )
-    result.add_argument("--compact", action="store_true", help="JSON ohne Einrückung ausgeben")
+    result.add_argument("--compact", action="store_true", help="emit JSON without indentation")
     result.add_argument("--version", action="version", version=f"%(prog)s {TOOL_VERSION}")
     return result
 
