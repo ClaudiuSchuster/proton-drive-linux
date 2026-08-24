@@ -16,6 +16,7 @@ import shutil
 import socket
 import subprocess
 import sys
+import time
 from typing import Any
 
 
@@ -103,6 +104,7 @@ def service_state() -> dict[str, Any]:
         "ExecMainStatus",
         "NRestarts",
         "ActiveEnterTimestamp",
+        "ActiveEnterTimestampMonotonic",
     ]
     command = ["systemctl", "--user", "show", "rclone-proton-drive.service"]
     for prop in properties:
@@ -116,6 +118,12 @@ def service_state() -> dict[str, Any]:
             raw[key] = value
     active = raw.get("ActiveState", "unknown")
     sub = raw.get("SubState", "unknown")
+    active_since_monotonic = integer(raw.get("ActiveEnterTimestampMonotonic"), -1)
+    uptime_seconds = (
+        max(0, int(time.monotonic() - (active_since_monotonic / 1_000_000)))
+        if active_since_monotonic > 0
+        else -1
+    )
     return {
         "available": code == 0,
         "active_state": active,
@@ -126,6 +134,7 @@ def service_state() -> dict[str, Any]:
         "exit_status": integer(raw.get("ExecMainStatus"), -1),
         "restarts": integer(raw.get("NRestarts")),
         "since": raw.get("ActiveEnterTimestamp", ""),
+        "uptime_seconds": uptime_seconds,
         "error": stderr.strip() if code else "",
     }
 
@@ -225,7 +234,7 @@ def rc_call_cli(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
 def rc_call(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
     # The CLI fallback exists for isolated fixture tests and unusual debugging.
     # Production polling talks HTTP directly over the already owner-only Unix
-    # socket. This avoids starting five large Go processes every two seconds.
+    # socket. This avoids starting five large Go processes on every UI refresh.
     if os.environ.get("PDRIVE_RC_TRANSPORT") == "cli":
         return rc_call_cli(endpoint)
     if not RC_SOCKET.exists():

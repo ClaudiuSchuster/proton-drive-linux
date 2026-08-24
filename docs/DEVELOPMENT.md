@@ -109,6 +109,8 @@ For Cinnamon product screenshots, activate the disposable demo window, take one
 X11 root capture and crop the exact window or popover region. Do not automate
 repeated Cinnamon `ScreenshotArea` D-Bus calls; that path has caused reproducible
 shell crashes. Include the active-window highlight in the main product image.
+Choose a stable initial tab without synthetic pointer input through
+`pdrive-ui --demo --demo-page overview|transfers|history`.
 
 ## UI and language
 

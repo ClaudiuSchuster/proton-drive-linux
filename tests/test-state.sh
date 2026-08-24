@@ -24,6 +24,7 @@ printf '%s\n' \
     'ExecMainStatus=0' \
     'NRestarts=0' \
     'ActiveEnterTimestamp=Mon 2026-08-24 10:00:00 CEST' \
+    'ActiveEnterTimestampMonotonic=1000000' \
     'EOF' > "${fake_bin}/systemctl"
 printf '%s\n' \
     '#!/usr/bin/env bash' \
@@ -104,6 +105,7 @@ jq -e '
     .schema_version == 1
     and .health.status == "ready"
     and .service.pid == 4242
+    and .service.uptime_seconds >= 0
     and .network_io.available == true
     and .network_io.connections == 1
     and .network_io.sent_bytes == 8388608

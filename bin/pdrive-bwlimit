@@ -21,6 +21,7 @@ usage() {
         'Zahlen ohne Einheit werden an jeder Stelle automatisch als MiB/s behandelt.' \
         'Explizite Einheiten sind weiterhin möglich, z. B. 800K oder 0.625M.' \
         'off: Limit live und persistent vollständig entfernen.' \
+        '0: wie off; rclone versteht Null als unbegrenzt, nicht als Pause.' \
         '' \
         'Die Einheiten sind Byte pro Sekunde, nicht Bit pro Sekunde.'
 }

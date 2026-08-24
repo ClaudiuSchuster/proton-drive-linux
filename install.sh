@@ -155,6 +155,12 @@ install -m 0644 \
     "${project_dir}/docs/assets/pdrive-control-menu.png" \
     "${doc_assets_dir}/pdrive-control-menu.png"
 install -m 0644 \
+    "${project_dir}/docs/assets/pdrive-transfers.png" \
+    "${doc_assets_dir}/pdrive-transfers.png"
+install -m 0644 \
+    "${project_dir}/docs/assets/pdrive-history.png" \
+    "${doc_assets_dir}/pdrive-history.png"
+install -m 0644 \
     "${project_dir}/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg" \
     "${doc_icon_dir}/io.github.claudiuschuster.PDriveControl.svg"
 install -m 0644 \

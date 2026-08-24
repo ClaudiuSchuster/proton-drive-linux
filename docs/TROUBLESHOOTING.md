@@ -189,6 +189,11 @@ pdrive-bwlimit 3
 Remove the temporary limit later with `pdrive-bwlimit off`. Live changes do not
 interrupt the current transfer.
 
+The Control Center's **⏸ ≈0** slider endpoint is a near-pause implemented as a
+`0.02 MiB/s` upload limit. rclone has no native VFS transfer pause, and its raw
+value `0` means unlimited. Move the slider fully right or run
+`pdrive-bwlimit off` to restore unlimited throughput.
+
 ### A link is not the same as a working route
 
 NetworkManager can report Ethernet as connected even when no IPv4 default route

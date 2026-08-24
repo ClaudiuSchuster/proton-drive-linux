@@ -123,6 +123,8 @@ if [[ -d "${doc_dir}" ]]; then
     rm -f -- \
         "${doc_dir}/docs/assets/pdrive-control-center.png" \
         "${doc_dir}/docs/assets/pdrive-control-menu.png" \
+        "${doc_dir}/docs/assets/pdrive-transfers.png" \
+        "${doc_dir}/docs/assets/pdrive-history.png" \
         "${doc_dir}/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg"
     rmdir "${doc_dir}/docs/assets" "${doc_dir}/docs" 2>/dev/null || true
     rmdir "${doc_dir}/share/icons/hicolor/scalable/apps" \

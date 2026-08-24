@@ -26,6 +26,17 @@
 
 <p align="center"><sub>Proton Drive at a glance, framed by <a href="https://github.com/ClaudiuSchuster/cinnamon-active-window-highlight">Active Window Highlight</a>.</sub></p>
 
+<table>
+  <tr>
+    <td><img src="docs/assets/pdrive-transfers.png" alt="PDrive Control Center transfer details"></td>
+    <td><img src="docs/assets/pdrive-history.png" alt="PDrive Control Center issue review and health history"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>Transfers, queue and protected VFS cache</sub></td>
+    <td align="center"><sub>Reviewable issues, service diagnostics and bounded health history</sub></td>
+  </tr>
+</table>
+
 <p align="center">
   <img src="docs/assets/pdrive-control-menu.png" width="287"
        alt="PDrive Control Center menu with service actions, documentation and preferences">
@@ -44,10 +55,12 @@ Keyring and provides a native GTK control center for the details that matter.
 
 - Writable, owner-only `/pdrive` mount with a direct Nemo bookmark.
 - English and German GTK control center with tray support.
-- Live upload and PDrive download-traffic graphs.
-- Active transfers, upload queue, recent history and reviewable issue evidence.
+- Upload and download-traffic graphs with a configurable live interval.
+- Active transfers, upload queue, service diagnostics, bounded health history
+  and reviewable issue evidence.
 - Clear Proton used/total/free, local free-space and VFS-cache values.
-- Safe bandwidth, cache-retention, metadata-refresh and restart controls.
+- Safe logarithmic bandwidth, upload-slot, cache-retention, metadata-refresh
+  and restart controls.
 - Conservative health monitoring with desktop notifications.
 - Guided first setup, encrypted credentials and signed rclone updates.
 
@@ -82,7 +95,7 @@ The Overview shows health, live traffic, active work, queued uploads,
 unreviewed issues, VFS-cache use and storage capacity. The Capacity card keeps
 the two worlds explicit:
 
-- **PDrive cloud:** used, total and free account storage;
+- **Proton cloud:** used, total and free account storage;
 - **Local cache disk:** local free space and current VFS-cache use.
 
 Cloud capacity is refreshed at startup, every 15 minutes and with the manual
@@ -134,6 +147,10 @@ pdrive-bwlimit off           # remove the live limit
 pdrive-cache-age 24          # retain clean read cache for 24 hours
 pdrive-refresh --refresh     # guarded metadata refresh after external changes
 ```
+
+The GUI bandwidth slider ranges from **⏸ ≈0** (a clearly labelled near-pause
+at `0.02 MiB/s`) to **Unlimited**. rclone treats `0` as unlimited, so the
+near-pause is an intentionally tiny live limit rather than a native pause.
 
 Every no-argument and `--help` path is action-free unless the default command is
 explicitly documented as a read-only status check. Complete helper behavior and

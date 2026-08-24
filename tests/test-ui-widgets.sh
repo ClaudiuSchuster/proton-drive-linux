@@ -51,11 +51,23 @@ window_labels = [
     if isinstance(widget, module.Gtk.Label)
 ]
 assert "Open PDrive folder" in window_labels
-assert "Open PDrive web" in window_labels
+assert "Open Proton Drive web" in window_labels
 assert "Local VFS cache" in window_labels
 assert window.open_web_button.get_style_context().has_class("secondary-web-action")
 assert not window.open_web_button.get_style_context().has_class("primary-folder-action")
 assert window.open_folder_button.get_style_context().has_class("primary-folder-action")
+assert window.stack_switcher.get_style_context().has_class("pdrive-tabs")
+assert len(window.stack_switcher.get_children()) == 3
+assert all(button.get_tooltip_text() for button in window.stack_switcher.get_children())
+assert all(
+    button.get_events() & module.Gdk.EventMask.ENTER_NOTIFY_MASK
+    for button in (window.open_web_button, window.open_folder_button, *window.stack_switcher.get_children())
+)
+assert set(window.config_buttons) == {"bandwidth", "slots", "metadata", "cooldown"}
+assert all(button.get_sensitive() for button in window.config_buttons.values())
+assert all(button.get_style_context().has_class("config-action") for button in window.config_buttons.values())
+assert all(button.get_tooltip_text() for button in window.config_buttons.values())
+assert set(window.config_value_size_group.get_widgets()) == set(window.config_labels.values())
 popover = menu_buttons[0].get_popover()
 assert popover is not None
 assert popover.get_child() is not None
@@ -70,6 +82,7 @@ popover_buttons = [
 ]
 assert len(popover_buttons) == 8
 assert all(button.get_visible() for button in popover_buttons)
+assert all(button.get_tooltip_text() for button in popover_buttons)
 popover_labels = [
     widget.get_text()
     for widget in descendants(popover.get_child())
@@ -100,10 +113,45 @@ window.apply_state(module.demo_state())
 assert window.speed_graph.get_size_request()[1] == 112
 assert window.download_graph.get_size_request()[1] == 112
 assert "MiB/s" in window.download_graph_peak.get_text()
+assert "MiB/s" in window.download_speed_card.value.get_text()
+assert window.download_speed_card.detail.get_text() == "Includes Proton API replies"
+assert window.upload_graph_detail.get_text().endswith("every 2s")
+assert window.download_graph_detail.get_text() == window.upload_graph_detail.get_text()
+assert window.speed_graph.axis_labels[0].get_text().endswith("/s")
+assert window.speed_graph.axis_labels[1].get_text().endswith("/s")
+assert window.speed_graph.axis_labels[2].get_text() == "0 B/s"
+assert window.speed_graph.timeline_start.get_text() == "~5m"
+assert window.overview_grid.get_child_at(1, 0) is window.download_speed_card
+assert window.overview_grid.get_child_at(2, 1) is window.capacity_card
+assert window.capacity_card.frame.get_style_context().has_class("overview-secondary")
+assert window.activity_grid.get_child_at(0, 0) is window.active_card
+assert window.activity_grid.get_child_at(1, 0) is window.queue_card
 assert "free" in window.capacity_card.remote_value.get_text()
 assert "used" in window.capacity_card.remote_detail.get_text()
 assert "free" in window.capacity_card.local_value.get_text()
 assert "VFS cache used" in window.capacity_card.local_detail.get_text()
+assert "pending upload" in window.cache_card.detail.get_text()
+assert all(value.get_text() != "–" for value in window.live_detail_labels.values())
+assert "queued" in window.live_detail_labels["upload"].get_text()
+assert "rclone process" in window.live_detail_labels["download"].get_text()
+assert "synced read cache" in window.live_detail_labels["cache"].get_text()
+assert "free of" in window.live_detail_labels["cloud"].get_text()
+assert "uptime" in window.live_detail_labels["service"].get_text()
+assert "DNS ok" in window.live_detail_labels["network"].get_text()
+assert "TCP established" in window.live_detail_labels["network"].get_text()
+assert window.service_detail_values["state"].get_text() == "active/running"
+assert window.service_detail_values["process"].get_text() == "PID 4242 · result success · exit 0"
+assert window.service_detail_values["uptime"].get_text() == "1d 3h"
+assert window.service_detail_values["restarts"].get_text() == "0"
+assert "ready" in window.service_detail_values["mount"].get_text()
+assert "stall confirmation" in window.service_detail_values["watchdog"].get_text()
+assert all(value.get_xalign() == 0.5 for value in window.config_labels.values())
+assert window.live_summary.get_selectable()
+assert window.live_summary_icon.get_icon_name()[0] == "emblem-synchronizing-symbolic"
+assert all(value.get_selectable() for value in window.live_detail_labels.values())
+assert window.copy_short_status_button.get_tooltip_text() == "Copy short status"
+assert "PDrive Control Center — Ready" in window.short_status_text
+assert "Configuration:" in window.short_status_text
 assert len(window.issue_list.get_children()) == 5
 assert not window.mark_issues_reviewed_button.get_sensitive()
 assert isinstance(window.problem_card, module.Gtk.EventBox)
@@ -170,8 +218,9 @@ assert "IMPORTANT" in guide_text
 assert "independent community project" in guide_text
 assert "<img" not in guide_text
 assert "[!IMPORTANT]" not in guide_text
-assert len(guide.rendered_images) == 3
+assert len(guide.rendered_images) == 5
 assert guide.rendered_images[0].name == "io.github.claudiuschuster.PDriveControl.svg"
+assert guide.rendered_images[-1].name == "pdrive-control-menu.png"
 documentation_window.destroy()
 
 original_dialog_run = module.Gtk.Dialog.run
@@ -193,11 +242,17 @@ def inspect_preferences_dialog(dialog):
     assert save_button.get_sensitive()
     background_toggle.set_active(False)
     assert not save_button.get_sensitive()
-    language_combo = next(
+    combos = [
         widget
         for widget in descendants(dialog)
         if isinstance(widget, module.Gtk.ComboBoxText)
-    )
+    ]
+    interval_combo = next(combo for combo in combos if combo.get_active_id() == "2")
+    language_combo = next(combo for combo in combos if combo.get_active_id() == "en")
+    interval_combo.set_active_id("5")
+    assert save_button.get_sensitive()
+    interval_combo.set_active_id("2")
+    assert not save_button.get_sensitive()
     language_combo.set_active_id("de")
     assert save_button.get_sensitive()
     language_combo.set_active_id("en")
@@ -209,6 +264,29 @@ try:
     window.on_preferences(None)
 finally:
     module.Gtk.Dialog.run = original_dialog_run
+
+opened_configuration_dialogs = []
+
+def inspect_configuration_dialog(dialog):
+    opened_configuration_dialogs.append(dialog.get_title())
+    save_button = dialog.get_widget_for_response(module.Gtk.ResponseType.OK)
+    assert not save_button.get_sensitive()
+    if dialog.get_title() in {"Metadata cache", "Restart cooldown"}:
+        assert dialog.get_content_area().get_size_request()[0] == 440
+    return module.Gtk.ResponseType.CANCEL
+
+module.Gtk.Dialog.run = inspect_configuration_dialog
+try:
+    for config_button in window.config_buttons.values():
+        config_button.emit("clicked")
+finally:
+    module.Gtk.Dialog.run = original_dialog_run
+assert opened_configuration_dialogs == [
+    "Bandwidth limit",
+    "Upload slots",
+    "Metadata cache",
+    "Restart cooldown",
+]
 
 assert module.tray_supports_distinct_clicks()
 app.demo = False

@@ -41,9 +41,17 @@ project-specific; CI remains the authority for mechanical formatting rules.
   pressed and keyboard-focus states, and distinguish protected pending uploads
   from clean retained cache copies.
 - Distinguish Proton account capacity from local cache-filesystem capacity.
-  Remote quota reads are low-frequency; never tie them to the two-second poll.
+  Remote quota reads are low-frequency; never tie them to the configurable live poll.
   Keep graph sources explicit: rclone RC for uploads and process-owned TCP
   receive counters for VFS download traffic, with API overhead disclosed.
+- Keep the compact overview useful without hiding diagnostics: summarize
+  service uptime and restart count in “What’s happening”, while retaining the
+  full systemd, mount, and watchdog details on History.
+- Preserve rclone bandwidth semantics: `0`/`off` means unlimited. A UI
+  near-pause must use the documented low nonzero rate and must never be
+  presented as a native pause.
+- Use “PDrive” for this project and local tooling; use “Proton Drive” or
+  “Proton cloud” for Proton’s service and web destination.
 - An issue counter must lead to reviewable evidence before acknowledgment:
   timestamp, severity, PDrive-specific category, sanitized context, affected
   path when safe, and a useful next step. Never acknowledge merely by opening

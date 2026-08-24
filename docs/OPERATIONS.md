@@ -169,12 +169,12 @@ with systemd, `findmnt`, strict helper configuration and the latest watchdog
 snapshot/history. A partial subsystem failure is represented in
 `health.components`; the command still emits a complete schema-versioned JSON
 document so local consumers can degrade gracefully. The direct socket transport
-avoids launching multiple large rclone CLI processes on every two-second UI
-refresh; no TCP listener or additional rclone process is involved.
+avoids launching multiple large rclone CLI processes on every live UI refresh;
+no TCP listener or additional rclone process is involved.
 
 `pdrive-ui` is the native GTK consumer of that document. While visible, it
-refreshes every two seconds in a background thread, keeps a five-minute
-in-memory speed graph and
+refreshes at the Preferences interval (two seconds by default) in a background
+thread, keeps a rolling in-memory speed graph and
 shows active transfer and queue names only in the current desktop process. It
 does not modify the privacy-preserving watchdog files, start a second rclone,
 read the encrypted remote configuration, open a network listener or contact
@@ -212,18 +212,30 @@ endpoint does not separately expose VFS reads, the receive graph derives its
 rate from Linux TCP payload counters belonging to the exact PID reported by
 `rclone-proton-drive.service`. It cannot include browser traffic or another
 rclone mount, but it can include small Proton API and metadata replies.
+Both graphs label zero, half peak and peak on the Y axis. Their X-axis window is
+derived from the selected live-metrics interval and the 150 retained samples,
+so changing the interval updates both the poll note and displayed time range.
 
 The Capacity card separates the Proton account from the local cache filesystem.
-It shows PDrive used, total and free values exposed by the mounted remote beside
+It shows Proton cloud used, total and free values exposed by the mounted remote beside
 local free space and current VFS-cache use. Remote capacity may contact the
 backend, so it is read only at UI startup, every 15 minutes and when the user
-requests a manual refresh; two-second live polls reuse the last reading.
+requests a manual refresh; ordinary live polls reuse the last reading.
+
+The Overview short status includes service uptime and the systemd restart
+counter. History retains the deeper service snapshot: active/sub state, PID,
+result and exit status, uptime, restart count, mount filesystem and the latest
+watchdog state. Health history on disk is capped at 512 samples, the state
+adapter exposes 48, and the UI renders the latest 24.
 
 The control popover calls existing helpers instead of duplicating their
 validation:
 
 - bandwidth applies live through `pdrive-bwlimit` without restarting a transfer;
-- upload slots are persisted through `pdrive-transfers` for the next start;
+- the logarithmic bandwidth slider gives low everyday rates substantially more
+  control, while its separated right endpoint removes the limit;
+- upload slots use a discrete 1–8 slider and are persisted through
+  `pdrive-transfers` for the next start;
 - clean-cache retention is persisted through `pdrive-cache-age` for the next
   start and is also configurable in the Transfers cache section;
 - cooldown reset delegates to `pdrive-watch --clear-cooldown`;
@@ -242,13 +254,14 @@ header button.
 
 `--check` validates GTK and locates `pdrive-state` without opening a window.
 
-The Preferences dialog persists three booleans plus the selected `en`/`de`
-interface language in mode-0600 `~/.config/pdrive-ui.json`. English is the hard
-default; selecting German takes effect after restarting the Control Center.
+The Preferences dialog persists three booleans, the 1/2/5/10-second live-metrics
+interval and the selected `en`/`de` interface language in mode-0600
+`~/.config/pdrive-ui.json`. English and a two-second interval are the hard
+defaults; selecting German takes effect after restarting the Control Center.
 The booleans control close into tray, start with the desktop session and whether
-two-second live polling continues while hidden. Background polling defaults to
-off; the independent 90-minute watchdog continues monitoring either way, and
-opening the window always triggers an immediate refresh.
+live polling continues while hidden. Background polling defaults to off; the
+independent 90-minute watchdog continues monitoring either way, and opening the
+window always triggers an immediate refresh.
 Enabling session startup atomically manages
 `~/.config/autostart/io.github.claudiuschuster.PDriveControl.desktop`, marked
 with `X-PDrive-Control-Center=true`, whose command is `pdrive-ui --background`.
@@ -275,6 +288,7 @@ pdrive-bwlimit
 pdrive-bwlimit 4.2
 pdrive-bwlimit 4:1
 pdrive-bwlimit 800K
+pdrive-bwlimit 0.02
 pdrive-bwlimit off
 ```
 
@@ -282,6 +296,16 @@ A single value means upload limit with unlimited download. A colon separates
 upload and download. Every unitless numeric component receives the rclone `M`
 suffix before validation, so `4:1` becomes `4M:1M`. Values are bytes per second,
 not bits per second.
+
+The Control Center exposes the upload value as a slider. Its far-right endpoint
+is **Unlimited (`off`/`0`)**, because rclone normalizes a zero bandwidth limit
+to unlimited throughput. Its far-left **⏸ ≈0** endpoint applies `0.02 MiB/s`:
+this is an intentional near-zero throttle, not a native VFS pause. The value is
+high enough to remain above the watchdog's conservative TCP activity threshold
+during its 20-second probe. The active HTTP transfer remains open and resumes
+normal throughput as soon as the slider is moved or the limit is removed.
+Advanced asymmetric or higher values remain available through
+`pdrive-bwlimit`.
 
 The helper first asks rclone's loopback parser to canonicalize the value, writes
 one mode-0600 config atomically, then updates the live process through the

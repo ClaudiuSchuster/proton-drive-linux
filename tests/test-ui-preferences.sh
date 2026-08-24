@@ -27,6 +27,7 @@ assert module.load_preferences() == {
     "close_to_tray": False,
     "start_in_tray": False,
     "poll_in_background": False,
+    "refresh_interval_seconds": 2,
     "language": "en",
     "issues_reviewed_errors": -1,
     "issues_reviewed_notices": -1,
@@ -74,6 +75,7 @@ module.atomic_write(
             "close_to_tray": False,
             "start_in_tray": True,
             "poll_in_background": True,
+            "refresh_interval_seconds": 5,
             "language": "de",
             "issues_reviewed_errors": 40,
             "issues_reviewed_notices": 9,
@@ -86,6 +88,7 @@ assert module.load_preferences() == {
     "close_to_tray": True,
     "start_in_tray": True,
     "poll_in_background": True,
+    "refresh_interval_seconds": 5,
     "language": "de",
     "issues_reviewed_errors": 40,
     "issues_reviewed_notices": 9,
@@ -147,10 +150,24 @@ rate, baseline = module.network_receive_rate(
 )
 assert rate == 0 and baseline is None
 
+assert module.bandwidth_slider_position("off") == module.BANDWIDTH_SLIDER_UNLIMITED
+assert module.bandwidth_slider_position("0") == module.BANDWIDTH_SLIDER_UNLIMITED
+assert 60 < module.bandwidth_slider_position("4.200Mi:off") < 70
+assert 40 < module.bandwidth_slider_position("800K:off") < 50
+assert abs(module.bandwidth_slider_rate(module.bandwidth_slider_position("4.2")) - 4.2) < 0.001
+assert module.bandwidth_slider_command(0) == "0.02"
+assert module.bandwidth_slider_command(module.bandwidth_slider_position("4.2")) == "4.2"
+assert module.bandwidth_slider_command(module.BANDWIDTH_SLIDER_UNLIMITED) == "off"
+assert "≈0" in module.bandwidth_slider_label(0)
+assert "4.2 MiB/s" in module.bandwidth_slider_label(module.bandwidth_slider_position("4.2"))
+assert "off/0" in module.bandwidth_slider_label(module.BANDWIDTH_SLIDER_UNLIMITED)
+assert module.argument_parser().parse_args(["--demo", "--demo-page", "history"]).demo_page == "history"
+
 application = module.PDriveApplication()
-assert application.update_preferences(False, False, False, "en") is None
+assert application.update_preferences(False, False, False, 10, "en") is None
 updated = module.load_preferences()
 assert updated["poll_in_background"] is False
+assert updated["refresh_interval_seconds"] == 10
 assert updated["issues_reviewed_errors"] == 40
 assert updated["issues_reviewed_notices"] == 9
 assert updated["issues_reviewed_at"] == "2026-08-24T12:00:00+02:00"
