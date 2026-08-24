@@ -58,9 +58,9 @@ Keyring and provides a native GTK control center for the details that matter.
 - Upload and download-traffic graphs with a configurable live interval.
 - Active transfers, upload queue, service diagnostics, bounded health history
   and reviewable issue evidence.
-- Clear Proton used/total/free, local free-space and VFS-cache values.
-- Safe logarithmic bandwidth, upload-slot, cache-retention, metadata-refresh
-  and restart controls.
+- Clear Proton cloud used/total/free, local free-space and VFS-cache values.
+- Fine-grained bandwidth plus guarded upload-slot, cache-retention,
+  metadata-refresh and restart controls.
 - Conservative health monitoring with desktop notifications.
 - Guided first setup, encrypted credentials and signed rclone updates.
 
@@ -99,8 +99,8 @@ the two worlds explicit:
 - **Local cache disk:** local free space and current VFS-cache use.
 
 Cloud capacity is refreshed at startup, every 15 minutes and with the manual
-refresh button. Two-second live polling reuses that value instead of repeatedly
-contacting Proton.
+refresh button. Live polling (two seconds by default) reuses that value instead
+of repeatedly contacting Proton.
 
 Click Active, Queue or VFS-Cache to jump to the matching Transfers section.
 Click Unreviewed issues to inspect sanitized timestamp, category, affected path,
@@ -111,8 +111,9 @@ The folder button opens `/pdrive` in Nemo. Matching navigation, header and menu
 actions open the official [Proton Drive web client](https://drive.proton.me/)
 for account-wide settings and workflows outside the mount.
 
-Preferences control close-to-tray, start-in-tray, hidden-window metric polling
-and language. The menu also contains the locally rendered in-app manual.
+Preferences control close-to-tray, start-in-tray, the live refresh interval,
+hidden-window metric polling and language. The menu also contains the locally
+rendered in-app manual.
 
 ## Everyday use
 
@@ -133,7 +134,7 @@ pdrive-watch
 pdrive-refresh
 ```
 
-Both the VFS queue and `Dirty lokal` should be zero.
+Both the VFS queue and the locally Dirty file count should be zero.
 
 ## Common controls
 
@@ -200,9 +201,6 @@ recovery unless you deliberately remove them later.
   recovery.
 - [Development guide](docs/DEVELOPMENT.md) — architecture, security, testing,
   language, CI and release conventions.
-- [Repository instructions](AGENTS.md) — strict invariants for coding agents and
-  reviewers.
-
 Contributions are welcome. Run `make check` before opening a pull request; both
 Functional checks and Super-Linter are intended to be required checks.
 

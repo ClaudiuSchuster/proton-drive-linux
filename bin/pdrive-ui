@@ -44,7 +44,7 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.5.0"
+VERSION = "0.6.0"
 REFRESH_INTERVAL_SECONDS = 2
 REFRESH_INTERVAL_OPTIONS = (1, 2, 5, 10)
 BANDWIDTH_SLIDER_MAX_RATE = 100.0
@@ -2417,6 +2417,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         for icon_name, text, callback in actions:
             button = Gtk.Button()
             add_css(button, "flat-action")
+            set_pointer_on_hover(button)
             button.set_tooltip_text(translate(text))
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
             row.pack_start(
@@ -2428,7 +2429,6 @@ class PDriveWindow(Gtk.ApplicationWindow):
             row.pack_start(label(text), True, True, 0)
             button.add(row)
             button.connect("clicked", callback)
-            button.set_sensitive(not self.demo)
             box.pack_start(button, False, False, 0)
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         separator.set_margin_top(3)
@@ -2436,6 +2436,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         box.pack_start(separator, False, False, 0)
         proton_web_button = Gtk.Button()
         add_css(proton_web_button, "flat-action")
+        set_pointer_on_hover(proton_web_button)
         proton_web_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
         proton_web_row.pack_start(
             Gtk.Image.new_from_icon_name("web-browser-symbolic", Gtk.IconSize.BUTTON),
@@ -2450,6 +2451,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         box.pack_start(proton_web_button, False, False, 0)
         documentation_button = Gtk.Button()
         add_css(documentation_button, "flat-action")
+        set_pointer_on_hover(documentation_button)
         documentation_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
         documentation_row.pack_start(
             Gtk.Image.new_from_icon_name("help-browser-symbolic", Gtk.IconSize.BUTTON),
@@ -2464,6 +2466,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         box.pack_start(documentation_button, False, False, 0)
         preferences_button = Gtk.Button()
         add_css(preferences_button, "flat-action")
+        set_pointer_on_hover(preferences_button)
         preferences_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
         preferences_row.pack_start(
             Gtk.Image.new_from_icon_name("preferences-system-symbolic", Gtk.IconSize.BUTTON),
@@ -2475,7 +2478,6 @@ class PDriveWindow(Gtk.ApplicationWindow):
         preferences_button.add(preferences_row)
         preferences_button.set_tooltip_text(translate("Preferences"))
         preferences_button.connect("clicked", self.on_preferences)
-        preferences_button.set_sensitive(not self.demo)
         box.pack_start(preferences_button, False, False, 0)
         popover.add(box)
         box.show_all()
@@ -4162,17 +4164,24 @@ class PDriveWindow(Gtk.ApplicationWindow):
             "Refresh metadata?",
             "The guarded helper checks the queue and Dirty files first, then asks for confirmation in a terminal.",
         ):
-            self.launch_terminal("pdrive-refresh --refresh", "Metadata refresh")
+            if self.demo:
+                self.message("Metadata refresh", "Action completed.", Gtk.MessageType.INFO)
+            else:
+                self.launch_terminal("pdrive-refresh --refresh", "Metadata refresh")
 
     def on_restart(self, _button: Gtk.Button) -> None:
         if self.confirm(
             "Safely restart the service?",
             "An active upload would be interrupted. pdrive-watch checks and validates the new process; final confirmation happens in a terminal.",
         ):
-            self.launch_terminal("pdrive-watch --restart-service", "Safe service restart")
+            if self.demo:
+                self.message("Safe service restart", "Action completed.", Gtk.MessageType.INFO)
+            else:
+                self.launch_terminal("pdrive-watch --restart-service", "Safe service restart")
 
     def run_helper(self, command: list[str], title: str) -> None:
         if self.demo:
+            self.message(title, "Action completed.", Gtk.MessageType.INFO)
             return
 
         def worker() -> None:

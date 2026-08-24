@@ -82,7 +82,12 @@ popover_buttons = [
 ]
 assert len(popover_buttons) == 8
 assert all(button.get_visible() for button in popover_buttons)
+assert all(button.get_sensitive() for button in popover_buttons)
 assert all(button.get_tooltip_text() for button in popover_buttons)
+assert all(
+    button.get_events() & module.Gdk.EventMask.ENTER_NOTIFY_MASK
+    for button in popover_buttons
+)
 popover_labels = [
     widget.get_text()
     for widget in descendants(popover.get_child())
@@ -105,7 +110,7 @@ def button_with_label(text):
 
 documentation_button = button_with_label("Documentation …")
 assert documentation_button.get_sensitive()
-assert not button_with_label("Preferences …").get_sensitive()
+assert button_with_label("Preferences …").get_sensitive()
 assert window.problem_card.get_tooltip_text() == "Review issue details"
 assert window.mark_issues_reviewed_button.get_label() == "Mark issues reviewed"
 

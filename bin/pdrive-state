@@ -21,7 +21,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
-TOOL_VERSION = "0.5.0"
+TOOL_VERSION = "0.6.0"
 
 
 def env_path(name: str, default: pathlib.Path) -> pathlib.Path:
