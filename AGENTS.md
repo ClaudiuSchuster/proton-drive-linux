@@ -180,8 +180,16 @@ project-specific; CI remains the authority for mechanical formatting rules.
 - The desktop file's `Version=1.0` is the Desktop Entry specification version,
   not the application version; do not synchronize it with project SemVer.
 - Use annotated immutable tags named `vX.Y.Z` on the exact tested release commit.
-  Publish a GitHub Release only when explicitly requested and only after local
-  checks and the commit's GitHub Actions run are green.
+  Publishing such a tag and publishing its matching GitHub Release are one
+  inseparable release operation: every pushed SemVer tag must receive a
+  non-draft GitHub Release with concise user-facing notes in the same workflow.
+  Mark the highest stable version as Latest and mark an actual prerelease
+  accordingly. If the GitHub Release is not ready to publish, do not push the
+  tag. Perform both only after local checks and the commit's GitHub Actions run
+  are green.
+- Release notes must summarize user-visible changes since the previous release,
+  state the supported upgrade path and link the full comparison. Do not expose
+  private deployment details, maintainer-session notes or credentials.
 - Do not move an existing release tag, force-push, rewrite shared history, or
   publish credentials and machine-specific paths.
 - Keep commits focused and use short imperative English subjects. Preserve
