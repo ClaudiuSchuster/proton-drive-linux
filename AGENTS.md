@@ -37,8 +37,9 @@ project-specific; CI remains the authority for mechanical formatting rules.
   the control menu. Hidden-window polling follows the user's preference; the
   independent watchdog remains responsible for background health monitoring.
 - Prefer explanation at the point of confusion. Overview cards should lead to
-  the relevant detail section, and cache state must distinguish protected
-  pending uploads from clean retained copies.
+  the relevant detail section, advertise clickability through pointer, hover,
+  pressed and keyboard-focus states, and distinguish protected pending uploads
+  from clean retained cache copies.
 - Distinguish Proton account capacity from local cache-filesystem capacity.
   Remote quota reads are low-frequency; never tie them to the two-second poll.
   Keep graph sources explicit: rclone RC for uploads and process-owned TCP

@@ -53,6 +53,9 @@ window_labels = [
 assert "Open PDrive folder" in window_labels
 assert "Open PDrive web" in window_labels
 assert "Local VFS cache" in window_labels
+assert window.open_web_button.get_style_context().has_class("secondary-web-action")
+assert not window.open_web_button.get_style_context().has_class("primary-folder-action")
+assert window.open_folder_button.get_style_context().has_class("primary-folder-action")
 popover = menu_buttons[0].get_popover()
 assert popover is not None
 assert popover.get_child() is not None
@@ -105,6 +108,19 @@ assert len(window.issue_list.get_children()) == 5
 assert not window.mark_issues_reviewed_button.get_sensitive()
 assert isinstance(window.problem_card, module.Gtk.EventBox)
 assert window.problem_card.get_above_child()
+problem_frame_context = window.problem_card.frame.get_style_context()
+assert not problem_frame_context.has_class("card-hover")
+assert not problem_frame_context.has_class("card-pressed")
+window.problem_card.on_pointer_enter(window.problem_card, None)
+assert problem_frame_context.has_class("card-hover")
+assert window.problem_card.get_window().get_cursor() is not None
+press = type("PointerEvent", (), {"button": 1})()
+window.problem_card.on_button_press(window.problem_card, press)
+assert problem_frame_context.has_class("card-pressed")
+window.problem_card.on_pointer_leave(window.problem_card, None)
+assert not problem_frame_context.has_class("card-hover")
+assert not problem_frame_context.has_class("card-pressed")
+assert window.problem_card.get_window().get_cursor() is None
 issue_click = module.Gdk.Event.new(module.Gdk.EventType.BUTTON_RELEASE)
 issue_click.button = 1
 issue_click.window = window.problem_card.get_window()

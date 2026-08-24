@@ -481,6 +481,10 @@ The mount log rotates at 10 MiB, retains three compressed backups and expires
 old rotations after 30 days. Logs can contain personal file paths. Redact them
 before posting a bug report.
 
+The watchdog history is line-bounded rather than size-rotated: it keeps the
+latest 512 samples (about 32 days at the standard 90-minute timer interval).
+The Control Center deliberately renders only the latest 24 of those samples.
+
 If an interrupted older rotation left embedded NUL bytes, inspect without
 rewriting the log:
 

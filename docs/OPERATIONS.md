@@ -200,6 +200,12 @@ section distinguishes pending protected upload data from clean synced copies,
 shows running versus saved retention and explains why a non-empty cache can be
 healthy while the upload queue is empty.
 
+Health history shows the latest 24 samples in the Control Center. The state
+adapter exposes at most 48 samples, while `pdrive-watch --record` keeps a bounded
+512-entry on-disk history (about 32 days at the normal 90-minute interval).
+Older entries are removed atomically after a new sample is recorded, so the
+history file cannot grow indefinitely.
+
 The overview keeps the upload and download-traffic graphs compact and side by
 side. Upload speed comes from rclone's `core/stats` transfer data. Because that
 endpoint does not separately expose VFS reads, the receive graph derives its

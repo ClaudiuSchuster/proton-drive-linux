@@ -59,6 +59,7 @@ readonly rc_socket="${state_dir}/pdrive-rc.sock"
 readonly rclone_bin="${HOME}/.local/bin/rclone"
 readonly latest_file="${state_dir}/pdrive-watch-latest.txt"
 readonly history_file="${state_dir}/pdrive-watch-history.log"
+readonly history_max_entries=512
 readonly monitor_state="${state_dir}/pdrive-watch-state"
 readonly cooldown_config="${HOME}/.config/pdrive-watch.conf"
 readonly recovery_config="${HOME}/.config/pdrive-recovery.conf"
@@ -76,6 +77,21 @@ readonly activity_probe_seconds=20
 readonly activity_read_bytes=1048576
 readonly activity_rchar_bytes=8388608
 readonly activity_tcp_bytes=262144
+
+trim_watch_history() {
+    local entry_count history_tmp
+
+    [[ -f "${history_file}" ]] || return 0
+    entry_count="$(wc -l < "${history_file}")" || return 0
+    (( entry_count > history_max_entries )) || return 0
+
+    history_tmp="$(mktemp "${state_dir}/pdrive-watch-history.XXXXXX")" || return 0
+    if tail -n "${history_max_entries}" -- "${history_file}" > "${history_tmp}"; then
+        mv -f -- "${history_tmp}" "${history_file}"
+    else
+        rm -f -- "${history_tmp}"
+    fi
+}
 
 auto_restart_cooldown_seconds="${default_auto_restart_cooldown_seconds}"
 cooldown_config_source='Standardwert'
@@ -1116,6 +1132,7 @@ if [[ "${record_mode}" == true ]]; then
         "${activity_read_delta}" "${activity_rchar_delta}" "${activity_tcp_delta}" "${restart_issued}" \
         "${cache_bytes}" "${free_bytes}" \
         >> "${history_file}"
+    trim_watch_history
 
     monitor_tmp="$(mktemp "${state_dir}/pdrive-watch-state.XXXXXX")"
     {

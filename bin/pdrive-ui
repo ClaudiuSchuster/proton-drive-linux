@@ -243,7 +243,7 @@ GERMAN_TRANSLATIONS = {
     "Review the context below; no action is required when the current service health is ready.": "Prüfe den Kontext unten; bei aktuell bereitem Dienstzustand ist keine Aktion erforderlich.",
     "rclone reported an error": "rclone hat einen Fehler gemeldet",
     "Review the current mount, queue and network health before choosing a recovery action.": "Prüfe Mount-, Queue- und Netzwerkzustand, bevor du eine Recovery-Aktion auswählst.",
-    "Conservative 90-minute samples from the existing pdrive-watch timer": "Schonende 90-Minuten-Messpunkte des bestehenden pdrive-watch-Timers",
+    "Latest 24 conservative samples from the 90-minute pdrive-watch timer": "Die letzten 24 schonenden Messpunkte des 90-Minuten-pdrive-watch-Timers",
     "No active transfers": "Keine aktiven Transfers",
     "rclone is not using the connection right now.": "rclone nutzt die Verbindung gerade nicht.",
     "Queue is empty": "Warteschlange leer",
@@ -655,9 +655,15 @@ window.pdrive-window {
 .card-detail { color: #8995a7; font-size: 11px; }
 .card-action { padding: 1px; min-width: 22px; min-height: 22px; }
 .interactive-card .card-surface { transition: 120ms ease-in-out; }
-.interactive-card:hover .card-surface, .interactive-card:focus .card-surface {
+.card-surface.card-hover, .card-surface.card-keyboard-focus {
   background: #202938;
   border-color: rgba(105,215,255,0.38);
+  box-shadow: 0 2px 7px rgba(0,0,0,0.26);
+}
+.card-surface.card-pressed {
+  background: #18212d;
+  border-color: rgba(105,215,255,0.52);
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.32);
 }
 .card-link-icon { color: #7890a6; }
 .section-title { color: #f4f7fb; font-size: 16px; font-weight: 700; }
@@ -730,6 +736,23 @@ button.primary-folder-action:hover {
 button.primary-folder-action:active {
   background-image: linear-gradient(to bottom, #23303c, #2d3d4b);
   box-shadow: inset 0 2px 3px rgba(0,0,0,0.38);
+}
+button.secondary-web-action {
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.10);
+  border-radius: 9px;
+  box-shadow: inset 0 1px rgba(255,255,255,0.055), 0 1px 2px rgba(0,0,0,0.20);
+  color: #b5c0cc;
+  padding: 7px 12px;
+}
+button.secondary-web-action:hover {
+  background: rgba(105,215,255,0.065);
+  border-color: rgba(105,215,255,0.22);
+  color: #dbe5ed;
+}
+button.secondary-web-action:active {
+  background: rgba(105,215,255,0.035);
+  box-shadow: inset 0 2px 3px rgba(0,0,0,0.30);
 }
 stackswitcher button {
   background: transparent;
@@ -941,8 +964,19 @@ class StatCard(Gtk.EventBox):
         self.set_above_child(True)
         self.set_can_focus(True)
         self.set_tooltip_text(translate(tooltip))
-        self.add_events(Gdk.EventMask.BUTTON_RELEASE_MASK)
+        self.add_events(
+            Gdk.EventMask.BUTTON_PRESS_MASK
+            | Gdk.EventMask.BUTTON_RELEASE_MASK
+            | Gdk.EventMask.ENTER_NOTIFY_MASK
+            | Gdk.EventMask.LEAVE_NOTIFY_MASK
+            | Gdk.EventMask.FOCUS_CHANGE_MASK
+        )
+        self.connect("enter-notify-event", self.on_pointer_enter)
+        self.connect("leave-notify-event", self.on_pointer_leave)
+        self.connect("button-press-event", self.on_button_press)
         self.connect("button-release-event", self.on_button_release)
+        self.connect("focus-in-event", self.on_focus_in)
+        self.connect("focus-out-event", self.on_focus_out)
         self.connect("key-release-event", self.on_key_release)
         add_css(self, "interactive-card")
         chevron = Gtk.Image.new_from_icon_name("go-next-symbolic", Gtk.IconSize.MENU)
@@ -955,8 +989,53 @@ class StatCard(Gtk.EventBox):
         self.navigation_callback()
         return True
 
+    def set_frame_state(self, css_class: str, active: bool) -> None:
+        context = self.frame.get_style_context()
+        if active:
+            context.add_class(css_class)
+        else:
+            context.remove_class(css_class)
+
+    def set_pointer_cursor(self, active: bool) -> None:
+        event_window = self.get_window()
+        if event_window is None:
+            return
+        if not active:
+            event_window.set_cursor(None)
+            return
+        display = event_window.get_display()
+        cursor = Gdk.Cursor.new_from_name(display, "pointer")
+        if cursor is None:
+            cursor = Gdk.Cursor.new_for_display(display, Gdk.CursorType.HAND2)
+        event_window.set_cursor(cursor)
+
+    def on_pointer_enter(self, _widget: Gtk.Widget, _event: Gdk.EventCrossing) -> bool:
+        self.set_frame_state("card-hover", True)
+        self.set_pointer_cursor(True)
+        return False
+
+    def on_pointer_leave(self, _widget: Gtk.Widget, _event: Gdk.EventCrossing) -> bool:
+        self.set_frame_state("card-hover", False)
+        self.set_frame_state("card-pressed", False)
+        self.set_pointer_cursor(False)
+        return False
+
+    def on_button_press(self, _widget: Gtk.Widget, event: Gdk.EventButton) -> bool:
+        self.set_frame_state("card-pressed", event.button == 1)
+        return False
+
     def on_button_release(self, _widget: Gtk.Widget, event: Gdk.EventButton) -> bool:
+        self.set_frame_state("card-pressed", False)
         return bool(event.button == 1 and self.activate_navigation())
+
+    def on_focus_in(self, _widget: Gtk.Widget, _event: Gdk.EventFocus) -> bool:
+        self.set_frame_state("card-keyboard-focus", True)
+        return False
+
+    def on_focus_out(self, _widget: Gtk.Widget, _event: Gdk.EventFocus) -> bool:
+        self.set_frame_state("card-keyboard-focus", False)
+        self.set_frame_state("card-pressed", False)
+        return False
 
     def on_key_release(self, _widget: Gtk.Widget, event: Gdk.EventKey) -> bool:
         if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_space):
@@ -2095,7 +2174,8 @@ class PDriveWindow(Gtk.ApplicationWindow):
         open_web_button.set_margin_start(22)
         open_web_button.set_tooltip_text(translate("Open Proton Drive on the web"))
         open_web_button.connect("clicked", self.on_open_proton_web)
-        add_css(open_web_button, "primary-folder-action")
+        add_css(open_web_button, "secondary-web-action")
+        self.open_web_button = open_web_button
         navigation.attach(open_web_button, 0, 0, 1, 1)
         navigation.attach(switcher, 1, 0, 1, 1)
         open_folder_button = Gtk.Button()
@@ -2113,6 +2193,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         open_folder_button.set_tooltip_text(translate("Open /pdrive in Nemo"))
         open_folder_button.connect("clicked", self.on_open_mount)
         add_css(open_folder_button, "primary-folder-action")
+        self.open_folder_button = open_folder_button
         navigation.attach(open_folder_button, 2, 0, 1, 1)
         root.pack_start(navigation, False, False, 0)
         root.pack_start(self.stack, True, True, 0)
@@ -2492,7 +2573,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         heading.pack_start(label("Health history", "section-title"), False, False, 0)
         heading.pack_start(
             label(
-                "Conservative 90-minute samples from the existing pdrive-watch timer",
+                "Latest 24 conservative samples from the 90-minute pdrive-watch timer",
                 "section-subtitle",
             ),
             False,
