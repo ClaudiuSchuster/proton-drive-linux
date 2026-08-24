@@ -48,15 +48,45 @@ popover = menu_buttons[0].get_popover()
 assert popover is not None
 assert popover.get_child() is not None
 assert popover.get_child().get_visible()
+assert not menu_buttons[0].get_active()
+assert not popover.get_visible()
 
 popover_buttons = [
     widget
     for widget in descendants(popover.get_child())
     if isinstance(widget, module.Gtk.Button)
 ]
-assert len(popover_buttons) == 6
+assert len(popover_buttons) == 7
 assert all(button.get_visible() for button in popover_buttons)
+popover_labels = [
+    widget.get_text()
+    for widget in descendants(popover.get_child())
+    if isinstance(widget, module.Gtk.Label)
+]
+assert "Documentation …" in popover_labels
+
+def button_with_label(text):
+    return next(
+        button
+        for button in popover_buttons
+        if text
+        in [
+            widget.get_text()
+            for widget in descendants(button)
+            if isinstance(widget, module.Gtk.Label)
+        ]
+    )
+
+assert button_with_label("Documentation …").get_sensitive()
+assert not button_with_label("Preferences …").get_sensitive()
 assert window.issue_review_button.get_tooltip_text() == "Mark issues reviewed"
+
+menu_buttons[0].set_active(True)
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
+assert menu_buttons[0].get_active()
+assert popover.get_visible()
+menu_buttons[0].set_active(False)
 
 window.closed = True
 window.destroy()

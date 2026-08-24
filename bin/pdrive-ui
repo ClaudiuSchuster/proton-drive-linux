@@ -32,9 +32,10 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.3.0"
+VERSION = "0.3.1"
 REFRESH_INTERVAL_SECONDS = 2
 AUTOSTART_MARKER = "X-PDrive-Control-Center=true"
+DOCUMENTATION_URL = "https://github.com/ClaudiuSchuster/proton-drive-linux#readme"
 DEFAULT_PREFERENCES: dict[str, Any] = {
     "close_to_tray": False,
     "start_in_tray": False,
@@ -89,8 +90,8 @@ GERMAN_TRANSLATIONS = {
     "Reset restart cooldown": "Neustart-Cooldown zurücksetzen",
     "Refresh metadata …": "Metadaten neu laden …",
     "Safely restart service …": "Dienst sicher neu starten …",
+    "Documentation …": "Handbuch …",
     "Preferences …": "Einstellungen …",
-    "Demo: actions are disabled": "Demo: Aktionen sind deaktiviert",
     "Loading status …": "Status wird geladen …",
     "Connecting to the local RC socket.": "Live-Verbindung zum lokalen RC-Socket wird aufgebaut.",
     "UPLOAD SPEED": "UPLOADTEMPO",
@@ -144,6 +145,7 @@ GERMAN_TRANSLATIONS = {
     "The pdrive-watch timer has not recorded a sample yet.": "Der pdrive-watch-Timer hat noch keinen Messpunkt gespeichert.",
     "Queue {queue} · active {active} · error counter {errors} · notices {notices}": "Queue {queue} · aktiv {active} · Fehlerzähler {errors} · Hinweise {notices}",
     "Could not open mount": "Mount konnte nicht geöffnet werden",
+    "Could not open documentation": "Handbuch konnte nicht geöffnet werden",
     "Preferences": "Einstellungen",
     "Cancel": "Abbrechen",
     "Save": "Speichern",
@@ -238,6 +240,19 @@ def autostart_path() -> pathlib.Path:
         / "autostart"
         / f"{APP_ID}.desktop"
     )
+
+
+def documentation_uri() -> str:
+    data_home = xdg_path("XDG_DATA_HOME", pathlib.Path.home() / ".local" / "share")
+    candidates = (
+        data_home / "doc" / "proton-drive-linux" / "README.md",
+        pathlib.Path("/usr/share/doc/proton-drive-linux/README.md"),
+        pathlib.Path(__file__).resolve().parent.parent / "README.md",
+    )
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.as_uri()
+    return DOCUMENTATION_URL
 
 
 def atomic_write(path: pathlib.Path, content: str, mode: int) -> None:
@@ -731,6 +746,19 @@ class PDriveWindow(Gtk.ApplicationWindow):
         separator.set_margin_top(3)
         separator.set_margin_bottom(3)
         box.pack_start(separator, False, False, 0)
+        documentation_button = Gtk.Button()
+        add_css(documentation_button, "flat-action")
+        documentation_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        documentation_row.pack_start(
+            Gtk.Image.new_from_icon_name("help-browser-symbolic", Gtk.IconSize.BUTTON),
+            False,
+            False,
+            0,
+        )
+        documentation_row.pack_start(label("Documentation …"), True, True, 0)
+        documentation_button.add(documentation_row)
+        documentation_button.connect("clicked", self.on_documentation)
+        box.pack_start(documentation_button, False, False, 0)
         preferences_button = Gtk.Button()
         add_css(preferences_button, "flat-action")
         preferences_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
@@ -745,12 +773,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
         preferences_button.connect("clicked", self.on_preferences)
         preferences_button.set_sensitive(not self.demo)
         box.pack_start(preferences_button, False, False, 0)
-        if self.demo:
-            notice = label("Demo: actions are disabled", "section-subtitle")
-            notice.set_margin_top(4)
-            box.pack_start(notice, False, False, 0)
         popover.add(box)
-        popover.show_all()
+        box.show_all()
+        popover.hide()
         return popover
 
     def build_status_banner(self) -> Gtk.Widget:
@@ -1195,6 +1220,12 @@ class PDriveWindow(Gtk.ApplicationWindow):
             Gio.AppInfo.launch_default_for_uri(pathlib.Path("/pdrive").as_uri(), None)
         except GLib.Error as error:
             self.message("Could not open mount", str(error), Gtk.MessageType.ERROR)
+
+    def on_documentation(self, _button: Gtk.Button) -> None:
+        try:
+            Gio.AppInfo.launch_default_for_uri(documentation_uri(), None)
+        except GLib.Error as error:
+            self.message("Could not open documentation", str(error), Gtk.MessageType.ERROR)
 
     def on_mark_issues_reviewed(self, _button: Gtk.Button) -> None:
         application = self.get_application()

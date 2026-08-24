@@ -163,10 +163,13 @@ The control menu delegates bandwidth, slot and cooldown changes to the existing
 validated helpers. Metadata refresh and service restart keep their explicit
 terminal confirmation. Its header popover also exposes **Preferences**, where
 the window can be kept running in Cinnamon's tray and optionally start there
-with the desktop session. The latter
-creates a single marked user autostart file; a normal menu launch still opens
+with the desktop session, plus **Documentation** for the installed manual. The
+documentation action prefers the local copy, understands the conventional
+system package path and falls back to the project's GitHub page. The autostart
+option creates a single marked user file; a normal menu launch still opens
 visibly. The interface defaults to English and can be switched to German; the
-choice takes effect after restarting the Control Center.
+choice takes effect after restarting the Control Center. The control popover
+always starts closed and opens only when requested.
 
 A synthetic screen for development and screenshots is available without
 reading or changing the service; all mutating controls are disabled in demo

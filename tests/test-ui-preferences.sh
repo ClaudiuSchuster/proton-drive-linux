@@ -8,7 +8,9 @@ test_root="$(mktemp -d /tmp/proton-drive-linux-ui.XXXXXX)"
 cleanup() { rm -rf -- "${test_root}"; }
 trap cleanup EXIT
 
-PYTHONDONTWRITEBYTECODE=1 XDG_CONFIG_HOME="${test_root}/config" \
+PYTHONDONTWRITEBYTECODE=1 \
+    XDG_CONFIG_HOME="${test_root}/config" \
+    XDG_DATA_HOME="${test_root}/data" \
     python3 - "${project_dir}/bin/pdrive-ui" <<'PY'
 import importlib.machinery
 import importlib.util
@@ -30,10 +32,13 @@ assert module.load_preferences() == {
     "issues_reviewed_at": "",
 }
 assert module.translate("Preferences") == "Preferences"
+assert module.translate("Documentation …") == "Documentation …"
 module.CURRENT_LANGUAGE = "de"
 assert module.translate("Preferences") == "Einstellungen"
+assert module.translate("Documentation …") == "Handbuch …"
 assert module.translate("Keep running in the tray when the window closes").startswith("Beim Schließen")
 module.CURRENT_LANGUAGE = "en"
+assert module.documentation_uri() == pathlib.Path(sys.argv[1]).resolve().parent.parent.joinpath("README.md").as_uri()
 
 module.PDriveApplication.sync_autostart(True)
 autostart = module.autostart_path()

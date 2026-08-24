@@ -164,6 +164,12 @@ validation:
 - metadata refresh and service restart open their existing guarded helpers in a
   terminal, preserving the explicit confirmation and queue checks.
 
+The same popover opens the Preferences dialog and the documentation. The latter
+prefers `$XDG_DATA_HOME/doc/proton-drive-linux/README.md`, then the conventional
+`/usr/share/doc/proton-drive-linux/README.md`, then a development checkout and
+finally the public GitHub README. The popover is constructed with visible child
+widgets but remains closed until the user activates its header button.
+
 `--demo` uses synthetic transfer/history data, never reads the live socket and
 disables every mutating control. `--check` validates GTK and locates
 `pdrive-state` without opening a window.
