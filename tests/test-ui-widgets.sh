@@ -128,6 +128,9 @@ assert window.speed_graph.axis_labels[2].get_text() == "0 B/s"
 assert window.speed_graph.timeline_start.get_text() == "~5m"
 assert window.overview_grid.get_child_at(1, 0) is window.download_speed_card
 assert window.overview_grid.get_child_at(2, 1) is window.capacity_card
+assert window.overview_grid.get_column_spacing() == module.OVERVIEW_GUTTER
+assert window.overview_grid.get_row_spacing() == module.OVERVIEW_GUTTER
+assert window.activity_grid.get_column_spacing() == module.OVERVIEW_GUTTER
 assert window.capacity_card.frame.get_style_context().has_class("overview-secondary")
 assert window.activity_grid.get_child_at(0, 0) is window.active_card
 assert window.activity_grid.get_child_at(1, 0) is window.queue_card
@@ -229,6 +232,23 @@ assert "[!IMPORTANT]" not in guide_text
 assert len(guide.rendered_images) == 5
 assert guide.rendered_images[0].name == "io.github.claudiuschuster.PDriveControl.svg"
 assert guide.rendered_images[-1].name == "pdrive-control-menu.png"
+operations = documentation_window.stack.get_child_by_name("operations")
+assert operations is not None
+operations_text = operations.text_view.get_buffer().get_text(
+    operations.text_view.get_buffer().get_start_iter(),
+    operations.text_view.get_buffer().get_end_iter(),
+    True,
+)
+for documented_control in (
+    "Control Center settings reference",
+    "Keep running in tray on window close",
+    "Live metrics interval",
+    "Metadata cache",
+    "Cache retention",
+    "Reset restart cooldown",
+    "Safely restart service",
+):
+    assert documented_control in operations_text
 documentation_window.destroy()
 
 original_dialog_run = module.Gtk.Dialog.run

@@ -113,7 +113,8 @@ for account-wide settings and workflows outside the mount.
 
 Preferences control close-to-tray, start-in-tray, the live refresh interval,
 hidden-window metric polling and language. The menu also contains the locally
-rendered in-app manual.
+rendered in-app manual. The [Control Center settings reference](docs/OPERATIONS.md#control-center-settings-reference)
+lists every choice, default, activation time and safety effect.
 
 ## Everyday use
 

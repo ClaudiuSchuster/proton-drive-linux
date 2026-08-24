@@ -228,21 +228,7 @@ result and exit status, uptime, restart count, mount filesystem and the latest
 watchdog state. Health history on disk is capped at 512 samples, the state
 adapter exposes 48, and the UI renders the latest 24.
 
-The control popover calls existing helpers instead of duplicating their
-validation:
-
-- bandwidth applies live through `pdrive-bwlimit` without restarting a transfer;
-- the logarithmic bandwidth slider gives low everyday rates substantially more
-  control, while its separated right endpoint removes the limit;
-- upload slots use a discrete 1–8 slider and are persisted through
-  `pdrive-transfers` for the next start;
-- clean-cache retention is persisted through `pdrive-cache-age` for the next
-  start and is also configurable in the Transfers cache section;
-- cooldown reset delegates to `pdrive-watch --clear-cooldown`;
-- metadata refresh and service restart open their existing guarded helpers in a
-  terminal, preserving the explicit confirmation and queue checks.
-
-The same popover opens the Preferences dialog and a native Markdown
+The control popover opens guarded operations, Preferences and a native Markdown
 documentation window with Getting started, Operations and Troubleshooting
 pages. It prefers `$XDG_DATA_HOME/doc/proton-drive-linux`, then conventional
 `/usr/share/doc/proton-drive-linux` package files and finally a development
@@ -254,19 +240,80 @@ header button.
 
 `--check` validates GTK and locates `pdrive-state` without opening a window.
 
-The Preferences dialog persists three booleans, the 1/2/5/10-second live-metrics
-interval and the selected `en`/`de` interface language in mode-0600
-`~/.config/pdrive-ui.json`. English and a two-second interval are the hard
-defaults; selecting German takes effect after restarting the Control Center.
-The booleans control close into tray, start with the desktop session and whether
-live polling continues while hidden. Background polling defaults to off; the
-independent 90-minute watchdog continues monitoring either way, and opening the
-window always triggers an immediate refresh.
-Enabling session startup atomically manages
+### Control Center settings reference
+
+This is the complete reference for every setting exposed by PDrive Control
+Center. Open the hamburger menu in the title bar for global Preferences and
+guarded actions. Click a row in the Overview **Configuration** card for its
+matching operational setting. **Cache retention** is available in **Transfers →
+Local VFS cache**.
+
+Apply and Save remain unavailable until a value actually differs from the
+current value. Cancel closes a dialog without changing files or the running
+service.
+
+#### Preferences
+
+Open **hamburger menu → Preferences**. These settings belong to the desktop UI;
+they do not change rclone, upload safety or the watchdog policy.
+
+| Setting                                 | Choices and default                             | Behavior                                                                                               |
+| --------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
+| Keep running in tray on window close    | Off / On; default **Off**                       | On hides the window instead of quitting the UI. The mount service continues either way.                |
+| Start hidden with the desktop session   | Off / On; default **Off**                       | Creates PDrive's marked Cinnamon autostart entry and implies close-to-tray. Manual launches open.      |
+| Keep live metrics updating while hidden | Off / On; default **Off**                       | On continues two-second-style UI polling in the tray. Off saves resources; the watchdog continues.     |
+| Live metrics interval                   | **1, 2, 5 or 10 seconds**; default **2**        | Changes UI cards and graph sampling immediately after Save. It does not change the 90-minute watchdog. |
+| Language                                | **English** or **Deutsch**; default **English** | Saved immediately; visible text changes after quitting and reopening the Control Center.               |
+
+Preferences are written atomically to mode-0600
+`~/.config/pdrive-ui.json`. Enabling session startup atomically manages
 `~/.config/autostart/io.github.claudiuschuster.PDriveControl.desktop`, marked
 with `X-PDrive-Control-Center=true`, whose command is `pdrive-ui --background`.
 The application refuses to overwrite a same-named unmarked file and removes
 only its own marked autostart file. A manual menu launch remains visible.
+
+#### Operational settings
+
+These dialogs delegate to the same strict `pdrive-*` helpers available in a
+terminal. The UI never edits rclone's encrypted configuration directly.
+
+| Control and location                     | Range and default                         | When it takes effect and what it changes                                                                              |
+| ---------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **Bandwidth** — Configuration or menu    | `0.02`–`100 MiB/s`; default **Unlimited** | Applies to the live process without restarting or closing the active transfer. Full right removes the limit.          |
+| **Upload slots** — Configuration or menu | **1–8**; default **4**                    | Saves parallel file-upload count for the next controlled service start; it does not restart rclone.                   |
+| **Metadata cache** — Configuration       | Disabled / Enabled; default **Disabled**  | Saves the exclusive Proton metadata mode for the next controlled service start. Enable only for one active writer.    |
+| **Cooldown** — Configuration             | **1–168 hours**; default **12 hours**     | Changes the watchdog's automatic-recovery policy immediately; it does not restart rclone or clear an active cooldown. |
+| **Cache retention** — Transfers          | **1–8760 hours**; default **24 hours**    | Saves clean read-cache age for the next controlled service start. It never expires Dirty upload data.                 |
+
+Each dialog states whether a change is live or saved for the next service
+start. The Transfers cache section also shows running and saved retention when
+they differ. The detailed helper sections below document each setting's file
+format, CLI equivalent and refusal conditions:
+
+- bandwidth: `~/.config/pdrive-bwlimit.conf` and `pdrive-bwlimit`;
+- upload slots: `~/.config/pdrive-transfers.conf` and `pdrive-transfers`;
+- metadata cache: `~/.config/pdrive-recovery.conf` and `pdrive-recovery`;
+- cooldown duration: `~/.config/pdrive-watch.conf` and `pdrive-watch`;
+- cache retention: `~/.config/pdrive-cache.conf` and `pdrive-cache-age`.
+
+#### One-shot actions
+
+| Action                     | Protection and result                                                                                                 |
+| -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| Header **Refresh**         | Re-reads local state immediately and refreshes Proton capacity; it changes no configuration.                          |
+| **Reset restart cooldown** | Clears only the current automatic-restart cooldown through `pdrive-watch --clear-cooldown`.                           |
+| **Refresh metadata**       | Checks uploads, queue and Dirty cache first, then requires terminal confirmation before a controlled restart.         |
+| **Safely restart service** | Warns that an active upload would be interrupted, requires terminal confirmation and validates the new PID and mount. |
+| **Mark issues reviewed**   | Advances only the local issue watermark; it does not delete logs, history or unresolved health evidence.              |
+| **Open Proton Drive web**  | Opens the official web client for account-wide settings; it makes no local PDrive change.                             |
+| **Open PDrive folder**     | Opens `/pdrive` in the file manager; reads and writes then follow normal mounted-filesystem semantics.                |
+
+Metadata refresh and service restart deliberately finish their final safety
+checks in a terminal so the user sees the exact queue state and confirmation
+word. The other setters report helper failure in the UI and name the equivalent
+command to run for full diagnostics.
+
+### Window and tray behavior
 
 Window geometry is deliberately not persisted. Every launch starts at a compact
 820-pixel content width and grows vertically to show the complete Overview when

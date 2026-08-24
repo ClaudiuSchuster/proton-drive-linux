@@ -58,6 +58,9 @@ project-specific; CI remains the authority for mechanical formatting rules.
   the detail view.
 - Keep Apply and Save actions insensitive until the user has made an effective
   change, and disable them again when every value returns to its initial state.
+- Keep the Operations handbook's Control Center settings reference complete:
+  every user-facing setting or guarded action must state its access path,
+  accepted values and default, persistence, activation timing and safety impact.
 - Keep the public README user-facing. Do not expose demo implementation notes,
   private deployment details, session instructions, or maintainer-only prose.
   Screenshots may use privacy-safe demo data, but the README need not announce

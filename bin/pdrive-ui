@@ -44,7 +44,7 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.6.0"
+VERSION = "0.6.1"
 REFRESH_INTERVAL_SECONDS = 2
 REFRESH_INTERVAL_OPTIONS = (1, 2, 5, 10)
 BANDWIDTH_SLIDER_MAX_RATE = 100.0
@@ -60,6 +60,7 @@ SETUP_WINDOW_HEIGHT = 720
 MIN_WINDOW_WIDTH = 640
 MIN_WINDOW_HEIGHT = 480
 MAX_WINDOW_DIMENSION = 16384
+OVERVIEW_GUTTER = 16
 DOCUMENTATION_PAGES = (
     ("guide", "Getting started", "README.md", "README.md"),
     ("operations", "Operations", "OPERATIONS.md", "docs/OPERATIONS.md"),
@@ -1398,6 +1399,8 @@ def markdown_blocks(markdown: str) -> list[tuple[str, str]]:
     in_code = False
     alert_kind = ""
     alert_lines: list[str] = []
+    table_headers: list[str] = []
+    table_rows: list[list[str]] = []
 
     def flush_paragraph() -> None:
         if paragraph:
@@ -1411,10 +1414,24 @@ def markdown_blocks(markdown: str) -> list[tuple[str, str]]:
             alert_kind = ""
             alert_lines.clear()
 
+    def flush_table() -> None:
+        if table_headers:
+            for row in table_rows:
+                fields = [
+                    f"**{heading}:**\u2002{row[index]}"
+                    for index, heading in enumerate(table_headers)
+                    if index < len(row) and row[index]
+                ]
+                if fields:
+                    blocks.append(("table-row", "\n".join(fields)))
+            table_headers.clear()
+            table_rows.clear()
+
     for raw_line in markdown.splitlines():
         line = raw_line.rstrip()
         if line.lstrip().startswith("```"):
             flush_paragraph()
+            flush_table()
             if in_code:
                 blocks.append(("code", "\n".join(code)))
                 code.clear()
@@ -1428,12 +1445,14 @@ def markdown_blocks(markdown: str) -> list[tuple[str, str]]:
         if native_image:
             flush_paragraph()
             flush_alert()
+            flush_table()
             blocks.append(("image", native_image.group(1)))
             continue
 
         html_heading = re.match(r"^<h([1-6])[^>]*>(.*?)</h\1>$", line.strip())
         if html_heading:
             flush_paragraph()
+            flush_table()
             heading_text = html.unescape(re.sub(r"<[^>]+>", "", html_heading.group(2))).strip()
             if heading_text:
                 blocks.append((f"heading-{html_heading.group(1)}", heading_text))
@@ -1442,10 +1461,12 @@ def markdown_blocks(markdown: str) -> list[tuple[str, str]]:
         if not cleaned:
             flush_paragraph()
             flush_alert()
+            flush_table()
             continue
         quoted = re.match(r"^>\s?(.*)$", cleaned)
         if quoted:
             flush_paragraph()
+            flush_table()
             quote_text = quoted.group(1)
             alert = re.match(
                 r"^\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*$",
@@ -1464,15 +1485,20 @@ def markdown_blocks(markdown: str) -> list[tuple[str, str]]:
         heading = re.match(r"^(#{1,6})\s+(.+)$", cleaned)
         if heading:
             flush_paragraph()
+            flush_table()
             blocks.append((f"heading-{len(heading.group(1))}", heading.group(2)))
-            continue
-        if re.match(r"^\|?\s*:?-{3,}", cleaned):
             continue
         if cleaned.startswith("|") and cleaned.endswith("|"):
             flush_paragraph()
             cells = [cell.strip() for cell in cleaned.strip("|").split("|")]
-            blocks.append(("table", "  │  ".join(cells)))
+            if all(re.fullmatch(r":?-{3,}:?", cell) for cell in cells):
+                continue
+            if table_headers:
+                table_rows.append(cells)
+            else:
+                table_headers.extend(cells)
             continue
+        flush_table()
         bullet = re.match(r"^[-*]\s+(.+)$", cleaned)
         if bullet:
             flush_paragraph()
@@ -1487,6 +1513,7 @@ def markdown_blocks(markdown: str) -> list[tuple[str, str]]:
 
     flush_paragraph()
     flush_alert()
+    flush_table()
     if code:
         blocks.append(("code", "\n".join(code)))
     return blocks
@@ -1578,7 +1605,15 @@ class MarkdownView(Gtk.ScrolledWindow):
                 pixels_above_lines=5,
                 pixels_below_lines=7,
             ),
-            "table": self.buffer.create_tag(None, family="monospace", foreground="#cbd8e6", pixels_below_lines=3),
+            "table-row": self.buffer.create_tag(
+                None,
+                foreground="#cbd8e6",
+                paragraph_background="#171c25",
+                left_margin=14,
+                right_margin=14,
+                pixels_above_lines=5,
+                pixels_below_lines=5,
+            ),
             "bold": self.buffer.create_tag(None, weight=Pango.Weight.BOLD, foreground="#ffffff"),
             "inline-code": self.buffer.create_tag(None, family="monospace", foreground="#8fe1ff", background="#202631"),
             "image": self.buffer.create_tag(
@@ -1664,9 +1699,9 @@ class MarkdownView(Gtk.ScrolledWindow):
                 self.buffer.insert(self.buffer.get_end_iter(), "\n")
             elif kind == "code":
                 self.buffer.insert_with_tags(self.buffer.get_end_iter(), f"{text}\n", self.tags["code"])
-            elif kind == "table":
-                self.insert_inline(text, self.tags["table"])
-                self.buffer.insert(self.buffer.get_end_iter(), "\n")
+            elif kind == "table-row":
+                self.insert_inline(text, self.tags["table-row"])
+                self.buffer.insert(self.buffer.get_end_iter(), "\n\n")
             elif kind == "quote":
                 self.buffer.insert_with_tags(self.buffer.get_end_iter(), "▌ ", self.tags["quote"])
                 self.insert_inline(text, self.tags["quote"])
@@ -1823,7 +1858,7 @@ class SetupWizard(Gtk.Box):
 
     @staticmethod
     def page_box(step: str, title: str, subtitle: str) -> Gtk.Box:
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=OVERVIEW_GUTTER)
         add_css(page, "setup-page")
         page.pack_start(label(step.upper(), "setup-step"), False, False, 0)
         page.pack_start(label(title, "setup-hero"), False, False, 0)
@@ -2563,7 +2598,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         add_css(page, "page", "overview-page")
         page.pack_start(self.build_status_banner(), False, False, 0)
 
-        grid = Gtk.Grid(column_spacing=14, row_spacing=14)
+        grid = Gtk.Grid(column_spacing=OVERVIEW_GUTTER, row_spacing=OVERVIEW_GUTTER)
         self.speed_card = StatCard("Upload speed", "network-transmit-symbolic")
         self.download_speed_card = StatCard("Download speed", "network-receive-symbolic")
         self.active_card = StatCard("Active", "media-playback-start-symbolic")
@@ -2594,7 +2629,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             "Explain local VFS cache",
             lambda: self.show_transfer_section("cache"),
         )
-        activity_grid = Gtk.Grid(column_spacing=14)
+        activity_grid = Gtk.Grid(column_spacing=OVERVIEW_GUTTER)
         activity_grid.set_column_homogeneous(True)
         self.active_card.set_hexpand(True)
         self.queue_card.set_hexpand(True)
@@ -2620,7 +2655,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.overview_grid = grid
         page.pack_start(grid, False, False, 0)
 
-        graph_grid = Gtk.Grid(column_spacing=14, row_spacing=0)
+        graph_grid = Gtk.Grid(column_spacing=OVERVIEW_GUTTER, row_spacing=0)
         graph_grid.set_column_homogeneous(True)
 
         upload_graph_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -2652,7 +2687,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         graph_grid.attach(card(download_graph_box), 1, 0, 1, 1)
         page.pack_start(graph_grid, False, False, 0)
 
-        bottom = Gtk.Grid(column_spacing=14, row_spacing=14)
+        bottom = Gtk.Grid(column_spacing=OVERVIEW_GUTTER, row_spacing=OVERVIEW_GUTTER)
         self.live_summary_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
         live_heading = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
         live_heading.pack_start(label("What’s happening", "section-title"), True, True, 0)

@@ -61,6 +61,17 @@ assert ("admonition-important", "Keep an **independent backup**.") in blocks
 image_blocks = [json.loads(text) for kind, text in blocks if kind == "image"]
 assert image_blocks == [{"src": "icon.svg", "width": "112", "alt": "icon"}]
 assert not any("<img" in text or "[!IMPORTANT]" in text for _, text in blocks)
+table_blocks = module.markdown_blocks(
+    "| Setting | Default |\n"
+    "| --- | --- |\n"
+    "| Cache retention | **24 hours** |\n"
+)
+assert table_blocks == [
+    (
+        "table-row",
+        "**Setting:**\u2002Cache retention\n**Default:**\u2002**24 hours**",
+    )
+]
 
 module.PDriveApplication.sync_autostart(True)
 autostart = module.autostart_path()
