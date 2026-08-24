@@ -11,6 +11,7 @@ import http.client
 import json
 import os
 import pathlib
+import re
 import shutil
 import socket
 import subprocess
@@ -34,6 +35,7 @@ RC_SOCKET = env_path("PDRIVE_RC_SOCKET", STATE_DIR / "pdrive-rc.sock")
 RCLONE_BIN = env_path("PDRIVE_RCLONE_BIN", HOME / ".local/libexec/rclone-bin")
 LATEST_FILE = env_path("PDRIVE_WATCH_LATEST", STATE_DIR / "pdrive-watch-latest.txt")
 HISTORY_FILE = env_path("PDRIVE_WATCH_HISTORY", STATE_DIR / "pdrive-watch-history.log")
+MOUNT_LOG = env_path("PDRIVE_MOUNT_LOG", STATE_DIR / "proton-mount.log")
 
 
 def run(command: list[str], timeout: float = 3.0) -> tuple[int, str, str]:
@@ -128,6 +130,49 @@ def service_state() -> dict[str, Any]:
     }
 
 
+def process_tcp_counters(pid: int) -> dict[str, Any]:
+    """Return cumulative TCP payload counters owned by one process.
+
+    rclone's aggregate transfer statistics describe copy operations but do not
+    expose VFS read traffic separately. Linux TCP_INFO counters let the UI
+    derive an honest receive rate without observing any other application.
+    """
+
+    empty = {
+        "available": False,
+        "connections": 0,
+        "sent_bytes": 0,
+        "received_bytes": 0,
+    }
+    if pid <= 0 or shutil.which("ss") is None:
+        return empty
+    code, stdout, _stderr = run(["ss", "-Htinp", "state", "established"], timeout=2.0)
+    if code != 0:
+        return empty
+    lines = stdout.splitlines()
+    sent_bytes = 0
+    received_bytes = 0
+    connections = 0
+    process_pattern = re.compile(rf"\bpid={pid}(?:,|\))")
+    counter_pattern = re.compile(r"\b(bytes_sent|bytes_received):(\d+)\b")
+    for index, line in enumerate(lines):
+        if process_pattern.search(line) is None:
+            continue
+        details = line
+        if index + 1 < len(lines) and "bytes_" in lines[index + 1]:
+            details += " " + lines[index + 1]
+        counters = {name: integer(value) for name, value in counter_pattern.findall(details)}
+        sent_bytes += counters.get("bytes_sent", 0)
+        received_bytes += counters.get("bytes_received", 0)
+        connections += 1
+    return {
+        "available": True,
+        "connections": connections,
+        "sent_bytes": sent_bytes,
+        "received_bytes": received_bytes,
+    }
+
+
 def mount_state() -> dict[str, Any]:
     code, stdout, stderr = run(["findmnt", "-rn", "-M", str(MOUNT_DIR), "-o", "TARGET,SOURCE,FSTYPE,OPTIONS"])
     fields = stdout.strip().split(maxsplit=3)
@@ -201,7 +246,12 @@ def rc_call(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
         if not isinstance(payload, dict):
             return endpoint, None, "Unexpected RC response"
         return endpoint, payload, ""
-    except (OSError, TimeoutError, json.JSONDecodeError, http.client.HTTPException) as error:
+    except (
+        OSError,
+        TimeoutError,
+        json.JSONDecodeError,
+        http.client.HTTPException,
+    ) as error:
         return endpoint, None, str(error)
     finally:
         connection.close()
@@ -280,6 +330,144 @@ def normalize_queue(payload: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def sanitize_issue_text(value: str) -> str:
+    """Remove API identifiers and credential-shaped values from a log message."""
+
+    cleaned = value.replace("\x00", " ")
+    cleaned = re.sub(r"https?://\S+", "<Proton API URL>", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"(?i)(\b(?:link|share) ID\s*['\"])[^'\"]*(['\"])",
+        r"\1<redacted>\2",
+        cleaned,
+    )
+    cleaned = re.sub(
+        r"(?i)\b(password|pass|token|secret|authorization|cookie|session|client_secret)\s*[=:]\s*\S+",
+        r"\1=<redacted>",
+        cleaned,
+    )
+    cleaned = re.sub(r"(?i)\bBearer\s+\S+", "Bearer <redacted>", cleaned)
+    return " ".join(cleaned.split())[:1200]
+
+
+def classify_issue(message: str, level: str) -> tuple[str, str, str]:
+    lowered = message.lower()
+    if "no vfs active" in lowered:
+        return (
+            "vfs-startup",
+            "VFS endpoint queried before mount readiness",
+            "No action is needed when the service is active and /pdrive is writable. Refresh the view to confirm.",
+        )
+    if "a draft exist" in lowered or "existing draft" in lowered:
+        return (
+            "draft-conflict",
+            "Remote upload draft conflict",
+            "Confirm that no other Proton client is writing this file, then use the guarded draft-recovery workflow.",
+        )
+    if any(
+        marker in lowered
+        for marker in (
+            "dial tcp: lookup",
+            "server misbehaving",
+            "no such host",
+            "temporary failure in name resolution",
+            "name or service not known",
+        )
+    ):
+        return (
+            "dns",
+            "Network name resolution failed",
+            "Restore the network or DNS route and let rclone retry. Never clear pending VFS cache data.",
+        )
+    if re.search(r"(^|[^0-9])429([^0-9]|$)", message):
+        return (
+            "http-429",
+            "Proton temporarily rate-limited the request",
+            "Wait for Proton's backoff to expire before another login or recovery attempt.",
+        )
+    if re.search(r"(^|[^0-9])422([^0-9]|$)", message):
+        return (
+            "http-422",
+            "Proton rejected a metadata change",
+            "Inspect same-name files or draft conflicts before retrying a destructive recovery action.",
+        )
+    if re.search(r"(^|[^0-9])5[0-9][0-9]([^0-9]|$)", message):
+        return (
+            "http-5xx",
+            "Proton service request failed",
+            "Allow rclone to retry. Investigate only if the same operation keeps failing after connectivity recovers.",
+        )
+    if "failed to upload try #" in lowered or "failed to copy" in lowered:
+        return (
+            "upload-retry",
+            "Upload attempt failed",
+            "rclone will retry automatically. Review the queue if the attempt count continues to rise.",
+        )
+    if level == "NOTICE":
+        return (
+            "notice",
+            "rclone reported a notice",
+            "Review the context below; no action is required when the current service health is ready.",
+        )
+    return (
+        "rclone-error",
+        "rclone reported an error",
+        "Review the current mount, queue and network health before choosing a recovery action.",
+    )
+
+
+def recent_issues(limit: int = 200, maximum_bytes: int = 512 * 1024) -> dict[str, Any]:
+    """Return recent sanitized ERROR/NOTICE/CRITICAL events without remote I/O."""
+
+    try:
+        with MOUNT_LOG.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            size = stream.tell()
+            start = max(0, size - maximum_bytes)
+            stream.seek(start)
+            payload = stream.read(maximum_bytes)
+    except OSError as error:
+        return {"available": False, "events": [], "error": str(error)[:300]}
+    if start:
+        _discarded, _separator, payload = payload.partition(b"\n")
+    events: list[dict[str, Any]] = []
+    pattern = re.compile(r"^(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(NOTICE|ERROR|CRITICAL)\s*:\s*(.*)$")
+    for raw_line in payload.decode("utf-8", errors="replace").replace("\x00", "").splitlines():
+        match = pattern.match(raw_line)
+        if match is None:
+            continue
+        level = match.group(3)
+        message = sanitize_issue_text(match.group(4))
+        subject = ""
+        subject_match = re.match(r"^([^:]{1,240}):\s+(.+)$", message)
+        if subject_match:
+            subject = subject_match.group(1).strip()
+            message = subject_match.group(2).strip()
+        category, title, guidance = classify_issue(f"{subject}: {message}", level)
+        try:
+            timestamp = (
+                dt.datetime.strptime(
+                    f"{match.group(1)} {match.group(2)}",
+                    "%Y/%m/%d %H:%M:%S",
+                )
+                .astimezone()
+                .isoformat(timespec="seconds")
+            )
+        except ValueError:
+            timestamp = f"{match.group(1)} {match.group(2)}"
+        events.append(
+            {
+                "timestamp": timestamp,
+                "level": level.lower(),
+                "category": category,
+                "title": title,
+                "subject": subject,
+                "message": message,
+                "guidance": guidance,
+            }
+        )
+    return {"available": True, "events": events[-limit:], "error": ""}
+
+
 HISTORY_NUMBERS = {
     "pid",
     "success",
@@ -334,6 +522,38 @@ def disk_free(path: pathlib.Path) -> int:
         return shutil.disk_usage(candidate).free
     except OSError:
         return 0
+
+
+def remote_capacity(enabled: bool, mount_ready: bool) -> dict[str, Any]:
+    """Read the capacity exposed by the mounted remote only when requested."""
+
+    unavailable = {
+        "available": False,
+        "total_bytes": 0,
+        "used_bytes": 0,
+        "free_bytes": 0,
+        "error": "",
+    }
+    if not enabled or not mount_ready:
+        return unavailable
+    code, stdout, stderr = run(
+        ["df", "--block-size=1", "--output=size,used,avail", str(MOUNT_DIR)],
+        timeout=5.0,
+    )
+    fields = stdout.splitlines()[-1].split() if stdout.splitlines() else []
+    if code != 0 or len(fields) != 3 or not all(field.isdigit() for field in fields):
+        return {
+            **unavailable,
+            "error": (stderr.strip() or "Capacity data is unavailable")[:300],
+        }
+    total_bytes, used_bytes, free_bytes = (integer(field) for field in fields)
+    return {
+        "available": True,
+        "total_bytes": total_bytes,
+        "used_bytes": used_bytes,
+        "free_bytes": free_bytes,
+        "error": "",
+    }
 
 
 WATCHDOG_SUMMARIES = {
@@ -420,7 +640,7 @@ def normalize_latest(raw: dict[str, str], now_epoch: int) -> dict[str, Any]:
     }
 
 
-def build_state() -> dict[str, Any]:
+def build_state(include_capacity: bool = False) -> dict[str, Any]:
     now = dt.datetime.now().astimezone()
     now_epoch = int(now.timestamp())
     latest = normalize_latest(read_key_values(LATEST_FILE), now_epoch)
@@ -445,7 +665,12 @@ def build_state() -> dict[str, Any]:
 
     components = []
     if not service["available"]:
-        components.append({"component": "systemd", "message": service["error"] or "Service status is unavailable"})
+        components.append(
+            {
+                "component": "systemd",
+                "message": service["error"] or "Service status is unavailable",
+            }
+        )
     for endpoint, message in rc_errors.items():
         components.append({"component": endpoint, "message": message})
 
@@ -521,7 +746,9 @@ def build_state() -> dict[str, Any]:
         },
         "service": service,
         "mount": mount,
+        "remote_capacity": remote_capacity(include_capacity, mount["ready"]),
         "network": {"dns": latest["dns"], "tcp": latest["tcp"]},
+        "network_io": process_tcp_counters(service["pid"]),
         "stats": {
             "available": "core/stats" in rc_payloads,
             "bytes": integer(stats.get("bytes")),
@@ -573,6 +800,7 @@ def build_state() -> dict[str, Any]:
             "cache_max_age_valid": cache_max_age_valid,
             "cooldown_seconds": latest["cooldown_seconds"],
         },
+        "issues": recent_issues(),
         "watchdog": latest,
         "history": history_entries(),
     }
@@ -587,13 +815,18 @@ def parser() -> argparse.ArgumentParser:
         ),
     )
     result.add_argument("--compact", action="store_true", help="emit JSON without indentation")
+    result.add_argument(
+        "--include-capacity",
+        action="store_true",
+        help="include one on-demand capacity reading from the mounted remote",
+    )
     result.add_argument("--version", action="version", version=f"%(prog)s {TOOL_VERSION}")
     return result
 
 
 def main() -> int:
     args = parser().parse_args()
-    payload = build_state()
+    payload = build_state(include_capacity=args.include_capacity)
     json.dump(
         payload,
         sys.stdout,

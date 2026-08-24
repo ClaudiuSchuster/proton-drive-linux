@@ -39,10 +39,23 @@ project-specific; CI remains the authority for mechanical formatting rules.
 - Prefer explanation at the point of confusion. Overview cards should lead to
   the relevant detail section, and cache state must distinguish protected
   pending uploads from clean retained copies.
+- Distinguish Proton account capacity from local cache-filesystem capacity.
+  Remote quota reads are low-frequency; never tie them to the two-second poll.
+  Keep graph sources explicit: rclone RC for uploads and process-owned TCP
+  receive counters for VFS download traffic, with API overhead disclosed.
+- An issue counter must lead to reviewable evidence before acknowledgment:
+  timestamp, severity, PDrive-specific category, sanitized context, affected
+  path when safe, and a useful next step. Never acknowledge merely by opening
+  the detail view.
+- Keep Apply and Save actions insensitive until the user has made an effective
+  change, and disable them again when every value returns to its initial state.
 - Keep the public README user-facing. Do not expose demo implementation notes,
   private deployment details, session instructions, or maintainer-only prose.
   Screenshots may use privacy-safe demo data, but the README need not announce
   that fact.
+- Keep local artwork used by the native documentation viewer available in every
+  installation and package. Render it locally without fetching remote badges or
+  introducing a browser engine.
 
 ## Architecture Boundaries
 
@@ -118,6 +131,10 @@ project-specific; CI remains the authority for mechanical formatting rules.
 - For UI changes, exercise both languages, the minimum supported width, content
   fitting on a normal desktop, tray actions, and both zero-activity and active
   transfer states. Use fixtures or demo mode rather than a real cloud mutation.
+- Capture Cinnamon product images through one X11 root screenshot followed by
+  an exact crop. Do not automate repeated `ScreenshotArea` D-Bus calls; that
+  path has caused reproducible Cinnamon crashes. Keep the active-window
+  highlight visible in the main product shot.
 - For state-schema changes, update fixtures and UI consumers together. Preserve
   backwards-compatible defaults when a field can be absent from an older
   snapshot.

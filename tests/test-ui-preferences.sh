@@ -41,10 +41,25 @@ assert module.translate("Keep running in the tray when the window closes").start
 assert module.translate("Keep live metrics updating while hidden in the tray").startswith("Live-Metriken")
 module.CURRENT_LANGUAGE = "en"
 assert module.documentation_path("README.md", "README.md") == pathlib.Path(sys.argv[1]).resolve().parent.parent.joinpath("README.md")
-blocks = module.markdown_blocks("# Title\n\nA **bold** [link](README.md).\n\n- item\n\n```\ncode\n```")
+blocks = module.markdown_blocks(
+    "<p align=\"center\">\n"
+    "  <img src=\"icon.svg\"\n"
+    "       width=\"112\" height=\"112\" alt=\"icon\">\n"
+    "</p>\n\n"
+    "# Title\n\n"
+    "A **bold** [link](README.md).\n\n"
+    "> [!IMPORTANT]\n"
+    "> Keep an **independent backup**.\n\n"
+    "- item\n\n"
+    "```\ncode\n```"
+)
 assert ("heading-1", "Title") in blocks
 assert ("bullet", "item") in blocks
 assert ("code", "code") in blocks
+assert ("admonition-important", "Keep an **independent backup**.") in blocks
+image_blocks = [json.loads(text) for kind, text in blocks if kind == "image"]
+assert image_blocks == [{"src": "icon.svg", "width": "112", "alt": "icon"}]
+assert not any("<img" in text or "[!IMPORTANT]" in text for _, text in blocks)
 
 module.PDriveApplication.sync_autostart(True)
 autostart = module.autostart_path()
@@ -82,6 +97,55 @@ reviewed = module.load_preferences()
 assert module.issues_since_review(reviewed, {"errors": 45, "notices": 11}) == (5, 2)
 assert module.issues_since_review(reviewed, {"errors": 3, "notices": 2}) == (3, 2)
 assert module.issues_since_review(module.DEFAULT_PREFERENCES, {"errors": 99, "notices": 8}) == (0, 0)
+issue_events = [
+    {"timestamp": "1", "level": "error", "message": "old error"},
+    {"timestamp": "2", "level": "notice", "message": "old notice"},
+    {"timestamp": "3", "level": "error", "message": "new error"},
+    {"timestamp": "4", "level": "notice", "message": "new notice"},
+]
+selected, missing = module.unreviewed_issue_events(
+    reviewed,
+    {"errors": 41, "notices": 10},
+    {"available": True, "events": issue_events},
+)
+assert [event["message"] for event in selected] == ["new error", "new notice"]
+assert missing == 0
+selected, missing = module.unreviewed_issue_events(
+    reviewed,
+    {"errors": 45, "notices": 12},
+    {"available": True, "events": issue_events[-1:]},
+)
+assert [event["message"] for event in selected] == ["new notice"]
+assert missing == 7
+
+rate, baseline = module.network_receive_rate(
+    None,
+    {"available": True, "received_bytes": 1_000_000},
+    4242,
+    10.0,
+)
+assert rate == 0
+rate, baseline = module.network_receive_rate(
+    baseline,
+    {"available": True, "received_bytes": 5_194_304},
+    4242,
+    12.0,
+)
+assert rate == 2_097_152
+rate, baseline = module.network_receive_rate(
+    baseline,
+    {"available": True, "received_bytes": 8_000_000},
+    5252,
+    14.0,
+)
+assert rate == 0
+rate, baseline = module.network_receive_rate(
+    baseline,
+    {"available": False},
+    5252,
+    16.0,
+)
+assert rate == 0 and baseline is None
 
 application = module.PDriveApplication()
 assert application.update_preferences(False, False, False, "en") is None

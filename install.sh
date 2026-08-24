@@ -9,6 +9,8 @@ bin_dir="${HOME}/.local/bin"
 libexec_dir="${HOME}/.local/libexec"
 unit_dir="${HOME}/.config/systemd/user"
 doc_dir="${HOME}/.local/share/doc/proton-drive-linux"
+doc_assets_dir="${doc_dir}/docs/assets"
+doc_icon_dir="${doc_dir}/share/icons/hicolor/scalable/apps"
 applications_dir="${HOME}/.local/share/applications"
 icons_dir="${HOME}/.local/share/icons/hicolor/scalable/apps"
 config_dir="${HOME}/.config"
@@ -112,6 +114,7 @@ if [[ ! -d "${mount_dir}" \
 fi
 
 mkdir -p -- "${bin_dir}" "${libexec_dir}" "${unit_dir}" "${doc_dir}" \
+    "${doc_assets_dir}" "${doc_icon_dir}" \
     "${applications_dir}" "${icons_dir}" "${config_dir}"
 
 if [[ ! -x "${real_rclone}" ]]; then
@@ -142,8 +145,18 @@ done
 install -m 0644 "${project_dir}/README.md" "${doc_dir}/README.md"
 install -m 0644 "${project_dir}/docs/OPERATIONS.md" "${doc_dir}/OPERATIONS.md"
 install -m 0644 "${project_dir}/docs/TROUBLESHOOTING.md" "${doc_dir}/TROUBLESHOOTING.md"
+install -m 0644 "${project_dir}/docs/DEVELOPMENT.md" "${doc_dir}/DEVELOPMENT.md"
 install -m 0644 "${project_dir}/LICENSE" "${doc_dir}/LICENSE"
 install -m 0644 "${project_dir}/VERSION" "${doc_dir}/VERSION"
+install -m 0644 \
+    "${project_dir}/docs/assets/pdrive-control-center.png" \
+    "${doc_assets_dir}/pdrive-control-center.png"
+install -m 0644 \
+    "${project_dir}/docs/assets/pdrive-control-menu.png" \
+    "${doc_assets_dir}/pdrive-control-menu.png"
+install -m 0644 \
+    "${project_dir}/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg" \
+    "${doc_icon_dir}/io.github.claudiuschuster.PDriveControl.svg"
 install -m 0644 \
     "${project_dir}/share/applications/io.github.claudiuschuster.PDriveControl.desktop" \
     "${applications_dir}/io.github.claudiuschuster.PDriveControl.desktop"

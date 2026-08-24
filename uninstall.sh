@@ -120,8 +120,20 @@ for file_name in pdrive-watch.service pdrive-watch.timer \
     rm -f -- "${unit_dir}/${file_name}"
 done
 if [[ -d "${doc_dir}" ]]; then
+    rm -f -- \
+        "${doc_dir}/docs/assets/pdrive-control-center.png" \
+        "${doc_dir}/docs/assets/pdrive-control-menu.png" \
+        "${doc_dir}/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg"
+    rmdir "${doc_dir}/docs/assets" "${doc_dir}/docs" 2>/dev/null || true
+    rmdir "${doc_dir}/share/icons/hicolor/scalable/apps" \
+        "${doc_dir}/share/icons/hicolor/scalable" \
+        "${doc_dir}/share/icons/hicolor" \
+        "${doc_dir}/share/icons" \
+        "${doc_dir}/share" 2>/dev/null || true
     find "${doc_dir}" -mindepth 1 -maxdepth 1 -type f \
-        \( -name README.md -o -name OPERATIONS.md -o -name TROUBLESHOOTING.md -o -name LICENSE \) \
+        \( -name README.md -o -name OPERATIONS.md -o -name TROUBLESHOOTING.md \
+        -o -name DEVELOPMENT.md \
+        -o -name LICENSE -o -name VERSION \) \
         -delete
     rmdir "${doc_dir}" 2>/dev/null || true
 fi

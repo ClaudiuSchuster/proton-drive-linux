@@ -51,6 +51,7 @@ window_labels = [
     if isinstance(widget, module.Gtk.Label)
 ]
 assert "Open PDrive folder" in window_labels
+assert "Open PDrive web" in window_labels
 assert "Local VFS cache" in window_labels
 popover = menu_buttons[0].get_popover()
 assert popover is not None
@@ -64,7 +65,7 @@ popover_buttons = [
     for widget in descendants(popover.get_child())
     if isinstance(widget, module.Gtk.Button)
 ]
-assert len(popover_buttons) == 7
+assert len(popover_buttons) == 8
 assert all(button.get_visible() for button in popover_buttons)
 popover_labels = [
     widget.get_text()
@@ -72,6 +73,7 @@ popover_labels = [
     if isinstance(widget, module.Gtk.Label)
 ]
 assert "Documentation …" in popover_labels
+assert "Open Proton Drive on the web" in popover_labels
 
 def button_with_label(text):
     return next(
@@ -88,9 +90,28 @@ def button_with_label(text):
 documentation_button = button_with_label("Documentation …")
 assert documentation_button.get_sensitive()
 assert not button_with_label("Preferences …").get_sensitive()
-assert window.issue_review_button.get_tooltip_text() == "Mark issues reviewed"
+assert window.problem_card.get_tooltip_text() == "Review issue details"
+assert window.mark_issues_reviewed_button.get_label() == "Mark issues reviewed"
 
 window.apply_state(module.demo_state())
+assert window.speed_graph.get_size_request()[1] == 112
+assert window.download_graph.get_size_request()[1] == 112
+assert "MiB/s" in window.download_graph_peak.get_text()
+assert "free" in window.capacity_card.remote_value.get_text()
+assert "used" in window.capacity_card.remote_detail.get_text()
+assert "free" in window.capacity_card.local_value.get_text()
+assert "VFS cache used" in window.capacity_card.local_detail.get_text()
+assert len(window.issue_list.get_children()) == 5
+assert not window.mark_issues_reviewed_button.get_sensitive()
+assert isinstance(window.problem_card, module.Gtk.EventBox)
+assert window.problem_card.get_above_child()
+issue_click = module.Gdk.Event.new(module.Gdk.EventType.BUTTON_RELEASE)
+issue_click.button = 1
+issue_click.window = window.problem_card.get_window()
+assert window.problem_card.emit("button-release-event", issue_click)
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
+assert window.stack.get_visible_child_name() == "history"
 assert window.cache_status_title.get_text() == "Uploads are still pending"
 assert "2 clean file(s)" in window.cache_detail_values["clean"].get_text()
 assert "3 pending file(s)" in window.cache_detail_values["pending"].get_text()
@@ -129,7 +150,49 @@ guide_text = guide.text_view.get_buffer().get_text(
     True,
 )
 assert "Proton Drive Linux Mount Toolkit" in guide_text
+assert "IMPORTANT" in guide_text
+assert "independent community project" in guide_text
+assert "<img" not in guide_text
+assert "[!IMPORTANT]" not in guide_text
+assert len(guide.rendered_images) == 3
+assert guide.rendered_images[0].name == "io.github.claudiuschuster.PDriveControl.svg"
 documentation_window.destroy()
+
+original_dialog_run = module.Gtk.Dialog.run
+
+def inspect_preferences_dialog(dialog):
+    save_button = dialog.get_widget_for_response(module.Gtk.ResponseType.OK)
+    assert not save_button.get_sensitive()
+    toggles = [
+        widget
+        for widget in descendants(dialog)
+        if isinstance(widget, module.Gtk.CheckButton)
+    ]
+    background_toggle = next(
+        toggle
+        for toggle in toggles
+        if toggle.get_label() == "Keep live metrics updating while hidden in the tray"
+    )
+    background_toggle.set_active(True)
+    assert save_button.get_sensitive()
+    background_toggle.set_active(False)
+    assert not save_button.get_sensitive()
+    language_combo = next(
+        widget
+        for widget in descendants(dialog)
+        if isinstance(widget, module.Gtk.ComboBoxText)
+    )
+    language_combo.set_active_id("de")
+    assert save_button.get_sensitive()
+    language_combo.set_active_id("en")
+    assert not save_button.get_sensitive()
+    return module.Gtk.ResponseType.CANCEL
+
+module.Gtk.Dialog.run = inspect_preferences_dialog
+try:
+    window.on_preferences(None)
+finally:
+    module.Gtk.Dialog.run = original_dialog_run
 
 assert module.tray_supports_distinct_clicks()
 app.demo = False

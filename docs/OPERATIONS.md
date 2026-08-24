@@ -183,15 +183,35 @@ Proton independently.
 The overview's **Unreviewed issues** card uses persistent watermarks for the
 current rclone log's cumulative error and notice counters. It therefore does
 not reset at the next 90-minute timer sample. The first 0.3.x start establishes
-a zero baseline; pressing the card's checkmark advances that baseline without
-deleting logs, watchdog history or current health warnings. Counter resets
-caused by log rotation are treated as a fresh log rather than a negative delta.
+a zero baseline. Opening the card navigates to the Issue review section, where
+each retained event shows its local timestamp, severity, PDrive-specific
+category, affected path or component, sanitized rclone context and a suggested
+next step. API URLs, Proton share/link identifiers and credential-shaped values
+are redacted before entering the JSON snapshot. Only the explicit **Mark issues
+reviewed** action advances the watermark; it does not delete logs, watchdog
+history or current health warnings. Counter resets caused by log rotation are
+treated as a fresh log rather than a negative delta. The adapter reads only a
+bounded tail of the local log, so it reports when an older event count outlives
+the retained detail window.
 
 The Active, Queue and VFS-Cache overview cards provide keyboard and pointer
 shortcuts into the corresponding Transfers sections. The cache
 section distinguishes pending protected upload data from clean synced copies,
 shows running versus saved retention and explains why a non-empty cache can be
 healthy while the upload queue is empty.
+
+The overview keeps the upload and download-traffic graphs compact and side by
+side. Upload speed comes from rclone's `core/stats` transfer data. Because that
+endpoint does not separately expose VFS reads, the receive graph derives its
+rate from Linux TCP payload counters belonging to the exact PID reported by
+`rclone-proton-drive.service`. It cannot include browser traffic or another
+rclone mount, but it can include small Proton API and metadata replies.
+
+The Capacity card separates the Proton account from the local cache filesystem.
+It shows PDrive used, total and free values exposed by the mounted remote beside
+local free space and current VFS-cache use. Remote capacity may contact the
+backend, so it is read only at UI startup, every 15 minutes and when the user
+requests a manual refresh; two-second live polls reuse the last reading.
 
 The control popover calls existing helpers instead of duplicating their
 validation:
@@ -208,8 +228,9 @@ The same popover opens the Preferences dialog and a native Markdown
 documentation window with Getting started, Operations and Troubleshooting
 pages. It prefers `$XDG_DATA_HOME/doc/proton-drive-linux`, then conventional
 `/usr/share/doc/proton-drive-linux` package files and finally a development
-checkout. Headings, lists, tables, quotations, code and links are rendered by
-GTK without WebKit or another runtime dependency. The popover is constructed
+checkout. Headings, lists, tables, quotations, GitHub callouts, code, local
+project images and links are rendered by GTK without WebKit or another runtime
+dependency. Remote badge images are not fetched. The popover is constructed
 with visible child widgets but remains closed until the user activates its
 header button.
 
