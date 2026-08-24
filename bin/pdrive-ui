@@ -758,10 +758,10 @@ window.pdrive-window {
   box-shadow: none;
 }
 .pdrive-window headerbar label { color: #f4f7fb; }
-.pdrive-about link,
-.pdrive-about link:visited,
-.pdrive-about link:hover,
-.pdrive-about link:focus {
+.pdrive-about *:link,
+.pdrive-about *:visited,
+.pdrive-about button:link > label,
+.pdrive-about button:visited > label {
   color: #ffffff;
   text-decoration-line: none;
 }
