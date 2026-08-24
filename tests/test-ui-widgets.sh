@@ -77,9 +77,43 @@ def button_with_label(text):
         ]
     )
 
-assert button_with_label("Documentation …").get_sensitive()
+documentation_button = button_with_label("Documentation …")
+assert documentation_button.get_sensitive()
 assert not button_with_label("Preferences …").get_sensitive()
 assert window.issue_review_button.get_tooltip_text() == "Mark issues reviewed"
+
+documentation_button.emit("clicked")
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
+documentation_windows = [
+    candidate
+    for candidate in app.get_windows()
+    if isinstance(candidate, module.DocumentationWindow)
+]
+assert len(documentation_windows) == 1
+documentation_window = documentation_windows[0]
+assert len(documentation_window.stack.get_children()) == 3
+guide = documentation_window.stack.get_child_by_name("guide")
+assert guide is not None
+guide_text = guide.text_view.get_buffer().get_text(
+    guide.text_view.get_buffer().get_start_iter(),
+    guide.text_view.get_buffer().get_end_iter(),
+    True,
+)
+assert "Proton Drive Linux Mount Toolkit" in guide_text
+documentation_window.destroy()
+
+assert module.tray_supports_distinct_clicks()
+app.demo = False
+app.preferences["close_to_tray"] = True
+app.configure_tray()
+assert app.status_icon is not None
+assert app.indicator is None
+app.preferences["close_to_tray"] = False
+app.preferences["start_in_tray"] = False
+app.configure_tray()
+assert not app.status_icon.get_visible()
+app.demo = True
 
 menu_buttons[0].set_active(True)
 while module.Gtk.events_pending():

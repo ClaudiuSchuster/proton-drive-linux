@@ -164,11 +164,14 @@ validation:
 - metadata refresh and service restart open their existing guarded helpers in a
   terminal, preserving the explicit confirmation and queue checks.
 
-The same popover opens the Preferences dialog and the documentation. The latter
-prefers `$XDG_DATA_HOME/doc/proton-drive-linux/README.md`, then the conventional
-`/usr/share/doc/proton-drive-linux/README.md`, then a development checkout and
-finally the public GitHub README. The popover is constructed with visible child
-widgets but remains closed until the user activates its header button.
+The same popover opens the Preferences dialog and a native Markdown
+documentation window with Getting started, Operations and Troubleshooting
+pages. It prefers `$XDG_DATA_HOME/doc/proton-drive-linux`, then conventional
+`/usr/share/doc/proton-drive-linux` package files and finally a development
+checkout. Headings, lists, tables, quotations, code and links are rendered by
+GTK without WebKit or another runtime dependency. The popover is constructed
+with visible child widgets but remains closed until the user activates its
+header button.
 
 `--demo` uses synthetic transfer/history data, never reads the live socket and
 disables every mutating control. `--check` validates GTK and locates
@@ -184,11 +187,18 @@ with `X-PDrive-Control-Center=true`, whose command is `pdrive-ui --background`.
 The application refuses to overwrite a same-named unmarked file and removes
 only its own marked autostart file. A manual menu launch remains visible.
 
-The tray uses Ayatana AppIndicator on Cinnamon and falls back to GTK's legacy
-status icon when that binding is unavailable. It shows current health/upload
-speed and offers Open, Open `/pdrive`, and Quit. Hiding or quitting the UI never
-stops the mount; monitoring, recovery and desktop error notifications remain
-the responsibility of `pdrive-watch.timer`.
+The same owner-only preferences file stores the last normal content width and
+height. Resize events are debounced before writing; maximized and fullscreen
+geometry is ignored. A fresh profile starts at 1120×927 content pixels, matching
+the polished default layout on Cinnamon while remaining independent of GTK
+shadow and header-bar dimensions.
+
+On X11 Cinnamon the tray uses GTK StatusIcon so a left click opens/focuses the
+Control Center and a right click opens the existing Open, Open `/pdrive`, and
+Quit menu. Ayatana AppIndicator remains the compatibility backend on displays
+that cannot provide distinct primary/context clicks. Hiding or quitting the UI
+never stops the mount; monitoring, recovery and desktop error notifications
+remain the responsibility of `pdrive-watch.timer`.
 
 ## Runtime bandwidth
 

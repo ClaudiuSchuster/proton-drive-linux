@@ -404,9 +404,10 @@ grep -E '^(Exec|X-PDrive)' \
 
 The expected command is `pdrive-ui --background` and the expected ownership
 marker is `X-PDrive-Control-Center=true`. Delete neither file while the Settings
-dialog is saving. A missing panel icon normally means the Ayatana binding is
-missing; reinstall `gir1.2-ayatanaappindicator3-0.1`. The application retains a
-legacy GTK tray fallback, but Cinnamon's supported AppIndicator path is preferred.
+dialog is saving. On X11 Cinnamon the application intentionally uses GTK
+StatusIcon to support left-click-to-open and a separate right-click menu. On
+other display backends it uses Ayatana AppIndicator when available; reinstall
+`gir1.2-ayatanaappindicator3-0.1` if that compatibility icon is missing.
 
 If Cinnamon shows the correct icon for an existing favorite but a generic gear
 for the same application in search results, inspect the menu assets:

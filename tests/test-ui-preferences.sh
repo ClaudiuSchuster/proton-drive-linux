@@ -30,6 +30,8 @@ assert module.load_preferences() == {
     "issues_reviewed_errors": -1,
     "issues_reviewed_notices": -1,
     "issues_reviewed_at": "",
+    "window_width": 1120,
+    "window_height": 927,
 }
 assert module.translate("Preferences") == "Preferences"
 assert module.translate("Documentation …") == "Documentation …"
@@ -38,7 +40,11 @@ assert module.translate("Preferences") == "Einstellungen"
 assert module.translate("Documentation …") == "Handbuch …"
 assert module.translate("Keep running in the tray when the window closes").startswith("Beim Schließen")
 module.CURRENT_LANGUAGE = "en"
-assert module.documentation_uri() == pathlib.Path(sys.argv[1]).resolve().parent.parent.joinpath("README.md").as_uri()
+assert module.documentation_path("README.md", "README.md") == pathlib.Path(sys.argv[1]).resolve().parent.parent.joinpath("README.md")
+blocks = module.markdown_blocks("# Title\n\nA **bold** [link](README.md).\n\n- item\n\n```\ncode\n```")
+assert ("heading-1", "Title") in blocks
+assert ("bullet", "item") in blocks
+assert ("code", "code") in blocks
 
 module.PDriveApplication.sync_autostart(True)
 autostart = module.autostart_path()
@@ -56,6 +62,8 @@ module.atomic_write(
             "issues_reviewed_errors": 40,
             "issues_reviewed_notices": 9,
             "issues_reviewed_at": "2026-08-24T12:00:00+02:00",
+            "window_width": 1180,
+            "window_height": 860,
         }
     ),
     0o600,
@@ -67,6 +75,8 @@ assert module.load_preferences() == {
     "issues_reviewed_errors": 40,
     "issues_reviewed_notices": 9,
     "issues_reviewed_at": "2026-08-24T12:00:00+02:00",
+    "window_width": 1180,
+    "window_height": 860,
 }
 assert module.preferences_path().stat().st_mode & 0o777 == 0o600
 
@@ -81,6 +91,12 @@ updated = module.load_preferences()
 assert updated["issues_reviewed_errors"] == 40
 assert updated["issues_reviewed_notices"] == 9
 assert updated["issues_reviewed_at"] == "2026-08-24T12:00:00+02:00"
+assert updated["window_width"] == 1180
+assert updated["window_height"] == 860
+assert application.update_window_size(1040, 780) is None
+resized = module.load_preferences()
+assert resized["window_width"] == 1040
+assert resized["window_height"] == 780
 assert application.mark_issues_reviewed(
     {
         "errors": 45,
