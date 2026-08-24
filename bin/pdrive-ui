@@ -72,6 +72,7 @@ DOCUMENTATION_PAGES = (
         "docs/TROUBLESHOOTING.md",
     ),
     ("security", "Security", "SECURITY.md", "SECURITY.md"),
+    ("license", "License", "LICENSE", "LICENSE"),
 )
 DEFAULT_PREFERENCES: dict[str, Any] = {
     "close_to_tray": False,
@@ -165,6 +166,7 @@ GERMAN_TRANSLATIONS = {
     "Operations": "Betrieb",
     "Troubleshooting": "Fehlerbehebung",
     "Security": "Sicherheit",
+    "License": "Lizenz",
     "Documentation unavailable": "Handbuch nicht verfügbar",
     "The local documentation files could not be found.": "Die lokalen Handbuchdateien wurden nicht gefunden.",
     "Open the project documentation online": "Projekthandbuch online öffnen",
@@ -3843,7 +3845,6 @@ class PDriveWindow(Gtk.ApplicationWindow):
             dialog.set_logo_icon_name(APP_ID)
             dialog.set_website(PROJECT_URL)
             dialog.set_website_label(translate("GitHub project"))
-            dialog.set_license_type(Gtk.License.GPL_3_0)
             dialog.set_authors(
                 [
                     translate("Claudiu Schuster — creator and maintainer"),
@@ -3857,7 +3858,8 @@ class PDriveWindow(Gtk.ApplicationWindow):
                     "want Linux to feel like home. 💜"
                 )
             )
-            dialog.connect("response", lambda about, _response: about.destroy())
+            dialog.add_button(translate("License"), Gtk.ResponseType.APPLY)
+            dialog.connect("response", self.on_about_response)
             dialog.connect(
                 "destroy",
                 lambda _dialog: setattr(self, "about_dialog", None),
@@ -3865,6 +3867,12 @@ class PDriveWindow(Gtk.ApplicationWindow):
             self.about_dialog = dialog
             dialog.show_all()
         self.about_dialog.present()
+
+    def on_about_response(self, dialog: Gtk.AboutDialog, response: int) -> None:
+        show_license = response == Gtk.ResponseType.APPLY
+        dialog.destroy()
+        if show_license:
+            self.open_documentation_page("license")
 
     def open_documentation_page(self, page_name: str) -> None:
         self.on_documentation(None)

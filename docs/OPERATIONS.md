@@ -231,7 +231,9 @@ adapter exposes 48, and the UI renders the latest 24.
 The control popover opens guarded operations, Preferences, an About dialog and
 a native Markdown documentation window with Getting started, Operations and
 Troubleshooting pages. The About dialog reports the installed PDrive Control
-Center version, project authors, GPL license and canonical GitHub project link;
+Center version, project authors, GPL license and canonical GitHub project link.
+Its **License** action opens the complete locally installed GPL text in the
+native documentation viewer, without requiring a browser or network access;
 software updates remain the responsibility of the documented installer or
 future system package manager. The documentation viewer prefers
 `$XDG_DATA_HOME/doc/proton-drive-linux`, then conventional

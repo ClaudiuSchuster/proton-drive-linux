@@ -151,15 +151,39 @@ assert about_dialog.get_program_name() == "PDrive Control Center"
 assert about_dialog.get_version() == module.VERSION
 assert about_dialog.get_website() == module.PROJECT_URL
 assert about_dialog.get_website_label() == "GitHub project"
-assert about_dialog.get_license_type() == module.Gtk.License.GPL_3_0
 assert about_dialog.get_authors() == [
     "Claudiu Schuster — creator and maintainer",
     "OpenAI Codex — design and engineering collaborator",
 ]
 assert about_dialog.get_comments().startswith("We — Claudiu & Codex — loved turning")
 assert "Made with love for people on this beautiful world" in about_dialog.get_comments()
-about_dialog.destroy()
+about_buttons = [
+    widget
+    for widget in descendants(about_dialog)
+    if isinstance(widget, module.Gtk.Button)
+]
+license_button = next(
+    button
+    for button in about_buttons
+    if (button.get_label() or "") == "License"
+)
+assert about_dialog.get_response_for_widget(license_button) == module.Gtk.ResponseType.APPLY
+license_button.clicked()
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
 assert window.about_dialog is None
+license_window = window.documentation_window
+assert isinstance(license_window, module.DocumentationWindow)
+assert license_window.stack.get_visible_child_name() == "license"
+license_page = license_window.stack.get_child_by_name("license")
+license_text = license_page.buffer.get_text(
+    license_page.buffer.get_start_iter(),
+    license_page.buffer.get_end_iter(),
+    True,
+)
+assert "GNU GENERAL PUBLIC LICENSE" in license_text
+license_window.destroy()
+assert window.documentation_window is None
 assert window.problem_card.get_tooltip_text() == "Review issue details"
 assert window.mark_issues_reviewed_button.get_label() == "Mark issues reviewed"
 
@@ -265,7 +289,7 @@ documentation_windows = [
 ]
 assert len(documentation_windows) == 1
 documentation_window = documentation_windows[0]
-assert len(documentation_window.stack.get_children()) == 4
+assert len(documentation_window.stack.get_children()) == 5
 guide = documentation_window.stack.get_child_by_name("guide")
 assert guide is not None
 guide_text = guide.text_view.get_buffer().get_text(
