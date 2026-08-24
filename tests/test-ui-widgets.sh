@@ -160,6 +160,7 @@ assert about_dialog.get_version() == module.VERSION
 assert about_dialog.get_website() == module.PROJECT_URL
 assert about_dialog.get_website_label() == "GitHub project"
 assert about_dialog.get_license_type() == module.Gtk.License.GPL_3_0
+assert about_dialog.get_style_context().has_class("pdrive-about")
 assert about_dialog.get_authors() == [
     "Claudiu Schuster — creator and maintainer\nhttps://github.com/ClaudiuSchuster",
     "OpenAI Codex — design and engineering collaborator\nhttps://github.com/openai/codex",
@@ -167,6 +168,7 @@ assert about_dialog.get_authors() == [
     "https://github.com/Fabian123333",
 ]
 assert about_dialog.get_comments().startswith("We — Claudiu & Codex — loved turning")
+assert "use.\n\nMade with love" in about_dialog.get_comments()
 assert "Made with love for people on this beautiful world" in about_dialog.get_comments()
 about_buttons = [
     widget

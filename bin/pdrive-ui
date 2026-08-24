@@ -177,7 +177,7 @@ GERMAN_TRANSLATIONS = {
     "Claudiu Schuster — creator and maintainer": "Claudiu Schuster — Schöpfer und Maintainer",
     "OpenAI Codex — design and engineering collaborator": "OpenAI Codex — Design- und Engineering-Partner",
     "Fabian Schneider — comic relief, lively development chats and plenty of screenshots": "Fabian Schneider — Quatschkomödie, lebhafte Entwicklungschats und jede Menge Screenshots",
-    "We — Claudiu & Codex — loved turning a stubborn real-world mount into something observable, careful and genuinely pleasant to use. Made with love for people on this beautiful world who want Linux to feel like home. 💜": "Wir — Claudiu & Codex — haben es geliebt, aus einem widerspenstigen realen Mount etwas Beobachtbares, Sorgfältiges und wirklich Angenehmes zu machen. Mit Liebe gemacht für Menschen auf dieser wunderschönen Welt, die möchten, dass Linux sich wie Zuhause anfühlt. 💜",
+    "We — Claudiu & Codex — loved turning a stubborn real-world mount into something observable, careful and genuinely pleasant to use.\n\nMade with love for people on this beautiful world who want Linux to feel like home. 💜": "Wir — Claudiu & Codex — haben es geliebt, aus einem widerspenstigen realen Mount etwas Beobachtbares, Sorgfältiges und wirklich Angenehmes zu machen.\n\nMit Liebe gemacht für Menschen auf dieser wunderschönen Welt, die möchten, dass Linux sich wie Zuhause anfühlt. 💜",
     "Loading status …": "Status wird geladen …",
     "Connecting to the local RC socket.": "Live-Verbindung zum lokalen RC-Socket wird aufgebaut.",
     "UPLOAD SPEED": "UPLOADTEMPO",
@@ -758,6 +758,10 @@ window.pdrive-window {
   box-shadow: none;
 }
 .pdrive-window headerbar label { color: #f4f7fb; }
+.pdrive-about link,
+.pdrive-about link:visited,
+.pdrive-about link:hover,
+.pdrive-about link:focus { color: #ffffff; }
 .page { padding: 22px; }
 .card {
   background: #191e28;
@@ -3853,6 +3857,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         if self.about_dialog is None:
             dialog = Gtk.AboutDialog(transient_for=self, modal=True)
             dialog.set_destroy_with_parent(True)
+            add_css(dialog, "pdrive-about")
             dialog.set_title(translate("About PDrive Control Center"))
             dialog.set_program_name("PDrive Control Center")
             dialog.set_version(VERSION)
@@ -3872,7 +3877,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             dialog.set_comments(
                 translate(
                     "We — Claudiu & Codex — loved turning a stubborn real-world mount into something observable, "
-                    "careful and genuinely pleasant to use. Made with love for people on this beautiful world who "
+                    "careful and genuinely pleasant to use.\n\nMade with love for people on this beautiful world who "
                     "want Linux to feel like home. 💜"
                 )
             )
