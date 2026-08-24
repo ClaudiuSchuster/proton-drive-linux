@@ -31,6 +31,7 @@ assert app.register(None)
 app.activate()
 window = app.window
 assert window is not None
+assert window.get_default_size() == (module.DEFAULT_WINDOW_WIDTH, module.DEFAULT_WINDOW_HEIGHT)
 
 def descendants(widget):
     yield widget
@@ -50,6 +51,7 @@ window_labels = [
     if isinstance(widget, module.Gtk.Label)
 ]
 assert "Open PDrive folder" in window_labels
+assert "Local VFS cache" in window_labels
 popover = menu_buttons[0].get_popover()
 assert popover is not None
 assert popover.get_child() is not None
@@ -88,6 +90,26 @@ assert documentation_button.get_sensitive()
 assert not button_with_label("Preferences …").get_sensitive()
 assert window.issue_review_button.get_tooltip_text() == "Mark issues reviewed"
 
+window.apply_state(module.demo_state())
+assert window.cache_status_title.get_text() == "Uploads are still pending"
+assert "2 clean file(s)" in window.cache_detail_values["clean"].get_text()
+assert "3 pending file(s)" in window.cache_detail_values["pending"].get_text()
+assert isinstance(window.cache_card, module.Gtk.EventBox)
+assert window.cache_card.get_above_child()
+assert window.cache_card.get_window() is not None
+click = module.Gdk.Event.new(module.Gdk.EventType.BUTTON_RELEASE)
+click.button = 1
+click.window = window.cache_card.get_window()
+assert window.cache_card.emit("button-release-event", click)
+window.resize(900, 620)
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
+assert window.stack.get_visible_child_name() == "transfers"
+window.scroll_to_transfer_section("cache")
+adjustment = window.transfers_scroller.get_vadjustment()
+assert adjustment.get_value() > 0 or adjustment.get_upper() <= adjustment.get_page_size()
+window.show_transfer_section("active")
+
 documentation_button.emit("clicked")
 while module.Gtk.events_pending():
     module.Gtk.main_iteration_do(False)
@@ -111,6 +133,20 @@ documentation_window.destroy()
 
 assert module.tray_supports_distinct_clicks()
 app.demo = False
+window.demo = False
+refreshes = []
+window.request_refresh = lambda: refreshes.append(True)
+window.hide()
+app.preferences["poll_in_background"] = False
+assert window.on_refresh_timer() == module.GLib.SOURCE_CONTINUE
+assert refreshes == []
+app.preferences["poll_in_background"] = True
+window.on_refresh_timer()
+assert len(refreshes) == 1
+app.preferences["poll_in_background"] = False
+window.show_all()
+window.on_refresh_timer()
+assert len(refreshes) == 2
 app.preferences["close_to_tray"] = True
 app.configure_tray()
 assert app.status_icon is not None
@@ -120,6 +156,7 @@ app.preferences["start_in_tray"] = False
 app.configure_tray()
 assert not app.status_icon.get_visible()
 app.demo = True
+window.demo = True
 
 menu_buttons[0].set_active(True)
 while module.Gtk.events_pending():

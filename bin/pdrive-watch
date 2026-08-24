@@ -27,7 +27,7 @@ case "${1:-}" in
             '                     erlaubt sind 1h bis 7d, z. B. 90m, 6h, 1d oder default.' \
             '--clear-cooldown: die automatische Wiederanlaufsperre atomar zurücksetzen;' \
             '                  rclone und der Timer-Vergleichspunkt bleiben unverändert.' \
-            '--restart-service: nach ausdrücklicher Eingabe von NEUSTART den rclone-Dienst' \
+            '--restart-service: nach ausdrücklicher Eingabe von RESTART den rclone-Dienst' \
             '                   kontrolliert neu starten und bis zu 60 Sekunden validieren.' \
             '--record: zusätzlich Verlauf/Vergleichspunkt aktualisieren und bei Zustandswechseln benachrichtigen.' \
             '          Dieser Modus ist für pdrive-watch.timer bestimmt und darf nach strenger' \
@@ -283,9 +283,9 @@ restart_service_and_validate() {
     printf '%s\n' \
         'Achtung: Ein Neustart unterbricht momentan laufende Dateiübertragungen und startet' \
         'die persistente VFS-Cacheinventur erneut. Cache und Warteschlange werden nicht gelöscht.'
-    printf 'Zum Fortfahren exakt NEUSTART eingeben: '
+    printf 'Zum Fortfahren exakt RESTART eingeben: '
     IFS= read -r confirmation
-    if [[ "${confirmation}" != 'NEUSTART' ]]; then
+    if [[ "${confirmation}" != 'RESTART' ]]; then
         printf 'Abgebrochen; Dienst, Cooldown und Cache blieben unverändert.\n'
         return 0
     fi

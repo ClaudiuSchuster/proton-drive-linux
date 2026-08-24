@@ -1,0 +1,6 @@
+default: true
+
+# Product pages intentionally use centered HTML for the logo and badges.
+MD013: false
+MD033: false
+MD041: false

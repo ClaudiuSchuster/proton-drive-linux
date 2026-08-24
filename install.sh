@@ -61,11 +61,11 @@ if (( ${#missing_commands[@]} != 0 )); then
     exit 69
 fi
 if ! python3 -c \
-    "import gi; gi.require_version('Gtk', '3.0'); from gi.repository import Gtk" \
+    "import gi; import cairo; gi.require_foreign('cairo'); gi.require_version('Gtk', '3.0'); from gi.repository import Gtk" \
     >/dev/null 2>&1; then
     printf '%s\n' \
-        'Missing GTK Python bindings for PDrive Control Center.' \
-        'On Debian/Ubuntu install: python3-gi gir1.2-gtk-3.0' >&2
+        'Missing GTK/Cairo Python bindings for PDrive Control Center.' \
+        'On Debian/Ubuntu install: python3-gi python3-gi-cairo gir1.2-gtk-3.0' >&2
     exit 69
 fi
 if ! python3 -c \
@@ -160,6 +160,7 @@ create_default() {
     fi
 }
 create_default "${config_dir}/pdrive-bwlimit.conf" 'bwlimit=off'
+create_default "${config_dir}/pdrive-cache.conf" 'cache_max_age_hours=24'
 create_default "${config_dir}/pdrive-recovery.conf" 'proton_metadata_cache=false'
 create_default "${config_dir}/pdrive-draft-recovery.conf" 'replace_existing_draft=false'
 create_default "${config_dir}/pdrive-transfers.conf" 'transfers=4'

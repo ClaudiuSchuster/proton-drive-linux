@@ -18,11 +18,17 @@ snapshot() {
 }
 
 before="$(snapshot)"
-for helper in pdrive-bwlimit pdrive-doctor pdrive-draft-recovery pdrive-reauth \
+for helper in pdrive-bwlimit pdrive-cache-age pdrive-doctor pdrive-draft-recovery pdrive-reauth \
     pdrive-recovery pdrive-refresh pdrive-setup pdrive-state pdrive-transfers \
     pdrive-ui pdrive-watch; do
     HOME="${test_home}" "${project_dir}/bin/${helper}" --help >/dev/null
 done
+watch_help="$(HOME="${test_home}" "${project_dir}/bin/pdrive-watch" --help)"
+grep -qF 'RESTART' <<< "${watch_help}"
+if grep -qF 'NEUSTART' <<< "${watch_help}"; then
+    printf 'The public restart confirmation is not English-first.\n' >&2
+    exit 1
+fi
 HOME="${test_home}" bash "${project_dir}/install.sh" --help >/dev/null
 HOME="${test_home}" bash "${project_dir}/uninstall.sh" --help >/dev/null
 HOME="${test_home}" bash "${project_dir}/libexec/setup-rclone-proton" >/dev/null

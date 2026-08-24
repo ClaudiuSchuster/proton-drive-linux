@@ -26,6 +26,7 @@ loader.exec_module(module)
 assert module.load_preferences() == {
     "close_to_tray": False,
     "start_in_tray": False,
+    "poll_in_background": False,
     "language": "en",
     "issues_reviewed_errors": -1,
     "issues_reviewed_notices": -1,
@@ -39,6 +40,7 @@ module.CURRENT_LANGUAGE = "de"
 assert module.translate("Preferences") == "Einstellungen"
 assert module.translate("Documentation …") == "Handbuch …"
 assert module.translate("Keep running in the tray when the window closes").startswith("Beim Schließen")
+assert module.translate("Keep live metrics updating while hidden in the tray").startswith("Live-Metriken")
 module.CURRENT_LANGUAGE = "en"
 assert module.documentation_path("README.md", "README.md") == pathlib.Path(sys.argv[1]).resolve().parent.parent.joinpath("README.md")
 blocks = module.markdown_blocks("# Title\n\nA **bold** [link](README.md).\n\n- item\n\n```\ncode\n```")
@@ -58,6 +60,7 @@ module.atomic_write(
         {
             "close_to_tray": False,
             "start_in_tray": True,
+            "poll_in_background": True,
             "language": "de",
             "issues_reviewed_errors": 40,
             "issues_reviewed_notices": 9,
@@ -71,6 +74,7 @@ module.atomic_write(
 assert module.load_preferences() == {
     "close_to_tray": True,
     "start_in_tray": True,
+    "poll_in_background": True,
     "language": "de",
     "issues_reviewed_errors": 40,
     "issues_reviewed_notices": 9,
@@ -86,8 +90,9 @@ assert module.issues_since_review(reviewed, {"errors": 3, "notices": 2}) == (3, 
 assert module.issues_since_review(module.DEFAULT_PREFERENCES, {"errors": 99, "notices": 8}) == (0, 0)
 
 application = module.PDriveApplication()
-assert application.update_preferences(False, False, "en") is None
+assert application.update_preferences(False, False, False, "en") is None
 updated = module.load_preferences()
+assert updated["poll_in_background"] is False
 assert updated["issues_reviewed_errors"] == 40
 assert updated["issues_reviewed_notices"] == 9
 assert updated["issues_reviewed_at"] == "2026-08-24T12:00:00+02:00"

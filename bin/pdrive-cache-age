@@ -1,0 +1,147 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+umask 077
+
+readonly cache_config="${HOME}/.config/pdrive-cache.conf"
+readonly state_dir="${HOME}/.local/state/rclone"
+readonly rc_socket="${state_dir}/pdrive-rc.sock"
+readonly rclone_bin="${HOME}/.local/libexec/rclone-bin"
+readonly default_hours=24
+readonly minimum_hours=1
+readonly maximum_hours=8760
+
+usage() {
+    printf '%s\n' \
+        'Usage: pdrive-cache-age [HOURS|default|status]' \
+        '' \
+        'Without a value or with status: show saved and running retention.' \
+        'HOURS:   keep clean local VFS cache files for 1 to 8760 hours.' \
+        'default: persist the project default of 24 hours.' \
+        '-h, --help: only show this help.' \
+        '' \
+        "Configuration: ${cache_config}" \
+        'The age is counted since the last local access. Dirty files awaiting' \
+        'upload are protected and are not evicted merely because they are old.' \
+        'A change is saved safely but needs the next controlled service start.'
+}
+
+# Help must remain action-free, including in a fresh HOME.
+case "${1:-}" in
+    -h|--help|help)
+        (( $# == 1 )) || { printf 'Too many arguments.\n' >&2; exit 2; }
+        usage
+        exit 0
+        ;;
+esac
+
+valid_hours() {
+    local value="${1:-}"
+    [[ "${value}" =~ ^[0-9]{1,4}$ ]] \
+        && (( 10#${value} >= minimum_hours && 10#${value} <= maximum_hours ))
+}
+
+read_configured_hours() {
+    local entries
+
+    if [[ ! -e "${cache_config}" ]]; then
+        printf '%s\n' "${default_hours}"
+        return 0
+    fi
+    if [[ ! -r "${cache_config}" ]]; then
+        printf 'Configuration is not readable: %s\n' "${cache_config}" >&2
+        return 78
+    fi
+    entries="$(awk '
+        /^[[:space:]]*($|#)/ { next }
+        { print }
+    ' "${cache_config}")"
+    if [[ "${entries}" =~ ^cache_max_age_hours=([0-9]+)$ ]]; then
+        local parsed="${BASH_REMATCH[1]}"
+        if valid_hours "${parsed}"; then
+            printf '%s\n' "$((10#${parsed}))"
+            return 0
+        fi
+    fi
+    printf 'Invalid cache-retention configuration: %s\n' "${cache_config}" >&2
+    return 78
+}
+
+write_configured_hours() {
+    local value="$1"
+    local config_dir config_tmp
+
+    config_dir="${cache_config%/*}"
+    mkdir -p -- "${config_dir}"
+    config_tmp="$(mktemp "${config_dir}/pdrive-cache.conf.XXXXXX")"
+    if ! printf '%s\n' \
+        '# Managed by pdrive-cache-age; never source as shell code.' \
+        '# Clean VFS files are eligible for eviction this many hours after access.' \
+        "cache_max_age_hours=${value}" > "${config_tmp}"; then
+        rm -f -- "${config_tmp}"
+        return 1
+    fi
+    if ! mv -f -- "${config_tmp}" "${cache_config}"; then
+        rm -f -- "${config_tmp}"
+        return 1
+    fi
+}
+
+running_hours() {
+    local response nanoseconds
+
+    [[ -S "${rc_socket}" && -x "${rclone_bin}" ]] || return 1
+    response="$(timeout --signal=TERM 8s "${rclone_bin}" rc \
+        --unix-socket "${rc_socket}" vfs/stats 2>/dev/null)" || return 1
+    nanoseconds="$(jq -r '.opt.CacheMaxAge // empty' <<< "${response}" 2>/dev/null || true)"
+    [[ "${nanoseconds}" =~ ^[0-9]+$ ]] || return 1
+    printf '%s\n' "$((nanoseconds / 3600000000000))"
+}
+
+show_status() {
+    local configured running=''
+
+    configured="$(read_configured_hours)"
+    running="$(running_hours || true)"
+    printf 'PDrive VFS cache retention\n\n'
+    printf 'Saved:         %s hours\n' "${configured}"
+    if [[ -n "${running}" ]]; then
+        printf 'Running:       %s hours\n' "${running}"
+    else
+        printf 'Running:       unavailable (service or RC socket is not ready)\n'
+    fi
+    printf 'Configuration: %s\n' "${cache_config}"
+    if [[ -n "${running}" && "${running}" != "${configured}" ]]; then
+        printf '%s\n' 'Pending:       the saved value applies at the next controlled service start.'
+    fi
+    printf '%s\n' \
+        'Meaning:       clean synced files may be evicted after this idle age;' \
+        '               Dirty upload data remains protected.'
+}
+
+case "${1:-status}" in
+    status)
+        (( $# <= 1 )) || { printf 'Too many arguments.\n' >&2; exit 2; }
+        show_status
+        ;;
+    default)
+        (( $# == 1 )) || { printf 'Too many arguments.\n' >&2; exit 2; }
+        write_configured_hours "${default_hours}"
+        printf 'Saved the 24-hour cache-retention default; the running service was not restarted.\n'
+        show_status
+        ;;
+    *)
+        (( $# == 1 )) || { printf 'Exactly one hour value is required.\n' >&2; exit 2; }
+        if ! valid_hours "$1"; then
+            printf 'Invalid retention: %s. Use a whole number from %s to %s hours.\n\n' \
+                "$1" "${minimum_hours}" "${maximum_hours}" >&2
+            usage >&2
+            exit 2
+        fi
+        value="$((10#$1))"
+        write_configured_hours "${value}"
+        printf 'Saved %s hours of cache retention; the running service was not restarted.\n' "${value}"
+        show_status
+        ;;
+esac

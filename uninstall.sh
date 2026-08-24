@@ -95,7 +95,7 @@ systemctl --user disable --now \
     pdrive-watch.timer rclone-proton-drive.service \
     rclone-selfupdate.timer proton-drive-update.timer >/dev/null 2>&1 || true
 
-for file_name in pdrive-bwlimit pdrive-doctor pdrive-draft-recovery pdrive-reauth \
+for file_name in pdrive-bwlimit pdrive-cache-age pdrive-doctor pdrive-draft-recovery pdrive-reauth \
     pdrive-recovery pdrive-refresh pdrive-setup pdrive-state pdrive-transfers \
     pdrive-ui pdrive-watch rclone; do
     rm -f -- "${bin_dir}/${file_name}"

@@ -24,20 +24,20 @@ unlimited so a legitimate Proton backoff is not killed after systemd's usual
 
 ## Installed files
 
-| Path | Purpose |
-| --- | --- |
-| `/pdrive` | Real owner-only FUSE mountpoint |
-| `~/.local/bin/pdrive-*` | User-facing helpers |
-| `~/.local/share/applications/io.github.claudiuschuster.PDriveControl.desktop` | Cinnamon menu entry |
-| `~/.local/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg` | Scalable UI icon |
-| `~/.local/bin/rclone` | Adds the Keyring-backed `--password-command` |
-| `~/.local/libexec/rclone-bin` | Signed stable rclone executable |
-| `~/.local/libexec/rclone-proton-*` | Mount and guarded unmount implementation |
-| `~/.config/rclone/rclone.conf` | Encrypted rclone configuration |
-| `~/.config/pdrive-*.conf` | Strict single-purpose helper settings |
-| `~/.cache/rclone` | VFS data and metadata cache |
-| `~/.local/state/rclone` | Logs, RC socket and watchdog state |
-| `~/.config/systemd/user` | User service and timers |
+| Path                                                                                     | Purpose                                      |
+| ---------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `/pdrive`                                                                                | Real owner-only FUSE mountpoint              |
+| `~/.local/bin/pdrive-*`                                                                  | User-facing helpers                          |
+| `~/.local/share/applications/io.github.claudiuschuster.PDriveControl.desktop`            | Cinnamon menu entry                          |
+| `~/.local/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg` | Scalable UI icon                             |
+| `~/.local/bin/rclone`                                                                    | Adds the Keyring-backed `--password-command` |
+| `~/.local/libexec/rclone-bin`                                                            | Signed stable rclone executable              |
+| `~/.local/libexec/rclone-proton-*`                                                       | Mount and guarded unmount implementation     |
+| `~/.config/rclone/rclone.conf`                                                           | Encrypted rclone configuration               |
+| `~/.config/pdrive-*.conf`                                                                | Strict single-purpose helper settings        |
+| `~/.cache/rclone`                                                                        | VFS data and metadata cache                  |
+| `~/.local/state/rclone`                                                                  | Logs, RC socket and watchdog state           |
+| `~/.config/systemd/user`                                                                 | User service and timers                      |
 
 The configuration files are parsed as data and are never sourced as shell code.
 Each helper accepts only one narrowly validated key/value form.
@@ -126,7 +126,6 @@ rather than presenting a negative delta.
 pdrive-state
 pdrive-state --compact
 pdrive-ui
-pdrive-ui --demo
 pdrive-ui --background
 pdrive-ui --check
 ```
@@ -141,8 +140,9 @@ document so local consumers can degrade gracefully. The direct socket transport
 avoids launching multiple large rclone CLI processes on every two-second UI
 refresh; no TCP listener or additional rclone process is involved.
 
-`pdrive-ui` is the native GTK consumer of that document. It refreshes every two
-seconds in a background thread, keeps a five-minute in-memory speed graph and
+`pdrive-ui` is the native GTK consumer of that document. While visible, it
+refreshes every two seconds in a background thread, keeps a five-minute
+in-memory speed graph and
 shows active transfer and queue names only in the current desktop process. It
 does not modify the privacy-preserving watchdog files, start a second rclone,
 read the encrypted remote configuration, open a network listener or contact
@@ -155,11 +155,19 @@ a zero baseline; pressing the card's checkmark advances that baseline without
 deleting logs, watchdog history or current health warnings. Counter resets
 caused by log rotation are treated as a fresh log rather than a negative delta.
 
+The Active, Queue and VFS-Cache overview cards provide keyboard and pointer
+shortcuts into the corresponding Transfers sections. The cache
+section distinguishes pending protected upload data from clean synced copies,
+shows running versus saved retention and explains why a non-empty cache can be
+healthy while the upload queue is empty.
+
 The control popover calls existing helpers instead of duplicating their
 validation:
 
 - bandwidth applies live through `pdrive-bwlimit` without restarting a transfer;
 - upload slots are persisted through `pdrive-transfers` for the next start;
+- clean-cache retention is persisted through `pdrive-cache-age` for the next
+  start and is also configurable in the Transfers cache section;
 - cooldown reset delegates to `pdrive-watch --clear-cooldown`;
 - metadata refresh and service restart open their existing guarded helpers in a
   terminal, preserving the explicit confirmation and queue checks.
@@ -173,14 +181,15 @@ GTK without WebKit or another runtime dependency. The popover is constructed
 with visible child widgets but remains closed until the user activates its
 header button.
 
-`--demo` uses synthetic transfer/history data, never reads the live socket and
-disables every mutating control. `--check` validates GTK and locates
-`pdrive-state` without opening a window.
+`--check` validates GTK and locates `pdrive-state` without opening a window.
 
-The Preferences dialog persists two booleans plus the selected `en`/`de`
+The Preferences dialog persists three booleans plus the selected `en`/`de`
 interface language in mode-0600 `~/.config/pdrive-ui.json`. English is the hard
 default; selecting German takes effect after restarting the Control Center.
-The booleans control close into tray and start with the desktop session.
+The booleans control close into tray, start with the desktop session and whether
+two-second live polling continues while hidden. Background polling defaults to
+off; the independent 90-minute watchdog continues monitoring either way, and
+opening the window always triggers an immediate refresh.
 Enabling session startup atomically manages
 `~/.config/autostart/io.github.claudiuschuster.PDriveControl.desktop`, marked
 with `X-PDrive-Control-Center=true`, whose command is `pdrive-ui --background`.
@@ -232,6 +241,27 @@ process-start setting, so changes are saved but do not restart rclone. One slot
 is useful only for exceptional large-file recovery where parallel Proton block
 requests repeatedly fail together.
 
+## VFS-cache retention
+
+```bash
+pdrive-cache-age
+pdrive-cache-age 12
+pdrive-cache-age 72
+pdrive-cache-age default
+```
+
+The default is 24 hours, measured since a clean cache file was last accessed.
+Valid whole-hour values range from 1 through 8760. The helper writes one
+mode-0600 configuration atomically and does not restart the mount. The running
+VFS owns a copy of its startup options, so the saved value becomes active at
+the next controlled service start. `pdrive-cache-age` and the Control Center
+show both values when they differ.
+
+This setting governs eviction of clean, already-synced local data. Dirty files
+waiting for upload remain protected even when the age, 25 GiB target or minimum
+free-space target is exceeded. The one-minute cache poll means eligible clean
+data may remain briefly after its age expires.
+
 ## Metadata-cache mode
 
 ```bash
@@ -280,7 +310,7 @@ pdrive-watch --clear-cooldown
 ```
 
 The restart command requires an interactive terminal and the exact word
-`NEUSTART`. It asks systemd for one non-blocking restart, sets the recovery
+`RESTART`. It asks systemd for one non-blocking restart, sets the recovery
 cooldown and waits up to 60 seconds for a different living PID. It then reports
 DNS, mount visibility, log movement and post-request upload successes.
 
@@ -307,11 +337,11 @@ If rclone says the candidate is currently uploading, the second observation
 measures payload for 20 seconds. Any of these deltas proves useful activity and
 resets the confirmation:
 
-| Signal | Protective threshold |
-| --- | ---: |
-| process `read_bytes` | 1 MiB |
-| process `rchar` | 8 MiB |
-| established rclone TCP `bytes_sent` | 256 KiB |
+| Signal                              | Protective threshold |
+| ----------------------------------- | -------------------: |
+| process `read_bytes`                |                1 MiB |
+| process `rchar`                     |                8 MiB |
+| established rclone TCP `bytes_sent` |              256 KiB |
 
 A repeatedly waiting object, or an active object again showing no payload,
 causes `persistent-upload-failure` and a critical desktop notification. This
@@ -438,7 +468,7 @@ The mount wrapper currently uses:
 VFS cache mode:        full
 maximum cache size:    25 GiB
 minimum free space:    50 GiB
-maximum cache age:     168 hours
+maximum cache age:     24 hours by default; configurable with pdrive-cache-age
 write-back:            5 seconds
 directory cache:       1 hour
 attribute cache:       1 second

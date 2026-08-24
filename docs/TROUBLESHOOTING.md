@@ -342,10 +342,10 @@ binary still exists. Verify both installation and manual-package status:
 ```bash
 dpkg-query -W \
   fuse3 libfuse3-3 libsecret-tools gnome-keyring libpam-gnome-keyring \
-  jq curl openssl iproute2 libnotify-bin python3-gi gir1.2-gtk-3.0 \
-  gir1.2-ayatanaappindicator3-0.1
+  jq curl openssl iproute2 libnotify-bin python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+  gir1.2-ayatanaappindicator3-0.1 librsvg2-common
 apt-mark showmanual | grep -E \
-  '^(fuse3|libfuse3-3|libsecret-tools|gnome-keyring|libpam-gnome-keyring|jq|python3-gi|gir1.2-gtk-3.0|gir1.2-ayatanaappindicator3-0.1)$'
+  '^(fuse3|libfuse3-3|libsecret-tools|gnome-keyring|libpam-gnome-keyring|jq|python3-gi|python3-gi-cairo|gir1.2-gtk-3.0|gir1.2-ayatanaappindicator3-0.1|librsvg2-common)$'
 ```
 
 Repair missing core packages with:
@@ -353,11 +353,12 @@ Repair missing core packages with:
 ```bash
 sudo apt install --reinstall \
   fuse3 libfuse3-3 libsecret-tools gnome-keyring libpam-gnome-keyring \
-  jq curl openssl iproute2 libnotify-bin python3-gi gir1.2-gtk-3.0 \
-  gir1.2-ayatanaappindicator3-0.1
+  jq curl openssl iproute2 libnotify-bin python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+  gir1.2-ayatanaappindicator3-0.1 librsvg2-common
 sudo apt-mark manual \
   fuse3 libfuse3-3 libsecret-tools gnome-keyring libpam-gnome-keyring jq \
-  python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1
+  python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+  gir1.2-ayatanaappindicator3-0.1 librsvg2-common
 systemctl --user daemon-reload
 pdrive-doctor
 ```
@@ -433,8 +434,17 @@ Check:
 ```bash
 du -sh ~/.cache/rclone
 df -h "$HOME"
+pdrive-cache-age
 pdrive-refresh
 ```
+
+An empty live queue with non-zero cache usage is normally healthy: rclone keeps
+clean, already-uploaded local copies to accelerate repeated reads. PDrive
+Control Center's VFS-cache section shows clean and pending data separately.
+Clean files become eligible for eviction after the configured idle age (24
+hours by default), while Dirty upload data is never discarded merely to meet
+the age or size target. Change the next-start retention with
+`pdrive-cache-age HOURS` or from that Control Center section.
 
 Old clean backend namespaces can exist after changing Proton backend options.
 Before removing one, prove it is not selected by the running process, contains

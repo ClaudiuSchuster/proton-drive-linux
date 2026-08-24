@@ -23,14 +23,12 @@
        alt="PDrive Control Center showing its complete overview and Open PDrive folder action">
 </p>
 
-<p align="center"><sub>Complete Overview at the scrollbar-free default height, using synthetic privacy-safe demo data and <a href="https://github.com/ClaudiuSchuster/cinnamon-active-window-highlight">Active Window Highlight</a>.</sub></p>
+<p align="center"><sub>Service health, upload activity and configuration at a glance, framed by <a href="https://github.com/ClaudiuSchuster/cinnamon-active-window-highlight">Active Window Highlight</a>.</sub></p>
 
 <p align="center">
   <img src="docs/assets/pdrive-control-menu.png" width="320"
-       alt="PDrive Control Center menu with guarded controls, documentation and preferences">
+       alt="PDrive Control Center menu with service actions, documentation and preferences">
 </p>
-
-<p align="center"><sub>Guarded controls, the in-app manual and Preferences remain one click away.</sub></p>
 
 The toolkit integrates a writable owner-only FUSE mount into Nemo, starts after
 desktop login, keeps the rclone configuration encrypted in GNOME Keyring,
@@ -77,11 +75,12 @@ sudo apt install \
   rclone fuse3 libfuse3-3 \
   libsecret-tools gnome-keyring libpam-gnome-keyring \
   jq curl openssl iproute2 libnotify-bin \
-  python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1
+  python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+  gir1.2-ayatanaappindicator3-0.1 librsvg2-common
 sudo apt-mark manual \
   fuse3 libfuse3-3 libsecret-tools gnome-keyring \
-  libpam-gnome-keyring jq python3-gi gir1.2-gtk-3.0 \
-  gir1.2-ayatanaappindicator3-0.1
+  libpam-gnome-keyring jq python3-gi python3-gi-cairo gir1.2-gtk-3.0 \
+  gir1.2-ayatanaappindicator3-0.1 librsvg2-common
 ```
 
 The distribution's `rclone` package is only used as a bootstrap. The installer
@@ -130,19 +129,20 @@ The desktop menu receives **PDrive Control Center**; it can also be opened with
 The tools intentionally distinguish read-only status from state-changing
 actions. Every `--help` path is action-free.
 
-| Command | Default behavior | Explicit changes |
-| --- | --- | --- |
-| `pdrive-setup` | Show setup help | `--setup` creates the first encrypted remote |
-| `pdrive-doctor` | Detailed local diagnosis | `--online` performs one bounded API listing |
-| `pdrive-state` | Read-only JSON snapshot for local integrations | None |
-| `pdrive-ui` | Native live dashboard for the existing service | Delegates only to guarded helpers |
-| `pdrive-watch` | Fresh health report | Cooldown controls and confirmed service restart; `--record` is for the timer |
-| `pdrive-bwlimit` | Show persistent and live limit | Set a limit or use `off`, live without restart |
-| `pdrive-recovery` | Show Proton metadata-cache mode | `--enable` or `--disable` for the next service instance |
-| `pdrive-refresh` | Show cache, queue and Dirty state | `--refresh` safely rebuilds all metadata after external changes |
-| `pdrive-draft-recovery` | Show dangerous draft-replacement mode | Explicit enable/disable with Dirty-queue guards |
-| `pdrive-transfers` | Show configured and running upload slots | Set `1` to `8`, or `default`, for the next start |
-| `pdrive-reauth` | Show emergency-login guidance | `--reauth` performs one confirmed session renewal |
+| Command                 | Default behavior                               | Explicit changes                                                             |
+| ----------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
+| `pdrive-setup`          | Show setup help                                | `--setup` creates the first encrypted remote                                 |
+| `pdrive-doctor`         | Detailed local diagnosis                       | `--online` performs one bounded API listing                                  |
+| `pdrive-state`          | Read-only JSON snapshot for local integrations | None                                                                         |
+| `pdrive-ui`             | Native live dashboard for the existing service | Delegates only to guarded helpers                                            |
+| `pdrive-watch`          | Fresh health report                            | Cooldown controls and confirmed service restart; `--record` is for the timer |
+| `pdrive-bwlimit`        | Show persistent and live limit                 | Set a limit or use `off`, live without restart                               |
+| `pdrive-cache-age`      | Show saved and running VFS-cache retention     | Keep clean local copies for `1` to `8760` hours; applies on the next start   |
+| `pdrive-recovery`       | Show Proton metadata-cache mode                | `--enable` or `--disable` for the next service instance                      |
+| `pdrive-refresh`        | Show cache, queue and Dirty state              | `--refresh` safely rebuilds all metadata after external changes              |
+| `pdrive-draft-recovery` | Show dangerous draft-replacement mode          | Explicit enable/disable with Dirty-queue guards                              |
+| `pdrive-transfers`      | Show configured and running upload slots       | Set `1` to `8`, or `default`, for the next start                             |
+| `pdrive-reauth`         | Show emergency-login guidance                  | `--reauth` performs one confirmed session renewal                            |
 
 Detailed command behavior is documented in [Operations](docs/OPERATIONS.md).
 
@@ -161,7 +161,8 @@ configuration, unreviewed error/notice events and the privacy-preserving
 restarts until its checkmark is pressed; the speed graph refreshes every two
 seconds. A visible **Open PDrive folder** action beside the page tabs opens
 `/pdrive` directly in the desktop file manager; the compact header shortcut
-remains available as well.
+remains available as well. The Active, Queue and VFS-Cache cards open their
+matching detail section in the Transfers page.
 
 The UI does **not** start rclone, log in to Proton or expose a web server. Its
 fast `pdrive-state` backend reads the existing owner-only RC Unix socket,
@@ -171,7 +172,8 @@ to the local UI process and are never appended to watchdog state or history.
 The control menu delegates bandwidth, slot and cooldown changes to the existing
 validated helpers. Metadata refresh and service restart keep their explicit
 terminal confirmation. Its header popover also exposes **Preferences**, where
-the window can be kept running in Cinnamon's tray and optionally start there
+the window can be kept running in Cinnamon's tray, optionally start there and
+choose whether two-second live metrics continue while the window is hidden
 with the desktop session, plus **Documentation** for the installed manual. The
 documentation action opens a native in-app Markdown viewer for Getting started,
 Operations and Troubleshooting. It prefers installed offline copies, understands
@@ -182,16 +184,6 @@ can be switched to German; the choice takes effect after restarting the Control
 Center. The control popover always starts closed and opens only when requested.
 The last normal window size is restored across launches; maximized and
 fullscreen geometry is deliberately ignored.
-
-A synthetic screen for development and screenshots is available without
-reading or changing the service; all mutating controls are disabled in demo
-mode:
-
-```bash
-pdrive-ui --demo
-pdrive-ui --background
-pdrive-state --compact | jq
-```
 
 ## Everyday use
 
@@ -211,6 +203,13 @@ A finished Nemo copy dialog proves that the local VFS cache accepted the data;
 it does not by itself prove that Proton received it. For important writes,
 confirm a zero live queue and zero Dirty files with `pdrive-refresh`, or the
 corresponding `vfs cache: upload succeeded` log entry.
+
+A non-empty VFS cache does not by itself mean that uploads remain. The
+Transfers page separates protected pending data from clean, already-synced
+local copies. Clean files are retained for faster repeated reads and become
+eligible for eviction only after their configured idle age; accessing one
+resets that age. Dirty files are not removed merely because an age or size
+target is reached.
 
 Before shutdown or uninstall, confirm:
 
@@ -234,6 +233,23 @@ pdrive-bwlimit off      # remove the limit
 Every unitless numeric component is interpreted as MiB/s. This prevents a bare
 `4.2` from accidentally becoming a nearly invisible KiB-scale transfer. Live
 changes use the owner-only rclone RC Unix socket and do not restart rclone.
+
+## Local VFS-cache retention
+
+The project default keeps clean local cache files for 24 hours after their last
+access:
+
+```bash
+pdrive-cache-age          # show saved and currently running values
+pdrive-cache-age 12       # keep clean files for 12 hours after access
+pdrive-cache-age 72       # keep clean files for three days after access
+pdrive-cache-age default  # restore the 24-hour project default
+```
+
+The same setting is available from the VFS-cache section in PDrive Control
+Center. rclone copies VFS options when a mount starts, so a saved change applies
+at the next controlled service start; the running and saved values are shown
+separately until then. Changing retention never deletes Dirty upload data.
 
 ## Fast browsing and external clients
 
@@ -284,7 +300,7 @@ pdrive-watch --clear-cooldown
 pdrive-watch --restart-service
 ```
 
-The manual restart requires the exact terminal confirmation `NEUSTART`, keeps
+The manual restart requires the exact terminal confirmation `RESTART`, keeps
 the VFS cache, and validates the new PID, mount and DNS state. See
 [Troubleshooting](docs/TROUBLESHOOTING.md) before restarting repeatedly.
 

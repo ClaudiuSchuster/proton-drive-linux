@@ -42,7 +42,7 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.3.5"
+VERSION = "0.4.0"
 REFRESH_INTERVAL_SECONDS = 2
 AUTOSTART_MARKER = "X-PDrive-Control-Center=true"
 DOCUMENTATION_URL = "https://github.com/ClaudiuSchuster/proton-drive-linux#readme"
@@ -60,6 +60,7 @@ DOCUMENTATION_PAGES = (
 DEFAULT_PREFERENCES: dict[str, Any] = {
     "close_to_tray": False,
     "start_in_tray": False,
+    "poll_in_background": False,
     "language": "en",
     "issues_reviewed_errors": -1,
     "issues_reviewed_notices": -1,
@@ -111,6 +112,7 @@ GERMAN_TRANSLATIONS = {
     "CONTROLS": "STEUERUNG",
     "Bandwidth limit …": "Bandbreitenlimit …",
     "Upload slots …": "Uploadslots …",
+    "Cache retention …": "Cache-Aufbewahrung …",
     "Reset restart cooldown": "Neustart-Cooldown zurücksetzen",
     "Refresh metadata …": "Metadaten neu laden …",
     "Safely restart service …": "Dienst sicher neu starten …",
@@ -138,12 +140,35 @@ GERMAN_TRANSLATIONS = {
     "Bandwidth": "Bandbreite",
     "Upload slots": "Uploadslots",
     "Metadata cache": "Metadatencache",
+    "Cache retention": "Cache-Aufbewahrung",
     "Active transfers": "Aktive Transfers",
     "Progress, speed and ETA directly from rclone’s local RC socket": "Fortschritt, Geschwindigkeit und ETA direkt aus rclones lokalem RC-Socket",
     "VFS queue": "VFS-Warteschlange",
     "Pending uploads remain safe in the existing VFS cache across restarts": "Ausstehende Uploads bleiben auch bei Neustarts sicher im vorhandenen VFS-Cache",
     "Recently completed": "Kürzlich abgeschlossen",
     "The in-memory transfer list of the current rclone process": "Die laufzeitinterne Transferliste des aktuellen rclone-Prozesses",
+    "Local VFS cache": "Lokaler VFS-Cache",
+    "Synced local copies are reusable read cache, not unfinished uploads": "Synchronisierte lokale Kopien sind wiederverwendbarer Lesecache, keine unfertigen Uploads",
+    "Synced read cache": "Synchronisierter Lesecache",
+    "Pending upload data": "Ausstehende Uploaddaten",
+    "Retention": "Aufbewahrung",
+    "{files} clean file(s) · {size}": "{files} saubere Datei(en) · {size}",
+    "{files} pending file(s) · {size}": "{files} ausstehende Datei(en) · {size}",
+    "Running {running} · saved {saved}": "Laufend {running} · gespeichert {saved}",
+    "Clean files are removed after the retention period without local access. Dirty files remain protected until upload succeeds.": "Saubere Dateien werden nach der Aufbewahrungsfrist ohne lokalen Zugriff entfernt. Dirty-Dateien bleiben bis zum erfolgreichen Upload geschützt.",
+    "Cache details unavailable": "Cache-Details nicht erreichbar",
+    "rclone’s VFS statistics are temporarily unavailable.": "rclones VFS-Statistiken sind vorübergehend nicht erreichbar.",
+    "Cache is fully synced": "Cache ist vollständig synchronisiert",
+    "{files} local file(s) are already uploaded and kept only to speed up future reads.": "{files} lokale Datei(en) sind bereits hochgeladen und werden nur für schnellere spätere Lesezugriffe behalten.",
+    "Uploads are still pending": "Uploads stehen noch aus",
+    "{files} file(s) remain in the protected upload cache.": "{files} Datei(en) verbleiben im geschützten Uploadcache.",
+    "Cache needs attention": "Cache benötigt Aufmerksamkeit",
+    "{files} cached file(s) currently report errors.": "{files} Cachedatei(en) melden derzeit Fehler.",
+    "Local cache is empty": "Lokaler Cache ist leer",
+    "The local VFS cache is empty.": "Der lokale VFS-Cache ist leer.",
+    "Open active-transfer details": "Details der aktiven Transfers öffnen",
+    "Open upload-queue details": "Details der Upload-Warteschlange öffnen",
+    "Explain local VFS cache": "Lokalen VFS-Cache erklären",
     "Conservative 90-minute samples from the existing pdrive-watch timer": "Schonende 90-Minuten-Messpunkte des bestehenden pdrive-watch-Timers",
     "No active transfers": "Keine aktiven Transfers",
     "rclone is not using the connection right now.": "rclone nutzt die Verbindung gerade nicht.",
@@ -157,6 +182,8 @@ GERMAN_TRANSLATIONS = {
     "Mark issues reviewed": "Probleme als geprüft markieren",
     "Could not update issue review state": "Prüfstatus der Probleme konnte nicht gespeichert werden",
     "{files} local cache files": "{files} lokale Cachedateien",
+    "{files} synced local file(s)": "{files} synchronisierte lokale Datei(en)",
+    "{pending} pending · {clean} synced": "{pending} ausstehend · {clean} synchronisiert",
     "on the cache filesystem": "auf dem Cache-Dateisystem",
     "{active} active transfer(s) · {count} file(s) queued · {speed}": "{active} aktive Transfer(s) · {count} Datei(en) in der Queue · {speed}",
     "{count} file(s) are queued; rclone is preparing the next upload.": "{count} Datei(en) warten; rclone bereitet den nächsten Upload vor.",
@@ -183,6 +210,8 @@ GERMAN_TRANSLATIONS = {
     "Behavior": "Verhalten",
     "Keep running in the tray when the window closes": "Beim Schließen im Tray weiterlaufen",
     "Start hidden in the tray with the desktop session": "Mit der Sitzung versteckt im Tray starten",
+    "Keep live metrics updating while hidden in the tray": "Live-Metriken auch versteckt im Tray weiter aktualisieren",
+    "When disabled, the two-second live poll pauses while hidden. The independent 90-minute watchdog keeps monitoring health.": "Wenn deaktiviert, pausiert der Zwei-Sekunden-Liveabruf im versteckten Zustand. Der unabhängige 90-Minuten-Watchdog überwacht die Gesundheit weiterhin.",
     "Language": "Sprache",
     "Language changes take effect after restarting PDrive Control Center.": "Sprachänderungen gelten nach einem Neustart des PDrive Control Centers.",
     "Session startup uses ~/.config/autostart. A manual launch from the application menu still opens the window visibly.": "Der Sitzungsstart verwendet ~/.config/autostart. Ein manueller Start aus dem Anwendungsmenü öffnet das Fenster weiterhin sichtbar.",
@@ -196,6 +225,10 @@ GERMAN_TRANSLATIONS = {
     "Unitless numbers are interpreted as MiB/s. This does not interrupt an active transfer.": "Zahlen ohne Einheit werden als MiB/s verstanden. Dies unterbricht keinen aktiven Transfer.",
     "Parallel file uploads": "Parallele Datei-Uploads",
     "The saved value takes effect after the next controlled service start.": "Der gespeicherte Wert gilt nach dem nächsten kontrollierten Dienststart.",
+    "Keep clean local cache files for": "Saubere lokale Cachedateien aufbewahren für",
+    "hours": "Stunden",
+    "Choose 1 to 8760 hours. The age resets whenever a cached file is accessed.": "Wähle 1 bis 8760 Stunden. Das Alter beginnt bei jedem Zugriff auf eine Cachedatei neu.",
+    "Dirty files awaiting upload are never removed merely because this retention expires.": "Dirty-Dateien mit ausstehendem Upload werden niemals allein wegen Ablauf dieser Frist entfernt.",
     "Restart cooldown": "Neustart-Cooldown",
     "Refresh metadata?": "Metadaten neu laden?",
     "The guarded helper checks the queue and Dirty files first, then asks for confirmation in a terminal.": "Der sichere Helfer prüft zuerst Queue und Dirty-Dateien und fragt anschließend im Terminal nach Bestätigung.",
@@ -266,11 +299,7 @@ def preferences_path() -> pathlib.Path:
 
 
 def autostart_path() -> pathlib.Path:
-    return (
-        xdg_path("XDG_CONFIG_HOME", pathlib.Path.home() / ".config")
-        / "autostart"
-        / f"{APP_ID}.desktop"
-    )
+    return xdg_path("XDG_CONFIG_HOME", pathlib.Path.home() / ".config") / "autostart" / f"{APP_ID}.desktop"
 
 
 def documentation_path(installed_name: str, repository_relative: str) -> pathlib.Path | None:
@@ -310,7 +339,7 @@ def load_preferences() -> dict[str, Any]:
     preferences = dict(DEFAULT_PREFERENCES)
     try:
         payload = json.loads(preferences_path().read_text(encoding="utf-8"))
-        for key in ("close_to_tray", "start_in_tray"):
+        for key in ("close_to_tray", "start_in_tray", "poll_in_background"):
             if isinstance(payload.get(key), bool):
                 preferences[key] = payload[key]
         if payload.get("language") in SUPPORTED_LANGUAGES:
@@ -326,11 +355,7 @@ def load_preferences() -> dict[str, Any]:
         )
         for key, minimum in dimensions:
             value = payload.get(key)
-            if (
-                isinstance(value, int)
-                and not isinstance(value, bool)
-                and minimum <= value <= MAX_WINDOW_DIMENSION
-            ):
+            if isinstance(value, int) and not isinstance(value, bool) and minimum <= value <= MAX_WINDOW_DIMENSION:
                 preferences[key] = value
     except (FileNotFoundError, OSError, json.JSONDecodeError, AttributeError):
         pass
@@ -339,9 +364,7 @@ def load_preferences() -> dict[str, Any]:
     return preferences
 
 
-def issues_since_review(
-    preferences: dict[str, Any], watchdog: dict[str, Any]
-) -> tuple[int, int]:
+def issues_since_review(preferences: dict[str, Any], watchdog: dict[str, Any]) -> tuple[int, int]:
     """Return cumulative log events after the user's review watermark.
 
     rclone's current log counters can return to zero after a log rotation or a
@@ -355,16 +378,8 @@ def issues_since_review(
     reviewed_notices = int(preferences.get("issues_reviewed_notices", -1))
     if reviewed_errors < 0 or reviewed_notices < 0:
         return 0, 0
-    new_errors = (
-        current_errors - reviewed_errors
-        if current_errors >= reviewed_errors
-        else current_errors
-    )
-    new_notices = (
-        current_notices - reviewed_notices
-        if current_notices >= reviewed_notices
-        else current_notices
-    )
+    new_errors = current_errors - reviewed_errors if current_errors >= reviewed_errors else current_errors
+    new_notices = current_notices - reviewed_notices if current_notices >= reviewed_notices else current_notices
     return new_errors, new_notices
 
 
@@ -409,6 +424,12 @@ window.pdrive-window {
 .card-value { color: #f7f9fc; font-size: 26px; font-weight: 700; }
 .card-detail { color: #8995a7; font-size: 11px; }
 .card-action { padding: 1px; min-width: 22px; min-height: 22px; }
+.interactive-card .card-surface { transition: 120ms ease-in-out; }
+.interactive-card:hover .card-surface, .interactive-card:focus .card-surface {
+  background: #202938;
+  border-color: rgba(105,215,255,0.38);
+}
+.card-link-icon { color: #7890a6; }
 .section-title { color: #f4f7fb; font-size: 16px; font-weight: 700; }
 .section-subtitle { color: #8f9bad; font-size: 11px; }
 .status-card { border-radius: 16px; padding: 20px; }
@@ -586,7 +607,7 @@ def short_name(path: str, limit: int = 72) -> str:
         return path
     parts = pathlib.PurePosixPath(path).parts
     tail = "/".join(parts[-2:]) if len(parts) >= 2 else path[-limit:]
-    return f"…/{tail}" if len(tail) < limit else f"…{tail[-limit + 1:]}"
+    return f"…/{tail}" if len(tail) < limit else f"…{tail[-limit + 1 :]}"
 
 
 def local_time(value: str) -> str:
@@ -622,11 +643,13 @@ def card(child: Gtk.Widget, *classes: str) -> Gtk.Frame:
     return frame
 
 
-class StatCard(Gtk.Frame):
+class StatCard(Gtk.EventBox):
     def __init__(self, title: str, icon_name: str) -> None:
         super().__init__()
-        self.set_shadow_type(Gtk.ShadowType.NONE)
-        add_css(self, "card")
+        self.set_visible_window(False)
+        self.frame = Gtk.Frame()
+        self.frame.set_shadow_type(Gtk.ShadowType.NONE)
+        add_css(self.frame, "card", "card-surface")
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
         title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
         icon = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU)
@@ -635,13 +658,42 @@ class StatCard(Gtk.Frame):
         title_row.pack_start(label(title.upper(), "card-title"), True, True, 0)
         self.title_row = title_row
         self.action_button: Gtk.Button | None = None
+        self.navigation_callback: Any | None = None
         self.value = label("–", "card-value")
         self.detail = label("", "card-detail")
         self.detail.set_ellipsize(3)
         box.pack_start(title_row, False, False, 0)
         box.pack_start(self.value, False, False, 0)
         box.pack_start(self.detail, False, False, 0)
-        self.add(box)
+        self.frame.add(box)
+        self.add(self.frame)
+
+    def make_navigable(self, tooltip: str, callback: Any) -> None:
+        self.navigation_callback = callback
+        self.set_above_child(True)
+        self.set_can_focus(True)
+        self.set_tooltip_text(translate(tooltip))
+        self.add_events(Gdk.EventMask.BUTTON_RELEASE_MASK)
+        self.connect("button-release-event", self.on_button_release)
+        self.connect("key-release-event", self.on_key_release)
+        add_css(self, "interactive-card")
+        chevron = Gtk.Image.new_from_icon_name("go-next-symbolic", Gtk.IconSize.MENU)
+        add_css(chevron, "card-link-icon")
+        self.title_row.pack_end(chevron, False, False, 0)
+
+    def activate_navigation(self) -> bool:
+        if self.navigation_callback is None:
+            return False
+        self.navigation_callback()
+        return True
+
+    def on_button_release(self, _widget: Gtk.Widget, event: Gdk.EventButton) -> bool:
+        return bool(event.button == 1 and self.activate_navigation())
+
+    def on_key_release(self, _widget: Gtk.Widget, event: Gdk.EventKey) -> bool:
+        if event.keyval in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_space):
+            return self.activate_navigation()
+        return False
 
     def update(self, value: str, detail: str = "") -> None:
         self.value.set_text(value)
@@ -815,13 +867,47 @@ class MarkdownView(Gtk.ScrolledWindow):
         self.add(self.text_view)
         self.buffer = self.text_view.get_buffer()
         self.tags = {
-            "heading-1": self.buffer.create_tag(None, weight=Pango.Weight.BOLD, scale=1.65, foreground="#ffffff", pixels_above_lines=16, pixels_below_lines=8),
-            "heading-2": self.buffer.create_tag(None, weight=Pango.Weight.BOLD, scale=1.35, foreground="#f7f9fc", pixels_above_lines=14, pixels_below_lines=6),
-            "heading-3": self.buffer.create_tag(None, weight=Pango.Weight.BOLD, scale=1.15, foreground="#eef2f7", pixels_above_lines=10, pixels_below_lines=4),
+            "heading-1": self.buffer.create_tag(
+                None,
+                weight=Pango.Weight.BOLD,
+                scale=1.65,
+                foreground="#ffffff",
+                pixels_above_lines=16,
+                pixels_below_lines=8,
+            ),
+            "heading-2": self.buffer.create_tag(
+                None,
+                weight=Pango.Weight.BOLD,
+                scale=1.35,
+                foreground="#f7f9fc",
+                pixels_above_lines=14,
+                pixels_below_lines=6,
+            ),
+            "heading-3": self.buffer.create_tag(
+                None,
+                weight=Pango.Weight.BOLD,
+                scale=1.15,
+                foreground="#eef2f7",
+                pixels_above_lines=10,
+                pixels_below_lines=4,
+            ),
             "body": self.buffer.create_tag(None, foreground="#c9d2df", pixels_below_lines=4),
-            "bullet": self.buffer.create_tag(None, foreground="#c9d2df", left_margin=14, indent=-12, pixels_below_lines=3),
-            "quote": self.buffer.create_tag(None, foreground="#a9bed2", style=Pango.Style.ITALIC, left_margin=16, pixels_below_lines=5),
-            "code": self.buffer.create_tag(None, family="monospace", foreground="#d8e8f5", background="#202631", left_margin=14, right_margin=14, pixels_above_lines=5, pixels_below_lines=7),
+            "bullet": self.buffer.create_tag(
+                None, foreground="#c9d2df", left_margin=14, indent=-12, pixels_below_lines=3
+            ),
+            "quote": self.buffer.create_tag(
+                None, foreground="#a9bed2", style=Pango.Style.ITALIC, left_margin=16, pixels_below_lines=5
+            ),
+            "code": self.buffer.create_tag(
+                None,
+                family="monospace",
+                foreground="#d8e8f5",
+                background="#202631",
+                left_margin=14,
+                right_margin=14,
+                pixels_above_lines=5,
+                pixels_below_lines=7,
+            ),
             "table": self.buffer.create_tag(None, family="monospace", foreground="#cbd8e6", pixels_below_lines=3),
             "bold": self.buffer.create_tag(None, weight=Pango.Weight.BOLD, foreground="#ffffff"),
             "inline-code": self.buffer.create_tag(None, family="monospace", foreground="#8fe1ff", background="#202631"),
@@ -839,9 +925,7 @@ class MarkdownView(Gtk.ScrolledWindow):
                 )
             token = match.group(0)
             if token.startswith("**"):
-                self.buffer.insert_with_tags(
-                    self.buffer.get_end_iter(), token[2:-2], base_tag, self.tags["bold"]
-                )
+                self.buffer.insert_with_tags(self.buffer.get_end_iter(), token[2:-2], base_tag, self.tags["bold"])
             elif token.startswith("`"):
                 self.buffer.insert_with_tags(
                     self.buffer.get_end_iter(), token[1:-1], base_tag, self.tags["inline-code"]
@@ -855,9 +939,7 @@ class MarkdownView(Gtk.ScrolledWindow):
                         underline=Pango.Underline.SINGLE,
                     )
                     self.link_tags.append((tag, link.group(2)))
-                    self.buffer.insert_with_tags(
-                        self.buffer.get_end_iter(), link.group(1), base_tag, tag
-                    )
+                    self.buffer.insert_with_tags(self.buffer.get_end_iter(), link.group(1), base_tag, tag)
             position = match.end()
         if position < len(text):
             self.buffer.insert_with_tags(self.buffer.get_end_iter(), text[position:], base_tag)
@@ -868,9 +950,7 @@ class MarkdownView(Gtk.ScrolledWindow):
                 self.insert_inline(text, self.tags.get(kind, self.tags["heading-3"]))
                 self.buffer.insert(self.buffer.get_end_iter(), "\n")
             elif kind == "code":
-                self.buffer.insert_with_tags(
-                    self.buffer.get_end_iter(), f"{text}\n", self.tags["code"]
-                )
+                self.buffer.insert_with_tags(self.buffer.get_end_iter(), f"{text}\n", self.tags["code"])
             elif kind == "table":
                 self.insert_inline(text, self.tags["table"])
                 self.buffer.insert(self.buffer.get_end_iter(), "\n")
@@ -967,9 +1047,7 @@ class DocumentationWindow(Gtk.Window):
         path_part = target.split("#", 1)[0]
         if not path_part:
             return
-        normalized = posixpath.normpath(
-            posixpath.join(posixpath.dirname(current_relative), path_part)
-        )
+        normalized = posixpath.normpath(posixpath.join(posixpath.dirname(current_relative), path_part))
         page_name = self.page_names.get(pathlib.PurePosixPath(normalized).name.lower())
         if page_name:
             self.stack.set_visible_child_name(page_name)
@@ -1006,7 +1084,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         preferences = getattr(application, "preferences", DEFAULT_PREFERENCES)
         self.set_default_size(
             DEFAULT_WINDOW_WIDTH if demo else int(preferences["window_width"]),
-            900 if demo else int(preferences["window_height"]),
+            DEFAULT_WINDOW_HEIGHT if demo else int(preferences["window_height"]),
         )
         self.set_size_request(820, 620)
         add_css(self, "pdrive-window")
@@ -1200,6 +1278,18 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.issue_review_button.set_sensitive(False)
         self.cache_card = StatCard("VFS-Cache", "drive-harddisk-symbolic")
         self.free_card = StatCard("Free space", "folder-symbolic")
+        self.active_card.make_navigable(
+            "Open active-transfer details",
+            lambda: self.show_transfer_section("active"),
+        )
+        self.queue_card.make_navigable(
+            "Open upload-queue details",
+            lambda: self.show_transfer_section("queue"),
+        )
+        self.cache_card.make_navigable(
+            "Explain local VFS cache",
+            lambda: self.show_transfer_section("cache"),
+        )
         cards = [self.speed_card, self.active_card, self.queue_card, self.problem_card, self.cache_card, self.free_card]
         for index, widget in enumerate(cards):
             widget.set_hexpand(True)
@@ -1214,7 +1304,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
         graph_box.pack_start(graph_header, False, False, 0)
         self.speed_graph = SpeedGraph()
         graph_box.pack_start(self.speed_graph, True, True, 0)
-        graph_box.pack_start(label("Last five minutes · refreshed every two seconds", "section-subtitle"), False, False, 0)
+        graph_box.pack_start(
+            label("Last five minutes · refreshed every two seconds", "section-subtitle"), False, False, 0
+        )
         page.pack_start(card(graph_box), True, True, 0)
 
         bottom = Gtk.Grid(column_spacing=14, row_spacing=14)
@@ -1230,7 +1322,12 @@ class PDriveWindow(Gtk.ApplicationWindow):
         config_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
         config_box.pack_start(label("Configuration", "section-title"), False, False, 0)
         self.config_labels: dict[str, Gtk.Label] = {}
-        for key, title in (("bandwidth", "Bandwidth"), ("slots", "Upload slots"), ("metadata", "Metadata cache"), ("cooldown", "Cooldown")):
+        for key, title in (
+            ("bandwidth", "Bandwidth"),
+            ("slots", "Upload slots"),
+            ("metadata", "Metadata cache"),
+            ("cooldown", "Cooldown"),
+        ):
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
             row.pack_start(label(title, "section-subtitle"), True, True, 0)
             value = label("–", "pill", 1.0)
@@ -1255,25 +1352,101 @@ class PDriveWindow(Gtk.ApplicationWindow):
         box.pack_start(listing, True, True, 0)
         return card(box), listing
 
+    def build_cache_section(self) -> Gtk.Frame:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=10)
+        heading = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        heading_text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        heading_text.pack_start(label("Local VFS cache", "section-title"), False, False, 0)
+        heading_text.pack_start(
+            label(
+                "Synced local copies are reusable read cache, not unfinished uploads",
+                "section-subtitle",
+            ),
+            False,
+            False,
+            0,
+        )
+        heading.pack_start(heading_text, True, True, 0)
+        retention_button = Gtk.Button(label=translate("Cache retention …"))
+        add_css(retention_button, "flat-action")
+        retention_button.set_sensitive(not self.demo)
+        retention_button.connect("clicked", self.on_cache_retention)
+        heading.pack_end(retention_button, False, False, 0)
+        box.pack_start(heading, False, False, 0)
+
+        self.cache_status_title = label("Cache details unavailable", "transfer-name")
+        self.cache_status_detail = label(
+            "rclone’s VFS statistics are temporarily unavailable.",
+            "transfer-meta",
+        )
+        self.cache_status_detail.set_line_wrap(True)
+        box.pack_start(self.cache_status_title, False, False, 2)
+        box.pack_start(self.cache_status_detail, False, False, 0)
+
+        details = Gtk.Grid(column_spacing=16, row_spacing=9)
+        self.cache_detail_values: dict[str, Gtk.Label] = {}
+        for row_index, (key, title) in enumerate(
+            (
+                ("clean", "Synced read cache"),
+                ("pending", "Pending upload data"),
+                ("retention", "Retention"),
+            )
+        ):
+            details.attach(label(title, "section-subtitle"), 0, row_index, 1, 1)
+            value = label("–", "pill", 1.0)
+            value.set_halign(Gtk.Align.END)
+            details.attach(value, 1, row_index, 1, 1)
+            self.cache_detail_values[key] = value
+        details.set_column_homogeneous(False)
+        box.pack_start(details, False, False, 2)
+        note = label(
+            "Clean files are removed after the retention period without local access. Dirty files remain protected until upload succeeds.",
+            "section-subtitle",
+        )
+        note.set_line_wrap(True)
+        box.pack_start(note, False, False, 0)
+        return card(box)
+
     def build_transfers_page(self) -> Gtk.Widget:
-        scroller = Gtk.ScrolledWindow()
-        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
-        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
-        add_css(page, "page")
-        active_card, self.active_list = self.build_list_section(
+        self.transfers_scroller = Gtk.ScrolledWindow()
+        self.transfers_scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        self.transfers_page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        add_css(self.transfers_page, "page")
+        self.active_transfer_section, self.active_list = self.build_list_section(
             "Active transfers", "Progress, speed and ETA directly from rclone’s local RC socket"
         )
-        queue_card, self.queue_list = self.build_list_section(
+        self.queue_transfer_section, self.queue_list = self.build_list_section(
             "VFS queue", "Pending uploads remain safe in the existing VFS cache across restarts"
         )
-        recent_card, self.recent_list = self.build_list_section(
+        self.cache_transfer_section = self.build_cache_section()
+        self.recent_transfer_section, self.recent_list = self.build_list_section(
             "Recently completed", "The in-memory transfer list of the current rclone process"
         )
-        page.pack_start(active_card, False, False, 0)
-        page.pack_start(queue_card, False, False, 0)
-        page.pack_start(recent_card, False, False, 0)
-        scroller.add(page)
-        return scroller
+        self.transfers_page.pack_start(self.active_transfer_section, False, False, 0)
+        self.transfers_page.pack_start(self.queue_transfer_section, False, False, 0)
+        self.transfers_page.pack_start(self.cache_transfer_section, False, False, 0)
+        self.transfers_page.pack_start(self.recent_transfer_section, False, False, 0)
+        self.transfers_scroller.add(self.transfers_page)
+        return self.transfers_scroller
+
+    def show_transfer_section(self, section: str) -> None:
+        self.stack.set_visible_child_name("transfers")
+        GLib.timeout_add(220, self.scroll_to_transfer_section, section)
+
+    def scroll_to_transfer_section(self, section: str) -> bool:
+        targets = {
+            "active": self.active_transfer_section,
+            "queue": self.queue_transfer_section,
+            "cache": self.cache_transfer_section,
+        }
+        target = targets.get(section, self.active_transfer_section)
+        coordinates = target.translate_coordinates(self.transfers_page, 0, 0)
+        target_y = float(coordinates[1] if coordinates is not None else 0)
+        adjustment = self.transfers_scroller.get_vadjustment()
+        maximum = max(adjustment.get_lower(), adjustment.get_upper() - adjustment.get_page_size())
+        adjustment.set_value(min(maximum, max(adjustment.get_lower(), target_y - 12)))
+        target.grab_focus()
+        return GLib.SOURCE_REMOVE
 
     def build_history_page(self) -> Gtk.Widget:
         scroller = Gtk.ScrolledWindow()
@@ -1306,9 +1479,19 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.clear_list(self.active_list)
         self.clear_list(self.queue_list)
         self.clear_list(self.recent_list)
-        self.active_list.add(EmptyState("media-playback-pause-symbolic", "No active transfers", "rclone is not using the connection right now."))
+        self.active_list.add(
+            EmptyState(
+                "media-playback-pause-symbolic", "No active transfers", "rclone is not using the connection right now."
+            )
+        )
         self.queue_list.add(EmptyState("emblem-ok-symbolic", "Queue is empty", "All local changes have been uploaded."))
-        self.recent_list.add(EmptyState("document-open-recent-symbolic", "No transfers yet", "The current rclone process has not completed a transfer yet."))
+        self.recent_list.add(
+            EmptyState(
+                "document-open-recent-symbolic",
+                "No transfers yet",
+                "The current rclone process has not completed a transfer yet.",
+            )
+        )
 
     def on_destroy(self, _widget: Gtk.Widget) -> None:
         if self.window_size_save_source:
@@ -1325,9 +1508,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         if self.demo or self.closed:
             return
         gdk_window = self.get_window()
-        if gdk_window is not None and gdk_window.get_state() & (
-            Gdk.WindowState.MAXIMIZED | Gdk.WindowState.FULLSCREEN
-        ):
+        if gdk_window is not None and gdk_window.get_state() & (Gdk.WindowState.MAXIMIZED | Gdk.WindowState.FULLSCREEN):
             return
         if allocation.width < MIN_WINDOW_WIDTH or allocation.height < MIN_WINDOW_HEIGHT:
             return
@@ -1344,9 +1525,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         if self.demo or self.closed:
             return GLib.SOURCE_REMOVE
         gdk_window = self.get_window()
-        if gdk_window is not None and gdk_window.get_state() & (
-            Gdk.WindowState.MAXIMIZED | Gdk.WindowState.FULLSCREEN
-        ):
+        if gdk_window is not None and gdk_window.get_state() & (Gdk.WindowState.MAXIMIZED | Gdk.WindowState.FULLSCREEN):
             return GLib.SOURCE_REMOVE
         if self.pending_window_size is None:
             return GLib.SOURCE_REMOVE
@@ -1361,7 +1540,12 @@ class PDriveWindow(Gtk.ApplicationWindow):
     def on_refresh_timer(self) -> bool:
         if self.closed:
             return GLib.SOURCE_REMOVE
-        self.request_refresh()
+        application = self.get_application()
+        poll_in_background = isinstance(application, PDriveApplication) and bool(
+            application.preferences.get("poll_in_background", False)
+        )
+        if self.demo or self.get_visible() or poll_in_background:
+            self.request_refresh()
         return GLib.SOURCE_CONTINUE
 
     def request_refresh(self) -> None:
@@ -1436,10 +1620,21 @@ class PDriveWindow(Gtk.ApplicationWindow):
         ):
             application.mark_issues_reviewed(watchdog)
         self.update_issue_card(watchdog)
-        self.cache_card.update(
-            human_bytes(vfs.get("cache_bytes", 0)),
-            translate_format("{files} local cache files", files=vfs.get("cache_files", 0)),
-        )
+        cache_state = str(vfs.get("cache_state", "unavailable"))
+        if cache_state == "pending":
+            cache_card_detail = translate_format(
+                "{pending} pending · {clean} synced",
+                pending=vfs.get("pending_files", 0),
+                clean=vfs.get("clean_files", 0),
+            )
+        elif cache_state in {"clean", "empty"}:
+            cache_card_detail = translate_format(
+                "{files} synced local file(s)",
+                files=vfs.get("clean_files", 0),
+            )
+        else:
+            cache_card_detail = translate_format("{files} local cache files", files=vfs.get("cache_files", 0))
+        self.cache_card.update(human_bytes(vfs.get("cache_bytes", 0)), cache_card_detail)
         self.free_card.update(human_bytes(vfs.get("free_bytes", 0)), translate("on the cache filesystem"))
         self.graph_peak.set_text(f"Peak {human_rate(max(self.speed_samples, default=0))}")
 
@@ -1456,7 +1651,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 count=queue.get("count"),
             )
         else:
-            summary = translate("Everything is in sync. The service keeps its fast metadata cache warm and waits for changes.")
+            summary = translate(
+                "Everything is in sync. The service keeps its fast metadata cache warm and waits for changes."
+            )
         self.live_summary.set_text(summary)
         self.config_labels["bandwidth"].set_text(str(bandwidth.get("live", "–")))
         self.config_labels["slots"].set_text(f"{slots} parallel")
@@ -1464,6 +1661,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.config_labels["cooldown"].set_text(human_duration(config.get("cooldown_seconds", -1)))
 
         self.update_transfers(transfers, queue)
+        self.update_cache_details(vfs, config)
         self.update_history(state.get("history", []))
         self.status_title.set_tooltip_text(
             translate_format(
@@ -1480,11 +1678,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
 
     def update_issue_card(self, watchdog: dict[str, Any]) -> None:
         application = self.get_application()
-        preferences = (
-            application.preferences
-            if isinstance(application, PDriveApplication)
-            else DEFAULT_PREFERENCES
-        )
+        preferences = application.preferences if isinstance(application, PDriveApplication) else DEFAULT_PREFERENCES
         errors, notices = issues_since_review(preferences, watchdog)
         total = errors + notices
         self.problem_card.update(
@@ -1557,9 +1751,8 @@ class PDriveWindow(Gtk.ApplicationWindow):
             if eta != "–":
                 detail += f" · ETA {eta}"
         elif queue:
-            detail = (
-                f"{human_bytes(item.get('size', 0))} · "
-                + translate_format("{tries} attempt(s)", tries=item.get("tries", 0))
+            detail = f"{human_bytes(item.get('size', 0))} · " + translate_format(
+                "{tries} attempt(s)", tries=item.get("tries", 0)
             )
         else:
             detail = f"{human_bytes(item.get('bytes') or item.get('size', 0))} · {local_time(str(item.get('completed_at', '')))}"
@@ -1583,20 +1776,89 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 for item in uploading:
                     self.active_list.add(self.transfer_row(item, queue=True))
             else:
-                self.active_list.add(EmptyState("media-playback-pause-symbolic", "No active transfers", "rclone is not using the connection right now."))
+                self.active_list.add(
+                    EmptyState(
+                        "media-playback-pause-symbolic",
+                        "No active transfers",
+                        "rclone is not using the connection right now.",
+                    )
+                )
         if queue_items:
             for item in queue_items:
                 self.queue_list.add(self.transfer_row(item, queue=True))
         else:
-            self.queue_list.add(EmptyState("emblem-ok-symbolic", "Queue is empty", "All local changes have been uploaded."))
+            self.queue_list.add(
+                EmptyState("emblem-ok-symbolic", "Queue is empty", "All local changes have been uploaded.")
+            )
         if recent_items:
             for item in reversed(recent_items[-12:]):
                 self.recent_list.add(self.transfer_row(item, recent=True))
         else:
-            self.recent_list.add(EmptyState("document-open-recent-symbolic", "No transfers yet", "The current rclone process has not completed a transfer yet."))
+            self.recent_list.add(
+                EmptyState(
+                    "document-open-recent-symbolic",
+                    "No transfers yet",
+                    "The current rclone process has not completed a transfer yet.",
+                )
+            )
         self.active_list.show_all()
         self.queue_list.show_all()
         self.recent_list.show_all()
+
+    def update_cache_details(self, vfs: dict[str, Any], config: dict[str, Any]) -> None:
+        cache_state = str(vfs.get("cache_state", "unavailable"))
+        clean_files = int(vfs.get("clean_files") or 0)
+        pending_files = int(vfs.get("pending_files") or 0)
+        errored_files = int(vfs.get("errored_files") or 0)
+        if cache_state == "clean":
+            title = "Cache is fully synced"
+            detail = translate_format(
+                "{files} local file(s) are already uploaded and kept only to speed up future reads.",
+                files=clean_files,
+            )
+        elif cache_state == "pending":
+            title = "Uploads are still pending"
+            detail = translate_format(
+                "{files} file(s) remain in the protected upload cache.",
+                files=pending_files,
+            )
+        elif cache_state == "error":
+            title = "Cache needs attention"
+            detail = translate_format(
+                "{files} cached file(s) currently report errors.",
+                files=errored_files,
+            )
+        elif cache_state == "empty":
+            title = "Local cache is empty"
+            detail = translate("The local VFS cache is empty.")
+        else:
+            title = "Cache details unavailable"
+            detail = translate("rclone’s VFS statistics are temporarily unavailable.")
+        self.cache_status_title.set_text(translate(title))
+        self.cache_status_detail.set_text(detail)
+        self.cache_detail_values["clean"].set_text(
+            translate_format(
+                "{files} clean file(s) · {size}",
+                files=clean_files,
+                size=human_bytes(vfs.get("clean_bytes", 0)),
+            )
+        )
+        self.cache_detail_values["pending"].set_text(
+            translate_format(
+                "{files} pending file(s) · {size}",
+                files=pending_files,
+                size=human_bytes(vfs.get("pending_bytes", 0)),
+            )
+        )
+        configured_age = int(config.get("cache_max_age_seconds") or 0)
+        running_age = int(config.get("running_cache_max_age_seconds") or -1)
+        self.cache_detail_values["retention"].set_text(
+            translate_format(
+                "Running {running} · saved {saved}",
+                running=human_duration(running_age),
+                saved=human_duration(configured_age),
+            )
+        )
 
     def update_history(self, entries: list[dict[str, Any]]) -> None:
         signature = tuple(
@@ -1608,7 +1870,13 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.history_signature = signature
         self.clear_list(self.history_list)
         if not entries:
-            self.history_list.add(EmptyState("document-open-recent-symbolic", "No history yet", "The pdrive-watch timer has not recorded a sample yet."))
+            self.history_list.add(
+                EmptyState(
+                    "document-open-recent-symbolic",
+                    "No history yet",
+                    "The pdrive-watch timer has not recorded a sample yet.",
+                )
+            )
             self.history_list.show_all()
             return
         for entry in reversed(entries[-24:]):
@@ -1622,15 +1890,18 @@ class PDriveWindow(Gtk.ApplicationWindow):
             box.pack_start(icon, False, False, 0)
             text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
             reason = str(entry.get("reason", "unknown"))
-            text_box.pack_start(label(REASON_LABELS.get(reason, reason.replace("-", " ").capitalize()), "transfer-name"), False, False, 0)
-            detail = (
-                translate_format(
-                    "Queue {queue} · active {active} · error counter {errors} · notices {notices}",
-                    queue=entry.get("vfs_queue", 0),
-                    active=entry.get("vfs_uploading", 0),
-                    errors=entry.get("errors", 0),
-                    notices=entry.get("notices", 0),
-                )
+            text_box.pack_start(
+                label(REASON_LABELS.get(reason, reason.replace("-", " ").capitalize()), "transfer-name"),
+                False,
+                False,
+                0,
+            )
+            detail = translate_format(
+                "Queue {queue} · active {active} · error counter {errors} · notices {notices}",
+                queue=entry.get("vfs_queue", 0),
+                active=entry.get("vfs_uploading", 0),
+                errors=entry.get("errors", 0),
+                notices=entry.get("notices", 0),
             )
             text_box.pack_start(label(detail, "transfer-meta"), False, False, 0)
             box.pack_start(text_box, True, True, 0)
@@ -1693,6 +1964,16 @@ class PDriveWindow(Gtk.ApplicationWindow):
         start_toggle = Gtk.CheckButton(label=translate("Start hidden in the tray with the desktop session"))
         start_toggle.set_active(application.preferences["start_in_tray"])
         content.pack_start(start_toggle, False, False, 0)
+        background_poll_toggle = Gtk.CheckButton(label=translate("Keep live metrics updating while hidden in the tray"))
+        background_poll_toggle.set_active(application.preferences["poll_in_background"])
+        content.pack_start(background_poll_toggle, False, False, 0)
+        background_poll_note = label(
+            "When disabled, the two-second live poll pauses while hidden. "
+            "The independent 90-minute watchdog keeps monitoring health.",
+            "section-subtitle",
+        )
+        background_poll_note.set_line_wrap(True)
+        content.pack_start(background_poll_note, False, False, 0)
         language_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         language_row.pack_start(label("Language"), True, True, 0)
         language_combo = Gtk.ComboBoxText()
@@ -1724,12 +2005,18 @@ class PDriveWindow(Gtk.ApplicationWindow):
         response = dialog.run()
         close_to_tray = close_toggle.get_active()
         start_in_tray = start_toggle.get_active()
+        poll_in_background = background_poll_toggle.get_active()
         selected_language = language_combo.get_active_id() or "en"
         previous_language = str(application.preferences["language"])
         dialog.destroy()
         if response != Gtk.ResponseType.OK:
             return
-        error = application.update_preferences(close_to_tray, start_in_tray, selected_language)
+        error = application.update_preferences(
+            close_to_tray,
+            start_in_tray,
+            poll_in_background,
+            selected_language,
+        )
         if error:
             self.message("Could not save preferences", error, Gtk.MessageType.ERROR)
         elif selected_language != previous_language:
@@ -1754,7 +2041,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
         entry.set_text("off" if current == "off" else current.split(":", 1)[0].replace("Mi", "").replace("M", ""))
         entry.set_placeholder_text(translate("for example 4.2 or off"))
         content.pack_start(entry, False, False, 0)
-        help_label = label("Unitless numbers are interpreted as MiB/s. This does not interrupt an active transfer.", "section-subtitle")
+        help_label = label(
+            "Unitless numbers are interpreted as MiB/s. This does not interrupt an active transfer.", "section-subtitle"
+        )
         help_label.set_line_wrap(True)
         content.pack_start(help_label, False, False, 0)
         dialog.show_all()
@@ -1787,6 +2076,48 @@ class PDriveWindow(Gtk.ApplicationWindow):
         dialog.destroy()
         if response == Gtk.ResponseType.OK:
             self.run_helper(["pdrive-transfers", str(value)], "Upload slots")
+
+    def on_cache_retention(self, _button: Gtk.Button) -> None:
+        dialog = Gtk.Dialog(title=translate("Cache retention"), transient_for=self, modal=True)
+        dialog.add_buttons(translate("Cancel"), Gtk.ResponseType.CANCEL, translate("Save"), Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        content.set_spacing(10)
+        content.set_margin_top(15)
+        content.set_margin_bottom(15)
+        content.set_margin_start(15)
+        content.set_margin_end(15)
+        content.pack_start(label("Keep clean local cache files for", "section-title"), False, False, 0)
+        row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        current_seconds = int(self.current_state.get("configuration", {}).get("cache_max_age_seconds") or 86400)
+        spinner = Gtk.SpinButton.new_with_range(1, 8760, 1)
+        spinner.set_value(max(1, min(8760, current_seconds // 3600)))
+        row.pack_start(spinner, False, False, 0)
+        row.pack_start(label("hours"), False, False, 0)
+        content.pack_start(row, False, False, 0)
+        access_note = label(
+            "Choose 1 to 8760 hours. The age resets whenever a cached file is accessed.",
+            "section-subtitle",
+        )
+        access_note.set_line_wrap(True)
+        content.pack_start(access_note, False, False, 0)
+        safety_note = label(
+            "Dirty files awaiting upload are never removed merely because this retention expires.",
+            "section-subtitle",
+        )
+        safety_note.set_line_wrap(True)
+        content.pack_start(safety_note, False, False, 0)
+        restart_note = label(
+            "The saved value takes effect after the next controlled service start.",
+            "section-subtitle",
+        )
+        restart_note.set_line_wrap(True)
+        content.pack_start(restart_note, False, False, 0)
+        dialog.show_all()
+        response = dialog.run()
+        value = spinner.get_value_as_int()
+        dialog.destroy()
+        if response == Gtk.ResponseType.OK:
+            self.run_helper(["pdrive-cache-age", str(value)], "Cache retention")
 
     def on_clear_cooldown(self, _button: Gtk.Button) -> None:
         self.run_helper(["pdrive-watch", "--clear-cooldown"], "Restart cooldown")
@@ -1930,6 +2261,7 @@ class PDriveApplication(Gtk.Application):
             return
         self.window.show_all()
         self.window.present()
+        self.window.request_refresh()
 
     def on_window_delete(self, window: Gtk.Window, _event: Gdk.Event) -> bool:
         if not self.force_quit and self.preferences["close_to_tray"] and not self.demo:
@@ -1971,9 +2303,7 @@ class PDriveApplication(Gtk.Application):
                 self.indicator.set_menu(menu)
         if self.indicator is not None:
             status = (
-                AyatanaAppIndicator3.IndicatorStatus.ACTIVE
-                if wanted
-                else AyatanaAppIndicator3.IndicatorStatus.PASSIVE
+                AyatanaAppIndicator3.IndicatorStatus.ACTIVE if wanted else AyatanaAppIndicator3.IndicatorStatus.PASSIVE
             )
             self.indicator.set_status(status)
         if self.status_icon is not None:
@@ -2026,6 +2356,7 @@ class PDriveApplication(Gtk.Application):
         self,
         close_to_tray: bool,
         start_in_tray: bool,
+        poll_in_background: bool,
         language: str,
     ) -> str | None:
         if self.demo:
@@ -2035,6 +2366,7 @@ class PDriveApplication(Gtk.Application):
             {
                 "close_to_tray": bool(close_to_tray or start_in_tray),
                 "start_in_tray": bool(start_in_tray),
+                "poll_in_background": bool(poll_in_background),
                 "language": language if language in SUPPORTED_LANGUAGES else "en",
             }
         )
@@ -2062,10 +2394,7 @@ class PDriveApplication(Gtk.Application):
             return None
         width = max(MIN_WINDOW_WIDTH, min(MAX_WINDOW_DIMENSION, int(width)))
         height = max(MIN_WINDOW_HEIGHT, min(MAX_WINDOW_DIMENSION, int(height)))
-        if (
-            self.preferences.get("window_width") == width
-            and self.preferences.get("window_height") == height
-        ):
+        if self.preferences.get("window_width") == width and self.preferences.get("window_height") == height:
             return None
         new_preferences = dict(self.preferences)
         new_preferences.update({"window_width": width, "window_height": height})
@@ -2090,8 +2419,7 @@ class PDriveApplication(Gtk.Application):
                 "issues_reviewed_errors": max(0, int(watchdog.get("errors") or 0)),
                 "issues_reviewed_notices": max(0, int(watchdog.get("notices") or 0)),
                 "issues_reviewed_at": str(
-                    watchdog.get("generated_at")
-                    or dt.datetime.now().astimezone().isoformat(timespec="seconds")
+                    watchdog.get("generated_at") or dt.datetime.now().astimezone().isoformat(timespec="seconds")
                 ),
             }
         )
@@ -2166,14 +2494,35 @@ def demo_state() -> dict[str, Any]:
         )
     return {
         "generated_at": now,
-        "health": {"status": "ready", "summary": "Upload is running smoothly through the existing Proton Drive service."},
+        "health": {
+            "status": "ready",
+            "summary": "Upload is running smoothly through the existing Proton Drive service.",
+        },
         "service": {"active_state": "active", "sub_state": "running", "pid": 4242},
         "stats": {"speed": speed},
         "transfers": {"active": [active], "recent": []},
         "queue": {"count": 3, "bytes": sum(item["size"] for item in queue_items), "active": 1, "items": queue_items},
-        "vfs": {"cache_bytes": size + 9_600_000_000, "cache_files": 3, "free_bytes": 758_000_000_000},
+        "vfs": {
+            "available": True,
+            "cache_bytes": size + 11_200_000_000,
+            "cache_files": 5,
+            "cache_state": "pending",
+            "clean_files": 2,
+            "clean_bytes": 1_600_000_000,
+            "pending_files": 3,
+            "pending_bytes": size + 9_600_000_000,
+            "errored_files": 0,
+            "free_bytes": 758_000_000_000,
+        },
         "bandwidth": {"configured": "4.200Mi:off", "live": "4.200Mi:off"},
-        "configuration": {"transfers": 4, "running_transfers": 4, "metadata_cache": True, "cooldown_seconds": 43200},
+        "configuration": {
+            "transfers": 4,
+            "running_transfers": 4,
+            "metadata_cache": True,
+            "cache_max_age_seconds": 86400,
+            "running_cache_max_age_seconds": 86400,
+            "cooldown_seconds": 43200,
+        },
         "watchdog": {
             "generated_at": now,
             "errors": 12,

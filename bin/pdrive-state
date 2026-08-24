@@ -15,12 +15,11 @@ import shutil
 import socket
 import subprocess
 import sys
-import time
 from typing import Any
 
 
 SCHEMA_VERSION = 1
-TOOL_VERSION = "0.2.0"
+TOOL_VERSION = "0.3.0"
 
 
 def env_path(name: str, default: pathlib.Path) -> pathlib.Path:
@@ -130,9 +129,7 @@ def service_state() -> dict[str, Any]:
 
 
 def mount_state() -> dict[str, Any]:
-    code, stdout, stderr = run(
-        ["findmnt", "-rn", "-M", str(MOUNT_DIR), "-o", "TARGET,SOURCE,FSTYPE,OPTIONS"]
-    )
+    code, stdout, stderr = run(["findmnt", "-rn", "-M", str(MOUNT_DIR), "-o", "TARGET,SOURCE,FSTYPE,OPTIONS"])
     fields = stdout.strip().split(maxsplit=3)
     fstype = fields[2] if len(fields) >= 3 else ""
     options = fields[3] if len(fields) >= 4 else ""
@@ -210,8 +207,10 @@ def rc_call(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
         connection.close()
 
 
-def collect_rc() -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
-    endpoints = ["core/stats", "core/transferred", "vfs/queue", "vfs/stats", "core/bwlimit"]
+def collect_rc(*, include_vfs: bool) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+    endpoints = ["core/stats", "core/transferred", "core/bwlimit"]
+    if include_vfs:
+        endpoints.extend(["vfs/queue", "vfs/stats"])
     payloads: dict[str, dict[str, Any]] = {}
     errors: dict[str, str] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(endpoints)) as pool:
@@ -427,7 +426,10 @@ def build_state() -> dict[str, Any]:
     latest = normalize_latest(read_key_values(LATEST_FILE), now_epoch)
     service = service_state()
     mount = mount_state()
-    rc_payloads, rc_errors = collect_rc()
+    # vfs/* returns an error and writes an ERROR line to rclone's own log while
+    # the RC socket is up but the mount has not registered its VFS yet. Avoid
+    # manufacturing user-visible issues during this normal startup window.
+    rc_payloads, rc_errors = collect_rc(include_vfs=mount["ready"])
     stats = rc_payloads.get("core/stats", {})
     transferred = rc_payloads.get("core/transferred", {}).get("transferred", [])
     if not isinstance(transferred, list):
@@ -438,6 +440,7 @@ def build_state() -> dict[str, Any]:
     queue = normalize_queue(rc_payloads.get("vfs/queue"))
     vfs = rc_payloads.get("vfs/stats", {})
     disk_cache = vfs.get("diskCache", {}) if isinstance(vfs.get("diskCache"), dict) else {}
+    vfs_options = vfs.get("opt", {}) if isinstance(vfs.get("opt"), dict) else {}
     bandwidth = rc_payloads.get("core/bwlimit", {})
 
     components = []
@@ -473,13 +476,35 @@ def build_state() -> dict[str, Any]:
         health_reason = "mounted"
 
     configured_bwlimit = read_config_value(CONFIG_DIR / "pdrive-bwlimit.conf", "bwlimit", "off")
-    configured_transfers = integer(
-        read_config_value(CONFIG_DIR / "pdrive-transfers.conf", "transfers", "4"), 4
-    )
-    metadata_cache = boolean(
-        read_config_value(CONFIG_DIR / "pdrive-recovery.conf", "proton_metadata_cache", "false")
-    )
+    configured_transfers = integer(read_config_value(CONFIG_DIR / "pdrive-transfers.conf", "transfers", "4"), 4)
+    metadata_cache = boolean(read_config_value(CONFIG_DIR / "pdrive-recovery.conf", "proton_metadata_cache", "false"))
+    cache_max_age_raw = read_config_value(CONFIG_DIR / "pdrive-cache.conf", "cache_max_age_hours", "24")
+    cache_max_age_hours = integer(cache_max_age_raw, 24)
+    cache_max_age_valid = cache_max_age_raw.isdigit() and 1 <= cache_max_age_hours <= 8760
+    if not cache_max_age_valid:
+        cache_max_age_hours = 24
     cache_bytes = integer(disk_cache.get("bytesUsed"), latest["cache_bytes"])
+    cache_files = integer(disk_cache.get("files"))
+    pending_files = max(
+        integer(disk_cache.get("uploadsQueued"), queue["count"]),
+        queue["count"],
+    )
+    pending_bytes = max(0, queue["bytes"])
+    clean_files = max(0, cache_files - pending_files)
+    clean_bytes = max(0, cache_bytes - pending_bytes)
+    errored_files = integer(disk_cache.get("erroredFiles"))
+    if "vfs/stats" in rc_errors:
+        cache_state = "unavailable"
+    elif errored_files:
+        cache_state = "error"
+    elif pending_files:
+        cache_state = "pending"
+    elif cache_files:
+        cache_state = "clean"
+    else:
+        cache_state = "empty"
+    running_cache_age_ns = integer(vfs_options.get("CacheMaxAge"), -1)
+    running_cache_age_seconds = running_cache_age_ns // 1_000_000_000 if running_cache_age_ns >= 0 else -1
     free_bytes = disk_free(STATE_DIR)
 
     return {
@@ -514,19 +539,22 @@ def build_state() -> dict[str, Any]:
         "transfers": {
             "active": [normalize_transfer(item) for item in active_raw if isinstance(item, dict)],
             "recent": [
-                normalize_transfer(item, completed=True)
-                for item in transferred[-24:]
-                if isinstance(item, dict)
+                normalize_transfer(item, completed=True) for item in transferred[-24:] if isinstance(item, dict)
             ],
         },
         "queue": queue,
         "vfs": {
             "available": "vfs/stats" in rc_payloads,
             "cache_bytes": cache_bytes,
-            "cache_files": integer(disk_cache.get("files")),
-            "uploads_queued": integer(disk_cache.get("uploadsQueued"), queue["count"]),
+            "cache_files": cache_files,
+            "cache_state": cache_state,
+            "clean_files": clean_files,
+            "clean_bytes": clean_bytes,
+            "pending_files": pending_files,
+            "pending_bytes": pending_bytes,
+            "uploads_queued": pending_files,
             "uploads_in_progress": integer(disk_cache.get("uploadsInProgress"), queue["active"]),
-            "errored_files": integer(disk_cache.get("erroredFiles")),
+            "errored_files": errored_files,
             "out_of_space": boolean(disk_cache.get("outOfSpace")),
             "free_bytes": free_bytes or latest["free_bytes"],
         },
@@ -540,6 +568,9 @@ def build_state() -> dict[str, Any]:
             "transfers": configured_transfers,
             "running_transfers": latest["running_transfers"],
             "metadata_cache": metadata_cache,
+            "cache_max_age_seconds": cache_max_age_hours * 3600,
+            "running_cache_max_age_seconds": running_cache_age_seconds,
+            "cache_max_age_valid": cache_max_age_valid,
             "cooldown_seconds": latest["cooldown_seconds"],
         },
         "watchdog": latest,

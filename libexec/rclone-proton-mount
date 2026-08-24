@@ -9,6 +9,7 @@ readonly state_dir="${HOME}/.local/state/rclone"
 readonly config_file="${HOME}/.config/rclone/rclone.conf"
 readonly transfers_config="${HOME}/.config/pdrive-transfers.conf"
 readonly bwlimit_config="${HOME}/.config/pdrive-bwlimit.conf"
+readonly cache_config="${HOME}/.config/pdrive-cache.conf"
 readonly recovery_config="${HOME}/.config/pdrive-recovery.conf"
 readonly draft_recovery_config="${HOME}/.config/pdrive-draft-recovery.conf"
 readonly rc_socket="${state_dir}/pdrive-rc.sock"
@@ -121,6 +122,34 @@ if [[ -e "${bwlimit_config}" ]]; then
     fi
 fi
 
+# Keep clean VFS files for one day by default. This is independent from Dirty
+# upload data: rclone preserves pending writes even when they exceed the age or
+# size targets. Accept one bounded integer written by pdrive-cache-age and never
+# source the file.
+cache_max_age_hours='24'
+if [[ -e "${cache_config}" ]]; then
+    if [[ ! -r "${cache_config}" ]]; then
+        echo "Cache-retention configuration is unreadable: ${cache_config}" >&2
+        exit 78
+    fi
+    cache_entries="$(awk '
+        /^[[:space:]]*($|#)/ { next }
+        { print }
+    ' "${cache_config}")"
+    if [[ "${cache_entries}" =~ ^cache_max_age_hours=([0-9]{1,4})$ ]]; then
+        parsed_cache_max_age_hours="${BASH_REMATCH[1]}"
+    else
+        parsed_cache_max_age_hours='0'
+    fi
+    if (( 10#${parsed_cache_max_age_hours} >= 1 && 10#${parsed_cache_max_age_hours} <= 8760 )); then
+        cache_max_age_hours="$((10#${parsed_cache_max_age_hours}))"
+    else
+        echo "Invalid cache-retention configuration in ${cache_config}." >&2
+        echo 'Repair it with: pdrive-cache-age default' >&2
+        exit 78
+    fi
+fi
+
 # Proton's link/keyring metadata cache speeds navigation and metadata-heavy
 # operations, but it cannot see changes made concurrently by another Proton
 # client. Keep the safe fallback off and accept only one explicit, validated
@@ -184,7 +213,7 @@ exec "${rclone_bin}" mount proton: "${mount_dir}" \
     --vfs-cache-mode=full \
     --vfs-cache-max-size=25G \
     --vfs-cache-min-free-space=50G \
-    --vfs-cache-max-age=168h \
+    --vfs-cache-max-age="${cache_max_age_hours}h" \
     --vfs-cache-poll-interval=1m \
     --vfs-write-back=5s \
     --dir-cache-time=1h \

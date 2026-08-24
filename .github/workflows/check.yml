@@ -1,17 +1,22 @@
-name: checks
+---
+name: Checks
 
-on:
-  push:
-  pull_request:
+on: # yamllint disable-line rule:truthy
+  push: null
+  pull_request: null
 
 permissions:
   contents: read
 
 jobs:
-  shell:
+  functional:
+    name: Functional checks
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
       - name: Install checks
         run: |
           sudo apt-get update
@@ -19,8 +24,43 @@ jobs:
             desktop-file-utils \
             gir1.2-ayatanaappindicator3-0.1 \
             gir1.2-gtk-3.0 \
+            librsvg2-common \
+            python3-cairo \
             python3-gi \
+            python3-gi-cairo \
+            shared-mime-info \
             shellcheck \
             xvfb
       - name: Validate repository
+        env:
+          NO_AT_BRIDGE: "1"
         run: make check
+
+  lint:
+    name: Super-Linter
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Lint repository
+        uses: super-linter/super-linter/slim@4ce20838b8ab83717e78138c5b3a1407148e0918 # v8.7.0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SUPPRESS_OUTPUT_ON_SUCCESS: true
+          VALIDATE_ALL_CODEBASE: true
+          VALIDATE_BASH: true
+          VALIDATE_BASH_EXEC: true
+          VALIDATE_GITHUB_ACTIONS: true
+          VALIDATE_GITHUB_ACTIONS_ZIZMOR: true
+          VALIDATE_GIT_MERGE_CONFLICT_MARKERS: true
+          VALIDATE_GITLEAKS: true
+          VALIDATE_MARKDOWN: true
+          VALIDATE_MARKDOWN_PRETTIER: true
+          VALIDATE_PYTHON_RUFF: true
+          VALIDATE_PYTHON_RUFF_FORMAT: true
+          VALIDATE_XML: true
+          VALIDATE_YAML: true
+          VALIDATE_YAML_PRETTIER: true
