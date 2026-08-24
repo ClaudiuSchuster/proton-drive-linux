@@ -48,6 +48,7 @@ jobs:
       - name: Lint repository
         uses: super-linter/super-linter/slim@4ce20838b8ab83717e78138c5b3a1407148e0918 # v8.7.0
         env:
+          ENABLE_GITHUB_PULL_REQUEST_SUMMARY_COMMENT: false
           MULTI_STATUS: false
           SUPPRESS_OUTPUT_ON_SUCCESS: true
           VALIDATE_ALL_CODEBASE: true
