@@ -102,6 +102,8 @@ fi
 mkdir -p -- "${config_file%/*}" "${state_dir}" "${backup_dir}"
 temporary_config="$(mktemp "${config_file%/*}/rclone.conf.reauth.XXXXXX")"
 test_cache="$(mktemp -d "${state_dir}/reauth-cache.XXXXXX")"
+# Invoked indirectly by the EXIT trap below.
+# shellcheck disable=SC2329
 cleanup() {
     unset password two_factor obscured_password preserved_options
     rm -f -- "${temporary_config:-}"
