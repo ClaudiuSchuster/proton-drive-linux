@@ -761,7 +761,10 @@ window.pdrive-window {
 .pdrive-about link,
 .pdrive-about link:visited,
 .pdrive-about link:hover,
-.pdrive-about link:focus { color: #ffffff; }
+.pdrive-about link:focus {
+  color: #ffffff;
+  text-decoration-line: none;
+}
 .page { padding: 22px; }
 .card {
   background: #191e28;
