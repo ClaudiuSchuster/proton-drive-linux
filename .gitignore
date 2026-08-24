@@ -10,5 +10,7 @@ pdrive-watch-history.log
 
 # Local test/editor output.
 .tmp/
+__pycache__/
+*.py[cod]
 *.swp
 *~

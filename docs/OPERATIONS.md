@@ -28,6 +28,8 @@ unlimited so a legitimate Proton backoff is not killed after systemd's usual
 | --- | --- |
 | `/pdrive` | Real owner-only FUSE mountpoint |
 | `~/.local/bin/pdrive-*` | User-facing helpers |
+| `~/.local/share/applications/io.github.claudiuschuster.PDriveControl.desktop` | Cinnamon menu entry |
+| `~/.local/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg` | Scalable UI icon |
 | `~/.local/bin/rclone` | Adds the Keyring-backed `--password-command` |
 | `~/.local/libexec/rclone-bin` | Signed stable rclone executable |
 | `~/.local/libexec/rclone-proton-*` | Mount and guarded unmount implementation |
@@ -117,6 +119,61 @@ the live `VFS-Queue` plus Dirty count to decide what is actually pending now. A
 manual `pdrive-watch` call intentionally does not advance that timer baseline.
 Log rotation resets or lowers line totals; the report labels that as a new log
 rather than presenting a negative delta.
+
+### `pdrive-state` and PDrive Control Center
+
+```bash
+pdrive-state
+pdrive-state --compact
+pdrive-ui
+pdrive-ui --demo
+pdrive-ui --background
+pdrive-ui --check
+```
+
+`pdrive-state` is a fast, read-only JSON adapter. It concurrently reads
+`core/stats`, `core/transferred`, `core/bwlimit`, `vfs/queue` and `vfs/stats`
+as HTTP directly from the existing owner-only RC Unix socket, then combines those live values
+with systemd, `findmnt`, strict helper configuration and the latest watchdog
+snapshot/history. A partial subsystem failure is represented in
+`health.components`; the command still emits a complete schema-versioned JSON
+document so local consumers can degrade gracefully. The direct socket transport
+avoids launching multiple large rclone CLI processes on every two-second UI
+refresh; no TCP listener or additional rclone process is involved.
+
+`pdrive-ui` is the native GTK consumer of that document. It refreshes every two
+seconds in a background thread, keeps a five-minute in-memory speed graph and
+shows active transfer and queue names only in the current desktop process. It
+does not modify the privacy-preserving watchdog files, start a second rclone,
+read the encrypted remote configuration, open a network listener or contact
+Proton independently.
+
+The control popover calls existing helpers instead of duplicating their
+validation:
+
+- bandwidth applies live through `pdrive-bwlimit` without restarting a transfer;
+- upload slots are persisted through `pdrive-transfers` for the next start;
+- cooldown reset delegates to `pdrive-watch --clear-cooldown`;
+- metadata refresh and service restart open their existing guarded helpers in a
+  terminal, preserving the explicit confirmation and queue checks.
+
+`--demo` uses synthetic transfer/history data, never reads the live socket and
+disables every mutating control. `--check` validates GTK and locates
+`pdrive-state` without opening a window.
+
+The Settings dialog persists only two booleans in mode-0600
+`~/.config/pdrive-ui.json`: close into tray and start with the desktop session.
+Enabling the latter atomically manages
+`~/.config/autostart/io.github.claudiuschuster.PDriveControl.desktop`, marked
+with `X-PDrive-Control-Center=true`, whose command is `pdrive-ui --background`.
+The application refuses to overwrite a same-named unmarked file and removes
+only its own marked autostart file. A manual menu launch remains visible.
+
+The tray uses Ayatana AppIndicator on Cinnamon and falls back to GTK's legacy
+status icon when that binding is unavailable. It shows current health/upload
+speed and offers Open, Open `/pdrive`, and Quit. Hiding or quitting the UI never
+stops the mount; monitoring, recovery and desktop error notifications remain
+the responsibility of `pdrive-watch.timer`.
 
 ## Runtime bandwidth
 

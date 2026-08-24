@@ -103,7 +103,8 @@ fi
 
 section 'Benötigte Pakete'
 for package in fuse3 libfuse3-3 libsecret-tools gnome-keyring libpam-gnome-keyring \
-    jq curl openssl iproute2 libnotify-bin; do
+    jq curl openssl iproute2 libnotify-bin python3-gi gir1.2-gtk-3.0 \
+    gir1.2-ayatanaappindicator3-0.1; do
     status="$(dpkg-query -W -f='${db:Status-Abbrev} ${Version}' "${package}" 2>/dev/null || true)"
     printf '%-24s %s\n' "${package}" "${status:-FEHLT}"
 done

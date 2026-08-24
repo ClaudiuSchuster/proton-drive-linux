@@ -1,0 +1,536 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Fast, read-only JSON state for the proton-drive-linux desktop UI."""
+
+from __future__ import annotations
+
+import argparse
+import concurrent.futures
+import datetime as dt
+import http.client
+import json
+import os
+import pathlib
+import shutil
+import socket
+import subprocess
+import sys
+import time
+from typing import Any
+
+
+SCHEMA_VERSION = 1
+TOOL_VERSION = "0.1.0"
+
+
+def env_path(name: str, default: pathlib.Path) -> pathlib.Path:
+    return pathlib.Path(os.environ.get(name, str(default))).expanduser()
+
+
+HOME = pathlib.Path.home()
+STATE_DIR = env_path("PDRIVE_STATE_DIR", HOME / ".local/state/rclone")
+CONFIG_DIR = env_path("PDRIVE_CONFIG_DIR", HOME / ".config")
+MOUNT_DIR = env_path("PDRIVE_MOUNT_DIR", pathlib.Path("/pdrive"))
+RC_SOCKET = env_path("PDRIVE_RC_SOCKET", STATE_DIR / "pdrive-rc.sock")
+RCLONE_BIN = env_path("PDRIVE_RCLONE_BIN", HOME / ".local/libexec/rclone-bin")
+LATEST_FILE = env_path("PDRIVE_WATCH_LATEST", STATE_DIR / "pdrive-watch-latest.txt")
+HISTORY_FILE = env_path("PDRIVE_WATCH_HISTORY", STATE_DIR / "pdrive-watch-history.log")
+
+
+def run(command: list[str], timeout: float = 3.0) -> tuple[int, str, str]:
+    try:
+        completed = subprocess.run(
+            command,
+            check=False,
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+        )
+        return completed.returncode, completed.stdout, completed.stderr
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return 124, "", str(error)
+
+
+def integer(value: Any, default: int = 0) -> int:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def number(value: Any, default: float = 0.0) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def boolean(value: Any, default: bool = False) -> bool:
+    if isinstance(value, bool):
+        return value
+    if str(value).lower() in {"true", "yes", "1", "on", "ready", "ok"}:
+        return True
+    if str(value).lower() in {"false", "no", "0", "off"}:
+        return False
+    return default
+
+
+def read_key_values(path: pathlib.Path) -> dict[str, str]:
+    values: dict[str, str] = {}
+    try:
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            if "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            values[key.strip()] = value.strip()
+    except OSError:
+        pass
+    return values
+
+
+def read_config_value(path: pathlib.Path, key: str, default: str) -> str:
+    value = read_key_values(path).get(key, default)
+    return value if value else default
+
+
+def service_state() -> dict[str, Any]:
+    properties = [
+        "ActiveState",
+        "SubState",
+        "MainPID",
+        "Result",
+        "ExecMainStatus",
+        "NRestarts",
+        "ActiveEnterTimestamp",
+    ]
+    command = ["systemctl", "--user", "show", "rclone-proton-drive.service"]
+    for prop in properties:
+        command.extend(["-p", prop])
+    command.append("--no-pager")
+    code, stdout, stderr = run(command)
+    raw = {}
+    for line in stdout.splitlines():
+        if "=" in line:
+            key, value = line.split("=", 1)
+            raw[key] = value
+    active = raw.get("ActiveState", "unknown")
+    sub = raw.get("SubState", "unknown")
+    return {
+        "available": code == 0,
+        "active_state": active,
+        "sub_state": sub,
+        "active": active in {"active", "activating"},
+        "pid": integer(raw.get("MainPID")),
+        "result": raw.get("Result", "unknown"),
+        "exit_status": integer(raw.get("ExecMainStatus"), -1),
+        "restarts": integer(raw.get("NRestarts")),
+        "since": raw.get("ActiveEnterTimestamp", ""),
+        "error": stderr.strip() if code else "",
+    }
+
+
+def mount_state() -> dict[str, Any]:
+    code, stdout, stderr = run(
+        ["findmnt", "-rn", "-M", str(MOUNT_DIR), "-o", "TARGET,SOURCE,FSTYPE,OPTIONS"]
+    )
+    fields = stdout.strip().split(maxsplit=3)
+    fstype = fields[2] if len(fields) >= 3 else ""
+    options = fields[3] if len(fields) >= 4 else ""
+    ready = code == 0 and fstype in {"fuse", "fuse.rclone"}
+    return {
+        "ready": ready,
+        "target": fields[0] if fields else str(MOUNT_DIR),
+        "source": fields[1] if len(fields) >= 2 else "",
+        "fstype": fstype,
+        "writable": ready and "rw" in options.split(","),
+        "options": options,
+        "error": stderr.strip() if code else "",
+    }
+
+
+class UnixHTTPConnection(http.client.HTTPConnection):
+    def __init__(self, socket_path: pathlib.Path, timeout: float = 3.0) -> None:
+        super().__init__("localhost", timeout=timeout)
+        self.socket_path = socket_path
+
+    def connect(self) -> None:
+        connection = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        connection.settimeout(self.timeout)
+        connection.connect(str(self.socket_path))
+        self.sock = connection
+
+
+def rc_call_cli(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
+    if not RCLONE_BIN.is_file() or not os.access(RCLONE_BIN, os.X_OK):
+        return endpoint, None, f"rclone fehlt: {RCLONE_BIN}"
+    if not RC_SOCKET.exists():
+        return endpoint, None, f"RC-Socket fehlt: {RC_SOCKET}"
+    code, stdout, stderr = run(
+        [str(RCLONE_BIN), "rc", "--unix-socket", str(RC_SOCKET), endpoint],
+        timeout=4.0,
+    )
+    if code != 0:
+        return endpoint, None, stderr.strip() or f"RC-Aufruf endete mit {code}"
+    try:
+        payload = json.loads(stdout)
+    except json.JSONDecodeError as error:
+        return endpoint, None, f"Ungültiges RC-JSON: {error}"
+    if not isinstance(payload, dict):
+        return endpoint, None, "Unerwartete RC-Antwort"
+    return endpoint, payload, ""
+
+
+def rc_call(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
+    # The CLI fallback exists for isolated fixture tests and unusual debugging.
+    # Production polling talks HTTP directly over the already owner-only Unix
+    # socket. This avoids starting five large Go processes every two seconds.
+    if os.environ.get("PDRIVE_RC_TRANSPORT") == "cli":
+        return rc_call_cli(endpoint)
+    if not RC_SOCKET.exists():
+        return endpoint, None, f"RC-Socket fehlt: {RC_SOCKET}"
+    connection = UnixHTTPConnection(RC_SOCKET, timeout=3.0)
+    try:
+        connection.request(
+            "POST",
+            f"/{endpoint}",
+            body=b"{}",
+            headers={"Content-Type": "application/json", "Accept": "application/json"},
+        )
+        response = connection.getresponse()
+        body = response.read().decode("utf-8", errors="replace")
+        if response.status < 200 or response.status >= 300:
+            return endpoint, None, f"RC HTTP {response.status}: {body[:300]}"
+        payload = json.loads(body)
+        if not isinstance(payload, dict):
+            return endpoint, None, "Unerwartete RC-Antwort"
+        return endpoint, payload, ""
+    except (OSError, TimeoutError, json.JSONDecodeError, http.client.HTTPException) as error:
+        return endpoint, None, str(error)
+    finally:
+        connection.close()
+
+
+def collect_rc() -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+    endpoints = ["core/stats", "core/transferred", "vfs/queue", "vfs/stats", "core/bwlimit"]
+    payloads: dict[str, dict[str, Any]] = {}
+    errors: dict[str, str] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(endpoints)) as pool:
+        for endpoint, payload, error in pool.map(rc_call, endpoints):
+            if payload is not None:
+                payloads[endpoint] = payload
+            else:
+                errors[endpoint] = error
+    return payloads, errors
+
+
+def transfer_name(item: dict[str, Any]) -> str:
+    return str(item.get("name") or item.get("path") or item.get("remote") or "Unbekannte Datei")
+
+
+def normalize_transfer(item: dict[str, Any], *, completed: bool = False) -> dict[str, Any]:
+    size = integer(item.get("size") or item.get("totalBytes"))
+    done = integer(item.get("bytes") or item.get("transferred"))
+    percentage = number(item.get("percentage"), -1.0)
+    if percentage < 0 and size > 0:
+        percentage = min(100.0, done * 100.0 / size)
+    speed = number(item.get("speed") or item.get("speedAvg"))
+    error = str(item.get("error") or "")
+    return {
+        "name": transfer_name(item),
+        "size": size,
+        "bytes": done,
+        "percentage": max(0.0, percentage),
+        "speed": speed,
+        "eta_seconds": integer(item.get("eta"), -1),
+        "started_at": str(item.get("startedAt") or ""),
+        "completed_at": str(item.get("completedAt") or ""),
+        "checked": boolean(item.get("checked")),
+        "completed": completed and not error,
+        "error": error,
+        "group": str(item.get("group") or ""),
+    }
+
+
+def normalize_queue(payload: dict[str, Any] | None) -> dict[str, Any]:
+    raw_items = payload.get("queue", []) if payload else []
+    if not isinstance(raw_items, list):
+        raw_items = []
+    items = []
+    for raw in raw_items:
+        if not isinstance(raw, dict):
+            continue
+        items.append(
+            {
+                "name": transfer_name(raw),
+                "size": integer(raw.get("size")),
+                "tries": integer(raw.get("tries")),
+                "uploading": boolean(raw.get("uploading")),
+                "queued_at": str(raw.get("queued") or raw.get("queuedAt") or ""),
+                "delay_seconds": number(raw.get("delay")),
+                "id": integer(raw.get("id"), -1),
+            }
+        )
+    return {
+        "available": payload is not None,
+        "count": len(items),
+        "bytes": sum(item["size"] for item in items),
+        "active": sum(1 for item in items if item["uploading"]),
+        "failed": sum(1 for item in items if item["tries"] >= 2),
+        "max_tries": max((item["tries"] for item in items), default=0),
+        "items": items,
+    }
+
+
+HISTORY_NUMBERS = {
+    "pid",
+    "success",
+    "queued",
+    "errors",
+    "notices",
+    "log_age",
+    "stall_confirmations",
+    "vfs_queue",
+    "vfs_queue_bytes",
+    "vfs_uploading",
+    "vfs_failed",
+    "failed_confirmations",
+    "activity_read",
+    "activity_rchar",
+    "activity_tcp_sent",
+    "cache",
+    "free",
+}
+
+
+def history_entries(limit: int = 48) -> list[dict[str, Any]]:
+    try:
+        lines = HISTORY_FILE.read_text(encoding="utf-8", errors="replace").splitlines()[-limit:]
+    except OSError:
+        return []
+    entries = []
+    for line in lines:
+        pieces = line.split("\t")
+        if not pieces:
+            continue
+        entry: dict[str, Any] = {"time": pieces[0]}
+        for piece in pieces[1:]:
+            if "=" not in piece:
+                continue
+            key, value = piece.split("=", 1)
+            if key in HISTORY_NUMBERS:
+                entry[key] = integer(value)
+            elif key == "auto_restart":
+                entry[key] = boolean(value)
+            else:
+                entry[key] = value
+        entries.append(entry)
+    return entries
+
+
+def disk_free(path: pathlib.Path) -> int:
+    candidate = path
+    while not candidate.exists() and candidate != candidate.parent:
+        candidate = candidate.parent
+    try:
+        return shutil.disk_usage(candidate).free
+    except OSError:
+        return 0
+
+
+def normalize_latest(raw: dict[str, str], now_epoch: int) -> dict[str, Any]:
+    generated_epoch = 0
+    try:
+        generated_epoch = int(dt.datetime.fromisoformat(raw.get("Zeit", "")).timestamp())
+    except (ValueError, TypeError):
+        pass
+    return {
+        "available": bool(raw),
+        "generated_at": raw.get("Zeit", ""),
+        "age_seconds": max(0, now_epoch - generated_epoch) if generated_epoch else -1,
+        "mode": raw.get("Modus", ""),
+        "status": raw.get("Status", "unknown"),
+        "reason_code": raw.get("Grundcode", "unknown"),
+        "summary": raw.get("Grund", "Keine Watchdog-Daten verfügbar."),
+        "hint": raw.get("Hinweis", ""),
+        "dns": raw.get("DNS", "unknown"),
+        "tcp": raw.get("TCP", "unknown"),
+        "log_age_seconds": integer(raw.get("LogAlterSekunden"), -1),
+        "last_success": raw.get("LetzterUploadErfolg", "none"),
+        "last_problem": raw.get("LetztesProblem", "none"),
+        "last_problem_category": raw.get("LetzteProblemkategorie", "keine"),
+        "successes": integer(raw.get("UploadsErfolgreichImLog")),
+        "queued_log_entries": integer(raw.get("CacheeintraegeEingereihtImLog")),
+        "errors": integer(raw.get("FehlerImLog")),
+        "notices": integer(raw.get("HinweiseImLog")),
+        "delta_successes": raw.get("DeltaUploads", "Basis fehlt"),
+        "delta_errors": raw.get("DeltaFehler", "Basis fehlt"),
+        "delta_notices": raw.get("DeltaHinweise", "Basis fehlt"),
+        "failed_confirmations": integer(raw.get("UploadfehlerBestaetigungen")),
+        "stall_confirmations": integer(raw.get("Stillstandsbestaetigungen")),
+        "metadata_cache_running": boolean(raw.get("MetadatenCacheLaufend")),
+        "metadata_cache_configured": boolean(raw.get("MetadatenCacheKonfiguriert")),
+        "configured_transfers": integer(raw.get("UploadslotsKonfiguriert"), 4),
+        "running_transfers": integer(raw.get("UploadslotsLaufend"), 4),
+        "cooldown_seconds": integer(raw.get("CooldownDauerSekunden"), 43200),
+        "last_auto_restart_epoch": integer(raw.get("LetzterAutoneustartEpoch")),
+        "automation": raw.get("Automatik", ""),
+        "cache_bytes": integer(raw.get("CacheBytes")),
+        "free_bytes": integer(raw.get("FreierSpeicherBytes")),
+    }
+
+
+def build_state() -> dict[str, Any]:
+    now = dt.datetime.now().astimezone()
+    now_epoch = int(now.timestamp())
+    latest = normalize_latest(read_key_values(LATEST_FILE), now_epoch)
+    service = service_state()
+    mount = mount_state()
+    rc_payloads, rc_errors = collect_rc()
+    stats = rc_payloads.get("core/stats", {})
+    transferred = rc_payloads.get("core/transferred", {}).get("transferred", [])
+    if not isinstance(transferred, list):
+        transferred = []
+    active_raw = stats.get("transferring", [])
+    if not isinstance(active_raw, list):
+        active_raw = []
+    queue = normalize_queue(rc_payloads.get("vfs/queue"))
+    vfs = rc_payloads.get("vfs/stats", {})
+    disk_cache = vfs.get("diskCache", {}) if isinstance(vfs.get("diskCache"), dict) else {}
+    bandwidth = rc_payloads.get("core/bwlimit", {})
+
+    components = []
+    if not service["available"]:
+        components.append({"component": "systemd", "message": service["error"] or "Dienststatus nicht lesbar"})
+    for endpoint, message in rc_errors.items():
+        components.append({"component": endpoint, "message": message})
+
+    if not service["active"]:
+        health_status = "critical"
+        health_summary = f"Proton-Drive-Dienst ist {service['active_state']}/{service['sub_state']}."
+        health_reason = "service-inactive"
+    elif not mount["ready"]:
+        health_status = "warning"
+        health_summary = "Der Dienst läuft, aber /pdrive ist noch nicht bereit."
+        health_reason = "mount-not-ready"
+    elif "core/stats" in rc_errors or "vfs/queue" in rc_errors:
+        health_status = "warning"
+        health_summary = "Der Mount ist bereit, aber Livewerte sind momentan nicht vollständig erreichbar."
+        health_reason = "rc-unavailable"
+    elif latest["status"] in {"warning", "critical"} and 0 <= latest["age_seconds"] <= 10800:
+        health_status = latest["status"]
+        health_summary = latest["summary"]
+        health_reason = latest["reason_code"]
+    else:
+        health_status = "ready"
+        if queue["active"]:
+            health_summary = f"{queue['active']} Upload(s) laufen über den bestehenden Proton-Drive-Dienst."
+        elif queue["count"]:
+            health_summary = f"{queue['count']} Datei(en) warten sicher in der VFS-Warteschlange."
+        else:
+            health_summary = "Proton Drive ist gemountet und bereit."
+        health_reason = "mounted"
+
+    configured_bwlimit = read_config_value(CONFIG_DIR / "pdrive-bwlimit.conf", "bwlimit", "off")
+    configured_transfers = integer(
+        read_config_value(CONFIG_DIR / "pdrive-transfers.conf", "transfers", "4"), 4
+    )
+    metadata_cache = boolean(
+        read_config_value(CONFIG_DIR / "pdrive-recovery.conf", "proton_metadata_cache", "false")
+    )
+    cache_bytes = integer(disk_cache.get("bytesUsed"), latest["cache_bytes"])
+    free_bytes = disk_free(STATE_DIR)
+
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "tool_version": TOOL_VERSION,
+        "generated_at": now.isoformat(timespec="seconds"),
+        "generated_epoch": now_epoch,
+        "health": {
+            "status": health_status,
+            "reason_code": health_reason,
+            "summary": health_summary,
+            "hint": latest["hint"],
+            "components": components,
+        },
+        "service": service,
+        "mount": mount,
+        "network": {"dns": latest["dns"], "tcp": latest["tcp"]},
+        "stats": {
+            "available": "core/stats" in rc_payloads,
+            "bytes": integer(stats.get("bytes")),
+            "speed": number(stats.get("speed")),
+            "eta_seconds": integer(stats.get("eta"), -1),
+            "errors": integer(stats.get("errors")),
+            "fatal_error": boolean(stats.get("fatalError")),
+            "retry_error": boolean(stats.get("retryError")),
+            "checks": integer(stats.get("checks")),
+            "transfers": integer(stats.get("transfers")),
+            "total_bytes": integer(stats.get("totalBytes")),
+            "total_transfers": integer(stats.get("totalTransfers")),
+            "elapsed_seconds": number(stats.get("elapsedTime")),
+        },
+        "transfers": {
+            "active": [normalize_transfer(item) for item in active_raw if isinstance(item, dict)],
+            "recent": [
+                normalize_transfer(item, completed=True)
+                for item in transferred[-24:]
+                if isinstance(item, dict)
+            ],
+        },
+        "queue": queue,
+        "vfs": {
+            "available": "vfs/stats" in rc_payloads,
+            "cache_bytes": cache_bytes,
+            "cache_files": integer(disk_cache.get("files")),
+            "uploads_queued": integer(disk_cache.get("uploadsQueued"), queue["count"]),
+            "uploads_in_progress": integer(disk_cache.get("uploadsInProgress"), queue["active"]),
+            "errored_files": integer(disk_cache.get("erroredFiles")),
+            "out_of_space": boolean(disk_cache.get("outOfSpace")),
+            "free_bytes": free_bytes or latest["free_bytes"],
+        },
+        "bandwidth": {
+            "configured": configured_bwlimit,
+            "live": str(bandwidth.get("rate") or "unavailable"),
+            "bytes_per_second": number(bandwidth.get("bytesPerSecond"), -1),
+            "upload_bytes_per_second": number(bandwidth.get("bytesPerSecondTx"), -1),
+        },
+        "configuration": {
+            "transfers": configured_transfers,
+            "running_transfers": latest["running_transfers"],
+            "metadata_cache": metadata_cache,
+            "cooldown_seconds": latest["cooldown_seconds"],
+        },
+        "watchdog": latest,
+        "history": history_entries(),
+    }
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(
+        prog="pdrive-state",
+        description=(
+            "Gibt einen schnellen, rein lesenden JSON-Zustand des bestehenden "
+            "proton-drive-linux-Dienstes aus. Es wird kein zweiter rclone gestartet."
+        ),
+    )
+    result.add_argument("--compact", action="store_true", help="JSON ohne Einrückung ausgeben")
+    result.add_argument("--version", action="version", version=f"%(prog)s {TOOL_VERSION}")
+    return result
+
+
+def main() -> int:
+    args = parser().parse_args()
+    payload = build_state()
+    json.dump(
+        payload,
+        sys.stdout,
+        ensure_ascii=False,
+        indent=None if args.compact else 2,
+        separators=(",", ":") if args.compact else None,
+    )
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

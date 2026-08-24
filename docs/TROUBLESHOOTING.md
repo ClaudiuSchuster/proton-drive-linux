@@ -342,9 +342,10 @@ binary still exists. Verify both installation and manual-package status:
 ```bash
 dpkg-query -W \
   fuse3 libfuse3-3 libsecret-tools gnome-keyring libpam-gnome-keyring \
-  jq curl openssl iproute2 libnotify-bin
+  jq curl openssl iproute2 libnotify-bin python3-gi gir1.2-gtk-3.0 \
+  gir1.2-ayatanaappindicator3-0.1
 apt-mark showmanual | grep -E \
-  '^(fuse3|libfuse3-3|libsecret-tools|gnome-keyring|libpam-gnome-keyring|jq)$'
+  '^(fuse3|libfuse3-3|libsecret-tools|gnome-keyring|libpam-gnome-keyring|jq|python3-gi|gir1.2-gtk-3.0|gir1.2-ayatanaappindicator3-0.1)$'
 ```
 
 Repair missing core packages with:
@@ -352,9 +353,11 @@ Repair missing core packages with:
 ```bash
 sudo apt install --reinstall \
   fuse3 libfuse3-3 libsecret-tools gnome-keyring libpam-gnome-keyring \
-  jq curl openssl iproute2 libnotify-bin
+  jq curl openssl iproute2 libnotify-bin python3-gi gir1.2-gtk-3.0 \
+  gir1.2-ayatanaappindicator3-0.1
 sudo apt-mark manual \
-  fuse3 libfuse3-3 libsecret-tools gnome-keyring libpam-gnome-keyring jq
+  fuse3 libfuse3-3 libsecret-tools gnome-keyring libpam-gnome-keyring jq \
+  python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1
 systemctl --user daemon-reload
 pdrive-doctor
 ```
@@ -362,6 +365,48 @@ pdrive-doctor
 Do not restart the mount until queue and Dirty state are understood. Unrelated
 packages such as ISO-mount, Wine or mail-client components are not dependencies
 merely because they were removed in the same autoremove transaction.
+
+## PDrive Control Center does not open or has no live data
+
+First separate the GTK launcher from the read-only state backend:
+
+```bash
+pdrive-ui --check
+pdrive-state --compact | jq '.health, .service, .mount, .queue'
+```
+
+`pdrive-ui --check` must report GTK 3 and the resolved `pdrive-state` path. If
+GTK imports fail, reinstall `python3-gi` and `gir1.2-gtk-3.0` as shown above.
+If the JSON reports `rc-unavailable`, verify that the normal mount owns a Unix
+socket and never replace it with a TCP listener:
+
+```bash
+stat ~/.local/state/rclone/pdrive-rc.sock
+systemctl --user status rclone-proton-drive.service
+pdrive-watch
+```
+
+The UI intentionally remains useful with partial data and lists failed local
+components in `.health.components`. Do not start a separate `rclone rcd` to
+make the dashboard work; repair the existing mount service instead. The
+development-only `pdrive-ui --demo` uses synthetic values and proves only that
+the GTK layout works.
+
+If the window disappears on close, check whether **Settings → close into tray**
+is enabled and open it again from Cinnamon's panel indicator. Autostart state is
+inspectable without starting the UI:
+
+```bash
+cat ~/.config/pdrive-ui.json
+grep -E '^(Exec|X-PDrive)' \
+  ~/.config/autostart/io.github.claudiuschuster.PDriveControl.desktop
+```
+
+The expected command is `pdrive-ui --background` and the expected ownership
+marker is `X-PDrive-Control-Center=true`. Delete neither file while the Settings
+dialog is saving. A missing panel icon normally means the Ayatana binding is
+missing; reinstall `gir1.2-ayatanaappindicator3-0.1`. The application retains a
+legacy GTK tray fallback, but Cinnamon's supported AppIndicator path is preferred.
 
 ## Disk space and cache cleanup
 

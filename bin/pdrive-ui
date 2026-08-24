@@ -1,0 +1,1311 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Native GTK control center for the existing proton-drive-linux service."""
+
+from __future__ import annotations
+
+import argparse
+import collections
+import datetime as dt
+import json
+import math
+import os
+import pathlib
+import shutil
+import subprocess
+import sys
+import tempfile
+import threading
+from typing import Any
+
+import gi
+
+gi.require_version("Gtk", "3.0")
+gi.require_version("Gdk", "3.0")
+from gi.repository import Gdk, Gio, GLib, Gtk  # noqa: E402
+
+try:
+    gi.require_version("AyatanaAppIndicator3", "0.1")
+    from gi.repository import AyatanaAppIndicator3  # noqa: E402
+except (ImportError, ValueError):
+    AyatanaAppIndicator3 = None
+
+
+APP_ID = "io.github.claudiuschuster.PDriveControl"
+VERSION = "0.1.0"
+REFRESH_INTERVAL_SECONDS = 2
+AUTOSTART_MARKER = "X-PDrive-Control-Center=true"
+DEFAULT_PREFERENCES = {"close_to_tray": False, "start_in_tray": False}
+
+
+def xdg_path(environment_name: str, fallback: pathlib.Path) -> pathlib.Path:
+    configured = os.environ.get(environment_name)
+    return pathlib.Path(configured).expanduser() if configured else fallback
+
+
+def preferences_path() -> pathlib.Path:
+    return xdg_path("XDG_CONFIG_HOME", pathlib.Path.home() / ".config") / "pdrive-ui.json"
+
+
+def autostart_path() -> pathlib.Path:
+    return (
+        xdg_path("XDG_CONFIG_HOME", pathlib.Path.home() / ".config")
+        / "autostart"
+        / f"{APP_ID}.desktop"
+    )
+
+
+def atomic_write(path: pathlib.Path, content: str, mode: int) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = pathlib.Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.chmod(mode)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def load_preferences() -> dict[str, bool]:
+    preferences = dict(DEFAULT_PREFERENCES)
+    try:
+        payload = json.loads(preferences_path().read_text(encoding="utf-8"))
+        for key in preferences:
+            if isinstance(payload.get(key), bool):
+                preferences[key] = payload[key]
+    except (FileNotFoundError, OSError, json.JSONDecodeError, AttributeError):
+        pass
+    if preferences["start_in_tray"]:
+        preferences["close_to_tray"] = True
+    return preferences
+
+
+def autostart_contents() -> str:
+    return "\n".join(
+        (
+            "[Desktop Entry]",
+            "Type=Application",
+            "Name=PDrive Control Center",
+            "Comment=Proton Drive health, queue and transfers",
+            "Exec=pdrive-ui --background",
+            "TryExec=pdrive-ui",
+            f"Icon={APP_ID}",
+            "Terminal=false",
+            "StartupNotify=false",
+            "X-GNOME-Autostart-enabled=true",
+            AUTOSTART_MARKER,
+            "",
+        )
+    )
+
+
+CSS = b"""
+window.pdrive-window {
+  background: #11141b;
+  color: #eef2f7;
+}
+.pdrive-window headerbar {
+  background: #171b24;
+  border-bottom: 1px solid rgba(255,255,255,0.08);
+  box-shadow: none;
+}
+.pdrive-window headerbar label { color: #f4f7fb; }
+.page { padding: 22px; }
+.card {
+  background: #191e28;
+  border: 1px solid rgba(255,255,255,0.075);
+  border-radius: 14px;
+  padding: 17px;
+}
+.card-title { color: #aab4c4; font-size: 11px; font-weight: 700; }
+.card-value { color: #f7f9fc; font-size: 26px; font-weight: 700; }
+.card-detail { color: #8995a7; font-size: 11px; }
+.section-title { color: #f4f7fb; font-size: 16px; font-weight: 700; }
+.section-subtitle { color: #8f9bad; font-size: 11px; }
+.status-card { border-radius: 16px; padding: 20px; }
+.status-ready { background: #12382f; border: 1px solid #23876e; }
+.status-warning { background: #463617; border: 1px solid #b78324; }
+.status-critical { background: #4a2028; border: 1px solid #bd4559; }
+.status-unknown { background: #26303e; border: 1px solid #52647c; }
+.status-title { color: #ffffff; font-size: 21px; font-weight: 700; }
+.status-detail { color: rgba(255,255,255,0.78); font-size: 12px; }
+.live-dot { color: #59e0b7; font-size: 18px; }
+.accent { color: #69d7ff; }
+.good { color: #59e0b7; }
+.warning { color: #ffc76a; }
+.danger { color: #ff758c; }
+.muted { color: #8f9bad; }
+.pill {
+  background: rgba(255,255,255,0.08);
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: #dce4ee;
+  font-size: 11px;
+}
+.transfer-row, .history-row {
+  background: transparent;
+  border-bottom: 1px solid rgba(255,255,255,0.055);
+  padding: 11px 4px;
+}
+.transfer-name { color: #eff3f8; font-weight: 700; }
+.transfer-meta { color: #8f9bad; font-size: 11px; }
+.empty-title { color: #dce4ee; font-size: 15px; font-weight: 700; }
+.empty-detail { color: #8390a3; }
+progressbar trough {
+  min-height: 6px;
+  border-radius: 999px;
+  background: rgba(255,255,255,0.09);
+}
+progressbar progress {
+  min-height: 6px;
+  border-radius: 999px;
+  background: #45c7f4;
+}
+button.flat-action {
+  background: rgba(255,255,255,0.055);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 9px;
+  color: #e9eef5;
+  padding: 7px 11px;
+}
+button.flat-action:hover { background: rgba(105,215,255,0.13); }
+button.destructive-action { color: #ff91a3; }
+stackswitcher button {
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  color: #9ba7b8;
+  padding: 7px 16px;
+}
+stackswitcher button:checked { background: #263140; color: #ffffff; }
+popover { background: #1b202a; border: 1px solid rgba(255,255,255,0.10); }
+"""
+
+
+STATUS_META = {
+    "ready": ("emblem-ok-symbolic", "Bereit", "good"),
+    "warning": ("dialog-warning-symbolic", "Aufmerksamkeit", "warning"),
+    "critical": ("dialog-error-symbolic", "Problem", "danger"),
+    "unknown": ("dialog-question-symbolic", "Unbekannt", "muted"),
+}
+
+REASON_LABELS = {
+    "mounted": "Mount bereit",
+    "persistent-upload-failure": "Upload wiederholt fehlgeschlagen",
+    "service-inactive": "Dienst nicht aktiv",
+    "mount-not-ready": "Mount noch nicht bereit",
+    "rc-unavailable": "Live-Schnittstelle nicht erreichbar",
+    "dns-failed": "DNS nicht erreichbar",
+    "low-space": "Wenig freier Speicher",
+    "stalled": "Uploadfortschritt steht",
+}
+
+
+def human_bytes(value: Any) -> str:
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return "–"
+    units = ("B", "KiB", "MiB", "GiB", "TiB")
+    for unit in units:
+        if abs(amount) < 1024.0 or unit == units[-1]:
+            digits = 0 if unit == "B" else 1
+            return f"{amount:.{digits}f} {unit}"
+        amount /= 1024.0
+    return "–"
+
+
+def human_rate(value: Any) -> str:
+    try:
+        amount = float(value)
+    except (TypeError, ValueError):
+        return "–"
+    return f"{human_bytes(amount)}/s"
+
+
+def human_duration(value: Any) -> str:
+    try:
+        seconds = int(value)
+    except (TypeError, ValueError):
+        return "–"
+    if seconds < 0:
+        return "–"
+    if seconds < 60:
+        return f"{seconds}s"
+    if seconds < 3600:
+        return f"{seconds // 60}m {seconds % 60}s"
+    if seconds < 86400:
+        return f"{seconds // 3600}h {(seconds % 3600) // 60}m"
+    return f"{seconds // 86400}d {(seconds % 86400) // 3600}h"
+
+
+def short_name(path: str, limit: int = 72) -> str:
+    if len(path) <= limit:
+        return path
+    parts = pathlib.PurePosixPath(path).parts
+    tail = "/".join(parts[-2:]) if len(parts) >= 2 else path[-limit:]
+    return f"…/{tail}" if len(tail) < limit else f"…{tail[-limit + 1:]}"
+
+
+def local_time(value: str) -> str:
+    if not value:
+        return "–"
+    try:
+        parsed = dt.datetime.fromisoformat(value.replace("Z", "+00:00"))
+        return parsed.astimezone().strftime("%d.%m. %H:%M")
+    except ValueError:
+        return value
+
+
+def label(text: str = "", css: str | None = None, xalign: float = 0.0) -> Gtk.Label:
+    widget = Gtk.Label(label=text, xalign=xalign)
+    if css:
+        widget.get_style_context().add_class(css)
+    return widget
+
+
+def add_css(widget: Gtk.Widget, *classes: str) -> Gtk.Widget:
+    context = widget.get_style_context()
+    for css_class in classes:
+        context.add_class(css_class)
+    return widget
+
+
+def card(child: Gtk.Widget, *classes: str) -> Gtk.Frame:
+    frame = Gtk.Frame()
+    frame.set_shadow_type(Gtk.ShadowType.NONE)
+    add_css(frame, "card", *classes)
+    frame.add(child)
+    return frame
+
+
+class StatCard(Gtk.Frame):
+    def __init__(self, title: str, icon_name: str) -> None:
+        super().__init__()
+        self.set_shadow_type(Gtk.ShadowType.NONE)
+        add_css(self, "card")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        title_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
+        icon = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU)
+        icon.get_style_context().add_class("accent")
+        title_row.pack_start(icon, False, False, 0)
+        title_row.pack_start(label(title.upper(), "card-title"), True, True, 0)
+        self.value = label("–", "card-value")
+        self.detail = label("", "card-detail")
+        self.detail.set_ellipsize(3)
+        box.pack_start(title_row, False, False, 0)
+        box.pack_start(self.value, False, False, 0)
+        box.pack_start(self.detail, False, False, 0)
+        self.add(box)
+
+    def update(self, value: str, detail: str = "") -> None:
+        self.value.set_text(value)
+        self.detail.set_text(detail)
+
+
+class SpeedGraph(Gtk.DrawingArea):
+    def __init__(self) -> None:
+        super().__init__()
+        self.set_size_request(-1, 185)
+        self.samples: collections.deque[float] = collections.deque(maxlen=150)
+        self.connect("draw", self.on_draw)
+
+    def push(self, value: float) -> None:
+        self.samples.append(max(0.0, value))
+        self.queue_draw()
+
+    def on_draw(self, _widget: Gtk.Widget, cr: Any) -> bool:
+        allocation = self.get_allocation()
+        width, height = allocation.width, allocation.height
+        cr.set_source_rgba(1, 1, 1, 0.045)
+        cr.set_line_width(1)
+        for fraction in (0.25, 0.5, 0.75):
+            y = height * fraction
+            cr.move_to(0, y)
+            cr.line_to(width, y)
+            cr.stroke()
+        values = list(self.samples)
+        if len(values) < 2:
+            return False
+        peak = max(max(values), 1024.0)
+        step = width / max(1, len(values) - 1)
+        points = [(index * step, height - (value / peak) * (height - 10) - 5) for index, value in enumerate(values)]
+        cr.move_to(points[0][0], height)
+        for x, y in points:
+            cr.line_to(x, y)
+        cr.line_to(points[-1][0], height)
+        cr.close_path()
+        cr.set_source_rgba(0.25, 0.74, 0.95, 0.16)
+        cr.fill()
+        cr.move_to(*points[0])
+        for x, y in points[1:]:
+            cr.line_to(x, y)
+        cr.set_source_rgb(0.31, 0.80, 0.97)
+        cr.set_line_width(2.2)
+        cr.stroke()
+        return False
+
+
+class EmptyState(Gtk.Box):
+    def __init__(self, icon_name: str, title: str, detail: str) -> None:
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.set_valign(Gtk.Align.CENTER)
+        self.set_halign(Gtk.Align.CENTER)
+        self.set_margin_top(34)
+        self.set_margin_bottom(34)
+        icon = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.DIALOG)
+        icon.set_opacity(0.55)
+        self.pack_start(icon, False, False, 0)
+        self.pack_start(label(title, "empty-title", 0.5), False, False, 0)
+        detail_label = label(detail, "empty-detail", 0.5)
+        detail_label.set_line_wrap(True)
+        self.pack_start(detail_label, False, False, 0)
+
+
+class PDriveWindow(Gtk.ApplicationWindow):
+    def __init__(self, application: Gtk.Application, demo: bool = False) -> None:
+        super().__init__(application=application)
+        self.demo = demo
+        self.refreshing = False
+        self.closed = False
+        self.speed_samples: collections.deque[float] = collections.deque(maxlen=150)
+        self.current_state: dict[str, Any] = {}
+        self.history_signature: tuple[Any, ...] = ()
+        self.set_title("PDrive Control Center")
+        self.set_icon_name(APP_ID)
+        self.set_default_size(1120, 790)
+        self.set_size_request(820, 620)
+        add_css(self, "pdrive-window")
+        self.connect("destroy", self.on_destroy)
+        self.connect("delete-event", application.on_window_delete)
+        self.state_command = self.find_state_command()
+        self.build_ui()
+        self.set_empty_lists()
+        self.request_refresh()
+        GLib.timeout_add_seconds(REFRESH_INTERVAL_SECONDS, self.on_refresh_timer)
+
+    @staticmethod
+    def find_state_command() -> str:
+        configured = os.environ.get("PDRIVE_STATE_BIN")
+        if configured:
+            return configured
+        installed = shutil.which("pdrive-state")
+        if installed:
+            return installed
+        sibling = pathlib.Path(__file__).with_name("pdrive-state")
+        return str(sibling)
+
+    def build_ui(self) -> None:
+        header = Gtk.HeaderBar()
+        header.set_show_close_button(True)
+        header.set_title("PDrive Control Center")
+        header.set_subtitle("Lokaler Live-Blick auf deinen bestehenden rclone-Dienst")
+
+        open_button = Gtk.Button.new_from_icon_name("folder-open-symbolic", Gtk.IconSize.BUTTON)
+        open_button.set_tooltip_text("/pdrive in Nemo öffnen")
+        open_button.connect("clicked", self.on_open_mount)
+        header.pack_start(open_button)
+
+        refresh_button = Gtk.Button.new_from_icon_name("view-refresh-symbolic", Gtk.IconSize.BUTTON)
+        refresh_button.set_tooltip_text("Jetzt aktualisieren")
+        refresh_button.connect("clicked", lambda _button: self.request_refresh())
+        header.pack_end(refresh_button)
+
+        menu_button = Gtk.MenuButton()
+        menu_button.set_image(Gtk.Image.new_from_icon_name("open-menu-symbolic", Gtk.IconSize.BUTTON))
+        menu_button.set_tooltip_text("Steuerung")
+        menu_button.set_popover(self.build_actions_popover())
+        header.pack_end(menu_button)
+        self.set_titlebar(header)
+
+        root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.add(root)
+
+        navigation = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
+        navigation.set_halign(Gtk.Align.CENTER)
+        navigation.set_margin_top(11)
+        navigation.set_margin_bottom(2)
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
+        self.stack.set_transition_duration(180)
+        switcher = Gtk.StackSwitcher(stack=self.stack)
+        navigation.pack_start(switcher, False, False, 0)
+        root.pack_start(navigation, False, False, 0)
+        root.pack_start(self.stack, True, True, 0)
+
+        self.stack.add_titled(self.build_overview(), "overview", "Übersicht")
+        self.stack.add_titled(self.build_transfers_page(), "transfers", "Transfers")
+        self.stack.add_titled(self.build_history_page(), "history", "Verlauf")
+
+    def build_actions_popover(self) -> Gtk.Popover:
+        popover = Gtk.Popover()
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
+        box.set_margin_top(12)
+        box.set_margin_bottom(12)
+        box.set_margin_start(12)
+        box.set_margin_end(12)
+        box.set_size_request(250, -1)
+        box.pack_start(label("STEUERUNG", "card-title"), False, False, 2)
+        actions = [
+            ("speedometer-symbolic", "Bandbreitenlimit …", self.on_bandwidth),
+            ("view-list-symbolic", "Uploadslots …", self.on_transfers),
+            ("edit-clear-all-symbolic", "Cooldown zurücksetzen", self.on_clear_cooldown),
+            ("view-refresh-symbolic", "Metadaten neu laden …", self.on_metadata_refresh),
+            ("system-reboot-symbolic", "Dienst sicher neu starten …", self.on_restart),
+        ]
+        for icon_name, text, callback in actions:
+            button = Gtk.Button()
+            add_css(button, "flat-action")
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+            row.pack_start(Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.BUTTON), False, False, 0)
+            row.pack_start(label(text), True, True, 0)
+            button.add(row)
+            button.connect("clicked", callback)
+            button.set_sensitive(not self.demo)
+            box.pack_start(button, False, False, 0)
+        separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        separator.set_margin_top(3)
+        separator.set_margin_bottom(3)
+        box.pack_start(separator, False, False, 0)
+        preferences_button = Gtk.Button()
+        add_css(preferences_button, "flat-action")
+        preferences_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        preferences_row.pack_start(
+            Gtk.Image.new_from_icon_name("preferences-system-symbolic", Gtk.IconSize.BUTTON),
+            False,
+            False,
+            0,
+        )
+        preferences_row.pack_start(label("Einstellungen …"), True, True, 0)
+        preferences_button.add(preferences_row)
+        preferences_button.connect("clicked", self.on_preferences)
+        preferences_button.set_sensitive(not self.demo)
+        box.pack_start(preferences_button, False, False, 0)
+        if self.demo:
+            notice = label("Demo: Aktionen sind deaktiviert", "section-subtitle")
+            notice.set_margin_top(4)
+            box.pack_start(notice, False, False, 0)
+        popover.add(box)
+        return popover
+
+    def build_status_banner(self) -> Gtk.Widget:
+        self.status_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=16)
+        self.status_icon = Gtk.Image.new_from_icon_name("dialog-question-symbolic", Gtk.IconSize.DIALOG)
+        self.status_box.pack_start(self.status_icon, False, False, 0)
+        text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        self.status_title = label("Status wird geladen …", "status-title")
+        self.status_summary = label("Live-Verbindung zum lokalen RC-Socket wird aufgebaut.", "status-detail")
+        self.status_summary.set_line_wrap(True)
+        text_box.pack_start(self.status_title, False, False, 0)
+        text_box.pack_start(self.status_summary, False, False, 0)
+        self.status_box.pack_start(text_box, True, True, 0)
+        right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        right.set_halign(Gtk.Align.END)
+        live_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
+        live_row.pack_start(label("●", "live-dot"), False, False, 0)
+        live_row.pack_start(label("LIVE", "card-title"), False, False, 0)
+        self.updated_label = label("–", "status-detail", 1.0)
+        right.pack_start(live_row, False, False, 0)
+        right.pack_start(self.updated_label, False, False, 0)
+        self.status_box.pack_end(right, False, False, 0)
+        self.status_frame = card(self.status_box, "status-card", "status-unknown")
+        return self.status_frame
+
+    def build_overview(self) -> Gtk.Widget:
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        add_css(page, "page")
+        page.pack_start(self.build_status_banner(), False, False, 0)
+
+        grid = Gtk.Grid(column_spacing=14, row_spacing=14)
+        self.speed_card = StatCard("Uploadtempo", "network-transmit-symbolic")
+        self.active_card = StatCard("Aktiv", "media-playback-start-symbolic")
+        self.queue_card = StatCard("Warteschlange", "view-list-symbolic")
+        self.problem_card = StatCard("Neue Probleme", "dialog-warning-symbolic")
+        self.cache_card = StatCard("VFS-Cache", "drive-harddisk-symbolic")
+        self.free_card = StatCard("Freier Speicher", "folder-symbolic")
+        cards = [self.speed_card, self.active_card, self.queue_card, self.problem_card, self.cache_card, self.free_card]
+        for index, widget in enumerate(cards):
+            widget.set_hexpand(True)
+            grid.attach(widget, index % 3, index // 3, 1, 1)
+        page.pack_start(grid, False, False, 0)
+
+        graph_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        graph_header = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        graph_header.pack_start(label("Live-Upload", "section-title"), True, True, 0)
+        self.graph_peak = label("Peak –", "section-subtitle", 1.0)
+        graph_header.pack_end(self.graph_peak, False, False, 0)
+        graph_box.pack_start(graph_header, False, False, 0)
+        self.speed_graph = SpeedGraph()
+        graph_box.pack_start(self.speed_graph, True, True, 0)
+        graph_box.pack_start(label("Letzte fünf Minuten · Aktualisierung alle zwei Sekunden", "section-subtitle"), False, False, 0)
+        page.pack_start(card(graph_box), True, True, 0)
+
+        bottom = Gtk.Grid(column_spacing=14, row_spacing=14)
+        self.live_summary_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        self.live_summary_box.pack_start(label("Gerade passiert", "section-title"), False, False, 0)
+        self.live_summary = label("Noch keine Live-Daten.", "section-subtitle")
+        self.live_summary.set_line_wrap(True)
+        self.live_summary_box.pack_start(self.live_summary, False, False, 0)
+        live_card = card(self.live_summary_box)
+        live_card.set_hexpand(True)
+        bottom.attach(live_card, 0, 0, 1, 1)
+
+        config_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
+        config_box.pack_start(label("Konfiguration", "section-title"), False, False, 0)
+        self.config_labels: dict[str, Gtk.Label] = {}
+        for key, title in (("bandwidth", "Bandbreite"), ("slots", "Uploadslots"), ("metadata", "Metadatencache"), ("cooldown", "Cooldown")):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+            row.pack_start(label(title, "section-subtitle"), True, True, 0)
+            value = label("–", "pill", 1.0)
+            self.config_labels[key] = value
+            row.pack_end(value, False, False, 0)
+            config_box.pack_start(row, False, False, 0)
+        config_card = card(config_box)
+        config_card.set_hexpand(True)
+        bottom.attach(config_card, 1, 0, 1, 1)
+        page.pack_start(bottom, False, False, 0)
+
+        scroller.add(page)
+        return scroller
+
+    def build_list_section(self, title: str, subtitle: str) -> tuple[Gtk.Frame, Gtk.ListBox]:
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        box.pack_start(label(title, "section-title"), False, False, 0)
+        box.pack_start(label(subtitle, "section-subtitle"), False, False, 0)
+        listing = Gtk.ListBox()
+        listing.set_selection_mode(Gtk.SelectionMode.NONE)
+        add_css(listing, "transparent")
+        box.pack_start(listing, True, True, 0)
+        return card(box), listing
+
+    def build_transfers_page(self) -> Gtk.Widget:
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=14)
+        add_css(page, "page")
+        active_card, self.active_list = self.build_list_section(
+            "Aktive Transfers", "Fortschritt, Geschwindigkeit und ETA direkt aus rclones lokalem RC-Socket"
+        )
+        queue_card, self.queue_list = self.build_list_section(
+            "VFS-Warteschlange", "Persistente Uploads bleiben auch bei Neustarts sicher im vorhandenen VFS-Cache"
+        )
+        recent_card, self.recent_list = self.build_list_section(
+            "Kürzlich abgeschlossen", "Nur die laufzeitinterne Transferliste des aktuellen rclone-Prozesses"
+        )
+        page.pack_start(active_card, False, False, 0)
+        page.pack_start(queue_card, False, False, 0)
+        page.pack_start(recent_card, False, False, 0)
+        scroller.add(page)
+        return scroller
+
+    def build_history_page(self) -> Gtk.Widget:
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=12)
+        add_css(page, "page")
+        heading = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
+        heading.pack_start(label("Gesundheitsverlauf", "section-title"), False, False, 0)
+        heading.pack_start(
+            label("Schonende 90-Minuten-Messpunkte des bestehenden pdrive-watch-Timers", "section-subtitle"),
+            False,
+            False,
+            0,
+        )
+        self.history_list = Gtk.ListBox()
+        self.history_list.set_selection_mode(Gtk.SelectionMode.NONE)
+        body = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=8)
+        body.pack_start(heading, False, False, 0)
+        body.pack_start(self.history_list, True, True, 0)
+        page.pack_start(card(body), True, True, 0)
+        scroller.add(page)
+        return scroller
+
+    @staticmethod
+    def clear_list(listing: Gtk.ListBox) -> None:
+        for child in listing.get_children():
+            listing.remove(child)
+
+    def set_empty_lists(self) -> None:
+        self.clear_list(self.active_list)
+        self.clear_list(self.queue_list)
+        self.clear_list(self.recent_list)
+        self.active_list.add(EmptyState("media-playback-pause-symbolic", "Keine aktiven Transfers", "rclone hat gerade nichts auf der Leitung."))
+        self.queue_list.add(EmptyState("emblem-ok-symbolic", "Warteschlange leer", "Alle lokalen Änderungen sind hochgeladen."))
+        self.recent_list.add(EmptyState("document-open-recent-symbolic", "Noch keine Transfers", "Der aktuelle rclone-Prozess hat noch nichts abgeschlossen."))
+
+    def on_destroy(self, _widget: Gtk.Widget) -> None:
+        self.closed = True
+
+    def on_refresh_timer(self) -> bool:
+        if self.closed:
+            return GLib.SOURCE_REMOVE
+        self.request_refresh()
+        return GLib.SOURCE_CONTINUE
+
+    def request_refresh(self) -> None:
+        if self.refreshing or self.closed:
+            return
+        self.refreshing = True
+        thread = threading.Thread(target=self.load_state, daemon=True)
+        thread.start()
+
+    def load_state(self) -> None:
+        if self.demo:
+            GLib.usleep(120000)
+            GLib.idle_add(self.apply_state, demo_state())
+            return
+        try:
+            completed = subprocess.run(
+                [self.state_command, "--compact"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=8,
+            )
+            if completed.returncode != 0:
+                raise RuntimeError(completed.stderr.strip() or f"pdrive-state endete mit {completed.returncode}")
+            payload = json.loads(completed.stdout)
+            GLib.idle_add(self.apply_state, payload)
+        except (OSError, subprocess.TimeoutExpired, json.JSONDecodeError, RuntimeError) as error:
+            GLib.idle_add(self.apply_error, str(error))
+
+    def apply_error(self, message: str) -> bool:
+        self.refreshing = False
+        self.update_status("critical", "Status nicht erreichbar", message)
+        return GLib.SOURCE_REMOVE
+
+    def apply_state(self, state: dict[str, Any]) -> bool:
+        self.refreshing = False
+        self.current_state = state
+        health = state.get("health", {})
+        stats = state.get("stats", {})
+        queue = state.get("queue", {})
+        transfers = state.get("transfers", {})
+        watchdog = state.get("watchdog", {})
+        vfs = state.get("vfs", {})
+        service = state.get("service", {})
+        config = state.get("configuration", {})
+        bandwidth = state.get("bandwidth", {})
+
+        status = str(health.get("status", "unknown"))
+        self.update_status(status, STATUS_META.get(status, STATUS_META["unknown"])[1], str(health.get("summary", "")))
+        self.updated_label.set_text(dt.datetime.now().strftime("%H:%M:%S"))
+
+        speed = float(stats.get("speed") or 0)
+        self.speed_samples.append(speed)
+        self.speed_graph.push(speed)
+        self.speed_card.update(human_rate(speed), f"Limit {bandwidth.get('live', '–')}")
+        active = len(transfers.get("active", [])) or int(queue.get("active") or 0)
+        slots = int(config.get("running_transfers") or config.get("transfers") or 0)
+        self.active_card.update(str(active), f"von {slots} Uploadslots belegt")
+        self.queue_card.update(str(queue.get("count", 0)), human_bytes(queue.get("bytes", 0)))
+        delta_errors = str(watchdog.get("delta_errors", "–"))
+        delta_notices = str(watchdog.get("delta_notices", "–"))
+        self.problem_card.update(delta_errors, f"Hinweise {delta_notices} · seit letztem Timer")
+        self.cache_card.update(human_bytes(vfs.get("cache_bytes", 0)), f"{vfs.get('cache_files', 0)} lokale Cachedateien")
+        self.free_card.update(human_bytes(vfs.get("free_bytes", 0)), "auf dem Cache-Dateisystem")
+        self.graph_peak.set_text(f"Peak {human_rate(max(self.speed_samples, default=0))}")
+
+        if active:
+            summary = f"{active} Transfer(s) aktiv · {queue.get('count', 0)} Datei(en) in der Queue · {human_rate(speed)}"
+        elif queue.get("count", 0):
+            summary = f"{queue.get('count')} Datei(en) warten auf Upload; rclone bereitet den nächsten Transfer vor."
+        else:
+            summary = "Alles synchronisiert. Der Dienst hält den schnellen Metadatencache warm und wartet auf Änderungen."
+        self.live_summary.set_text(summary)
+        self.config_labels["bandwidth"].set_text(str(bandwidth.get("live", "–")))
+        self.config_labels["slots"].set_text(f"{slots} parallel")
+        self.config_labels["metadata"].set_text("aktiv" if config.get("metadata_cache") else "aus")
+        self.config_labels["cooldown"].set_text(human_duration(config.get("cooldown_seconds", -1)))
+
+        self.update_transfers(transfers, queue)
+        self.update_history(state.get("history", []))
+        self.status_title.set_tooltip_text(
+            f"Dienst {service.get('active_state', '–')}/{service.get('sub_state', '–')} · PID {service.get('pid', 0)}"
+        )
+        application = self.get_application()
+        if isinstance(application, PDriveApplication):
+            application.update_indicator(state)
+        return GLib.SOURCE_REMOVE
+
+    def update_status(self, status: str, title_text: str, summary: str) -> None:
+        for css_class in ("status-ready", "status-warning", "status-critical", "status-unknown"):
+            self.status_frame.get_style_context().remove_class(css_class)
+        selected = status if status in STATUS_META else "unknown"
+        self.status_frame.get_style_context().add_class(f"status-{selected}")
+        icon_name, fallback_title, _color = STATUS_META[selected]
+        self.status_icon.set_from_icon_name(icon_name, Gtk.IconSize.DIALOG)
+        self.status_title.set_text(title_text or fallback_title)
+        self.status_summary.set_text(summary or "Keine Detailmeldung verfügbar.")
+
+    def transfer_row(self, item: dict[str, Any], queue: bool = False, recent: bool = False) -> Gtk.ListBoxRow:
+        row = Gtk.ListBoxRow()
+        add_css(row, "transfer-row")
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
+        name = label(short_name(str(item.get("name", "Unbekannte Datei"))), "transfer-name")
+        name.set_ellipsize(3)
+        name.set_tooltip_text(str(item.get("name", "")))
+        top.pack_start(name, True, True, 0)
+        if queue:
+            status = "Upload läuft" if item.get("uploading") else "wartet"
+            if int(item.get("tries") or 0) >= 2:
+                status = f"Versuch {item.get('tries')}"
+            top.pack_end(label(status, "pill"), False, False, 0)
+        elif recent:
+            text = "Fehler" if item.get("error") else "Fertig"
+            top.pack_end(label(text, "pill"), False, False, 0)
+        else:
+            top.pack_end(label(human_rate(item.get("speed", 0)), "pill"), False, False, 0)
+        box.pack_start(top, False, False, 0)
+
+        if not queue and not recent:
+            size = int(item.get("size") or 0)
+            done = int(item.get("bytes") or 0)
+            fraction = min(1.0, done / size) if size > 0 else 0.0
+            progress = Gtk.ProgressBar(fraction=fraction)
+            box.pack_start(progress, False, False, 0)
+            detail = f"{human_bytes(done)} / {human_bytes(size)}"
+            eta = human_duration(item.get("eta_seconds", -1))
+            if eta != "–":
+                detail += f" · ETA {eta}"
+        elif queue:
+            detail = f"{human_bytes(item.get('size', 0))} · {item.get('tries', 0)} Versuch(e)"
+        else:
+            detail = f"{human_bytes(item.get('bytes') or item.get('size', 0))} · {local_time(str(item.get('completed_at', '')))}"
+        box.pack_start(label(detail, "transfer-meta"), False, False, 0)
+        row.add(box)
+        return row
+
+    def update_transfers(self, transfers: dict[str, Any], queue: dict[str, Any]) -> None:
+        self.clear_list(self.active_list)
+        self.clear_list(self.queue_list)
+        self.clear_list(self.recent_list)
+        active_items = transfers.get("active", [])
+        queue_items = queue.get("items", [])
+        recent_items = transfers.get("recent", [])
+        if active_items:
+            for item in active_items:
+                self.active_list.add(self.transfer_row(item))
+        else:
+            uploading = [item for item in queue_items if item.get("uploading")]
+            if uploading:
+                for item in uploading:
+                    self.active_list.add(self.transfer_row(item, queue=True))
+            else:
+                self.active_list.add(EmptyState("media-playback-pause-symbolic", "Keine aktiven Transfers", "rclone hat gerade nichts auf der Leitung."))
+        if queue_items:
+            for item in queue_items:
+                self.queue_list.add(self.transfer_row(item, queue=True))
+        else:
+            self.queue_list.add(EmptyState("emblem-ok-symbolic", "Warteschlange leer", "Alle lokalen Änderungen sind hochgeladen."))
+        if recent_items:
+            for item in reversed(recent_items[-12:]):
+                self.recent_list.add(self.transfer_row(item, recent=True))
+        else:
+            self.recent_list.add(EmptyState("document-open-recent-symbolic", "Noch keine Transfers", "Der aktuelle rclone-Prozess hat noch nichts abgeschlossen."))
+        self.active_list.show_all()
+        self.queue_list.show_all()
+        self.recent_list.show_all()
+
+    def update_history(self, entries: list[dict[str, Any]]) -> None:
+        signature = tuple(
+            (entry.get("time"), entry.get("status"), entry.get("reason"), entry.get("errors"), entry.get("notices"))
+            for entry in entries[-24:]
+        )
+        if signature == self.history_signature:
+            return
+        self.history_signature = signature
+        self.clear_list(self.history_list)
+        if not entries:
+            self.history_list.add(EmptyState("document-open-recent-symbolic", "Noch kein Verlauf", "Der pdrive-watch-Timer hat noch keinen Messpunkt gespeichert."))
+            self.history_list.show_all()
+            return
+        for entry in reversed(entries[-24:]):
+            row = Gtk.ListBoxRow()
+            add_css(row, "history-row")
+            box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=12)
+            status = str(entry.get("status", "unknown"))
+            icon_name, _title, color = STATUS_META.get(status, STATUS_META["unknown"])
+            icon = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.BUTTON)
+            add_css(icon, color)
+            box.pack_start(icon, False, False, 0)
+            text_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=2)
+            reason = str(entry.get("reason", "unknown"))
+            text_box.pack_start(label(REASON_LABELS.get(reason, reason.replace("-", " ").capitalize()), "transfer-name"), False, False, 0)
+            detail = (
+                f"Queue {entry.get('vfs_queue', 0)} · aktiv {entry.get('vfs_uploading', 0)} · "
+                f"Fehlerzähler {entry.get('errors', 0)} · Hinweise {entry.get('notices', 0)}"
+            )
+            text_box.pack_start(label(detail, "transfer-meta"), False, False, 0)
+            box.pack_start(text_box, True, True, 0)
+            box.pack_end(label(local_time(str(entry.get("time", ""))), "pill", 1.0), False, False, 0)
+            row.add(box)
+            self.history_list.add(row)
+        self.history_list.show_all()
+
+    def on_open_mount(self, _button: Gtk.Button) -> None:
+        try:
+            Gio.AppInfo.launch_default_for_uri(pathlib.Path("/pdrive").as_uri(), None)
+        except GLib.Error as error:
+            self.message("Mount konnte nicht geöffnet werden", str(error), Gtk.MessageType.ERROR)
+
+    def on_preferences(self, _button: Gtk.Button) -> None:
+        application = self.get_application()
+        if not isinstance(application, PDriveApplication):
+            return
+        dialog = Gtk.Dialog(title="Einstellungen", transient_for=self, modal=True)
+        dialog.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Speichern", Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        content.set_spacing(11)
+        content.set_margin_top(16)
+        content.set_margin_bottom(16)
+        content.set_margin_start(16)
+        content.set_margin_end(16)
+        content.set_size_request(430, -1)
+        content.pack_start(label("Verhalten", "section-title"), False, False, 0)
+        close_toggle = Gtk.CheckButton(label="Beim Schließen im Tray weiterlaufen")
+        close_toggle.set_active(application.preferences["close_to_tray"])
+        content.pack_start(close_toggle, False, False, 0)
+        start_toggle = Gtk.CheckButton(label="Mit der Sitzung versteckt im Tray starten")
+        start_toggle.set_active(application.preferences["start_in_tray"])
+        content.pack_start(start_toggle, False, False, 0)
+        explanation = label(
+            "Der Sitzungsstart verwendet ~/.config/autostart. Ein manueller Start aus dem "
+            "Anwendungsmenü öffnet das Fenster weiterhin sichtbar.",
+            "section-subtitle",
+        )
+        explanation.set_line_wrap(True)
+        content.pack_start(explanation, False, False, 0)
+
+        def enforce_close(toggle: Gtk.CheckButton) -> None:
+            if toggle.get_active():
+                close_toggle.set_active(True)
+
+        start_toggle.connect("toggled", enforce_close)
+        dialog.show_all()
+        response = dialog.run()
+        close_to_tray = close_toggle.get_active()
+        start_in_tray = start_toggle.get_active()
+        dialog.destroy()
+        if response != Gtk.ResponseType.OK:
+            return
+        error = application.update_preferences(close_to_tray, start_in_tray)
+        if error:
+            self.message("Einstellungen konnten nicht gespeichert werden", error, Gtk.MessageType.ERROR)
+
+    def on_bandwidth(self, _button: Gtk.Button) -> None:
+        dialog = Gtk.Dialog(title="Bandbreitenlimit", transient_for=self, modal=True)
+        dialog.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Übernehmen", Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        content.set_spacing(10)
+        content.set_margin_top(15)
+        content.set_margin_bottom(15)
+        content.set_margin_start(15)
+        content.set_margin_end(15)
+        content.pack_start(label("Uploadlimit in MiB/s", "section-title"), False, False, 0)
+        entry = Gtk.Entry()
+        current = str(self.current_state.get("bandwidth", {}).get("configured", "off"))
+        entry.set_text("off" if current == "off" else current.split(":", 1)[0].replace("Mi", "").replace("M", ""))
+        entry.set_placeholder_text("z. B. 4.2 oder off")
+        content.pack_start(entry, False, False, 0)
+        help_label = label("Zahlen werden automatisch als MiB/s verstanden. Die Änderung unterbricht keinen Transfer.", "section-subtitle")
+        help_label.set_line_wrap(True)
+        content.pack_start(help_label, False, False, 0)
+        dialog.show_all()
+        response = dialog.run()
+        value = entry.get_text().strip()
+        dialog.destroy()
+        if response == Gtk.ResponseType.OK and value:
+            self.run_helper(["pdrive-bwlimit", value], "Bandbreitenlimit")
+
+    def on_transfers(self, _button: Gtk.Button) -> None:
+        dialog = Gtk.Dialog(title="Uploadslots", transient_for=self, modal=True)
+        dialog.add_buttons("Abbrechen", Gtk.ResponseType.CANCEL, "Speichern", Gtk.ResponseType.OK)
+        content = dialog.get_content_area()
+        content.set_spacing(10)
+        content.set_margin_top(15)
+        content.set_margin_bottom(15)
+        content.set_margin_start(15)
+        content.set_margin_end(15)
+        content.pack_start(label("Parallele Datei-Uploads", "section-title"), False, False, 0)
+        current = int(self.current_state.get("configuration", {}).get("transfers", 4))
+        spinner = Gtk.SpinButton.new_with_range(1, 8, 1)
+        spinner.set_value(current)
+        content.pack_start(spinner, False, False, 0)
+        note = label("Der gespeicherte Wert gilt beim nächsten kontrollierten Dienststart.", "section-subtitle")
+        note.set_line_wrap(True)
+        content.pack_start(note, False, False, 0)
+        dialog.show_all()
+        response = dialog.run()
+        value = spinner.get_value_as_int()
+        dialog.destroy()
+        if response == Gtk.ResponseType.OK:
+            self.run_helper(["pdrive-transfers", str(value)], "Uploadslots")
+
+    def on_clear_cooldown(self, _button: Gtk.Button) -> None:
+        self.run_helper(["pdrive-watch", "--clear-cooldown"], "Cooldown")
+
+    def on_metadata_refresh(self, _button: Gtk.Button) -> None:
+        if self.confirm(
+            "Metadaten neu laden?",
+            "Der sichere Helfer prüft zuerst Queue und Dirty-Dateien und verlangt anschließend im Terminal eine Bestätigung.",
+        ):
+            self.launch_terminal("pdrive-refresh --refresh", "Metadaten-Refresh")
+
+    def on_restart(self, _button: Gtk.Button) -> None:
+        if self.confirm(
+            "Dienst sicher neu starten?",
+            "Ein laufender Upload würde unterbrochen. pdrive-watch prüft und validiert den neuen Prozess; die endgültige Bestätigung erfolgt im Terminal.",
+        ):
+            self.launch_terminal("pdrive-watch --restart-service", "Sicherer Dienstneustart")
+
+    def run_helper(self, command: list[str], title: str) -> None:
+        def worker() -> None:
+            try:
+                completed = subprocess.run(command, check=False, capture_output=True, text=True, timeout=30)
+                output = (completed.stdout or completed.stderr).strip()
+                GLib.idle_add(
+                    self.helper_finished,
+                    title,
+                    completed.returncode == 0,
+                    output or "Aktion abgeschlossen.",
+                )
+            except (OSError, subprocess.TimeoutExpired) as error:
+                GLib.idle_add(self.helper_finished, title, False, str(error))
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def helper_finished(self, title: str, success: bool, output: str) -> bool:
+        self.message(title, output, Gtk.MessageType.INFO if success else Gtk.MessageType.ERROR)
+        self.request_refresh()
+        return GLib.SOURCE_REMOVE
+
+    def launch_terminal(self, command: str, title: str) -> None:
+        terminal = shutil.which("x-terminal-emulator") or shutil.which("gnome-terminal")
+        if not terminal:
+            self.message(title, "Kein Terminalprogramm gefunden.", Gtk.MessageType.ERROR)
+            return
+        script = f"{command}; result=$?; printf '\\nEnter zum Schließen …'; read -r _; exit $result"
+        try:
+            subprocess.Popen([terminal, "-e", "bash", "-lc", script])
+        except OSError as error:
+            self.message(title, str(error), Gtk.MessageType.ERROR)
+
+    def confirm(self, title: str, detail: str) -> bool:
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=Gtk.MessageType.WARNING,
+            buttons=Gtk.ButtonsType.CANCEL,
+            text=title,
+        )
+        dialog.format_secondary_text(detail)
+        dialog.add_button("Fortfahren", Gtk.ResponseType.OK)
+        response = dialog.run()
+        dialog.destroy()
+        return response == Gtk.ResponseType.OK
+
+    def message(self, title: str, detail: str, message_type: Gtk.MessageType) -> None:
+        dialog = Gtk.MessageDialog(
+            transient_for=self,
+            modal=True,
+            message_type=message_type,
+            buttons=Gtk.ButtonsType.OK,
+            text=title,
+        )
+        dialog.format_secondary_text(detail[:4000])
+        dialog.run()
+        dialog.destroy()
+
+
+class PDriveApplication(Gtk.Application):
+    def __init__(self, demo: bool = False, background: bool = False) -> None:
+        flags = Gio.ApplicationFlags.NON_UNIQUE if demo else Gio.ApplicationFlags.FLAGS_NONE
+        super().__init__(application_id=APP_ID, flags=flags)
+        self.demo = demo
+        self.background = background and not demo
+        self.preferences = dict(DEFAULT_PREFERENCES) if demo else load_preferences()
+        self.window: PDriveWindow | None = None
+        self.initial_activation = True
+        self.force_quit = False
+        self.indicator: Any = None
+        self.status_icon: Gtk.StatusIcon | None = None
+        self.tray_held = False
+
+    def do_startup(self) -> None:
+        Gtk.Application.do_startup(self)
+        GLib.set_application_name("PDrive Control Center")
+        Gtk.Window.set_default_icon_name(APP_ID)
+        settings = Gtk.Settings.get_default()
+        if settings:
+            settings.set_property("gtk-application-prefer-dark-theme", True)
+        provider = Gtk.CssProvider()
+        provider.load_from_data(CSS)
+        screen = Gdk.Screen.get_default()
+        if screen:
+            Gtk.StyleContext.add_provider_for_screen(screen, provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.configure_tray()
+
+    def do_activate(self) -> None:
+        was_initial_activation = self.initial_activation
+        background_activation = self.initial_activation and self.background
+        if self.window is None:
+            self.window = PDriveWindow(self, demo=self.demo)
+            self.window.show_all()
+        if background_activation:
+            self.window.hide()
+        else:
+            self.show_window()
+        self.initial_activation = False
+        if not was_initial_activation and self.background:
+            self.background = False
+            self.configure_tray()
+
+    def show_window(self, *_args: Any) -> None:
+        if self.window is None:
+            self.activate()
+            return
+        self.window.show_all()
+        self.window.present()
+
+    def on_window_delete(self, window: Gtk.Window, _event: Gdk.Event) -> bool:
+        if not self.force_quit and self.preferences["close_to_tray"] and not self.demo:
+            window.hide()
+            return True
+        return False
+
+    def tray_menu(self) -> Gtk.Menu:
+        menu = Gtk.Menu()
+        open_item = Gtk.MenuItem(label="PDrive Control Center öffnen")
+        open_item.connect("activate", self.show_window)
+        menu.append(open_item)
+        mount_item = Gtk.MenuItem(label="/pdrive öffnen")
+        mount_item.connect("activate", self.open_mount_from_tray)
+        menu.append(mount_item)
+        menu.append(Gtk.SeparatorMenuItem())
+        quit_item = Gtk.MenuItem(label="Beenden")
+        quit_item.connect("activate", self.quit_from_tray)
+        menu.append(quit_item)
+        menu.show_all()
+        return menu
+
+    def configure_tray(self) -> None:
+        wanted = not self.demo and (self.preferences["close_to_tray"] or self.background)
+        if wanted and self.indicator is None and self.status_icon is None:
+            menu = self.tray_menu()
+            if AyatanaAppIndicator3 is not None:
+                self.indicator = AyatanaAppIndicator3.Indicator.new(
+                    APP_ID,
+                    APP_ID,
+                    AyatanaAppIndicator3.IndicatorCategory.APPLICATION_STATUS,
+                )
+                self.indicator.set_title("PDrive Control Center")
+                self.indicator.set_menu(menu)
+            else:
+                self.status_icon = Gtk.StatusIcon.new_from_icon_name(APP_ID)
+                self.status_icon.set_title("PDrive Control Center")
+                self.status_icon.connect("activate", self.show_window)
+                self.status_icon.connect("popup-menu", self.popup_status_menu, menu)
+        if self.indicator is not None:
+            status = (
+                AyatanaAppIndicator3.IndicatorStatus.ACTIVE
+                if wanted
+                else AyatanaAppIndicator3.IndicatorStatus.PASSIVE
+            )
+            self.indicator.set_status(status)
+        if self.status_icon is not None:
+            self.status_icon.set_visible(wanted)
+        if wanted and not self.tray_held:
+            self.hold()
+            self.tray_held = True
+        elif not wanted and self.tray_held:
+            self.release()
+            self.tray_held = False
+
+    @staticmethod
+    def popup_status_menu(
+        icon: Gtk.StatusIcon,
+        button: int,
+        activate_time: int,
+        menu: Gtk.Menu,
+    ) -> None:
+        menu.popup(None, None, Gtk.StatusIcon.position_menu, icon, button, activate_time)
+
+    def update_indicator(self, state: dict[str, Any]) -> None:
+        health = state.get("health", {})
+        speed = float(state.get("stats", {}).get("speed") or 0)
+        status = str(health.get("status", "unknown"))
+        tooltip = f"{STATUS_META.get(status, STATUS_META['unknown'])[1]} · {human_rate(speed)}"
+        if self.indicator is not None:
+            indicator_label = f"↑ {human_rate(speed)}" if speed >= 1024 else ""
+            self.indicator.set_label(indicator_label, "↑ 999.9 MiB/s")
+            self.indicator.set_title(tooltip)
+        if self.status_icon is not None:
+            self.status_icon.set_tooltip_text(tooltip)
+
+    def open_mount_from_tray(self, *_args: Any) -> None:
+        try:
+            Gio.AppInfo.launch_default_for_uri(pathlib.Path("/pdrive").as_uri(), None)
+        except GLib.Error as error:
+            if self.window is not None:
+                self.show_window()
+                self.window.message("Mount konnte nicht geöffnet werden", str(error), Gtk.MessageType.ERROR)
+
+    def quit_from_tray(self, *_args: Any) -> None:
+        self.force_quit = True
+        if self.window is not None:
+            self.window.closed = True
+            self.window.destroy()
+            self.window = None
+        self.quit()
+
+    def update_preferences(self, close_to_tray: bool, start_in_tray: bool) -> str | None:
+        if self.demo:
+            return "Im Demo-Modus werden keine Einstellungen verändert."
+        new_preferences = {
+            "close_to_tray": bool(close_to_tray or start_in_tray),
+            "start_in_tray": bool(start_in_tray),
+        }
+        old_preferences = dict(self.preferences)
+        try:
+            self.sync_autostart(new_preferences["start_in_tray"])
+            atomic_write(
+                preferences_path(),
+                json.dumps(new_preferences, indent=2, sort_keys=True) + "\n",
+                0o600,
+            )
+        except OSError as error:
+            try:
+                self.sync_autostart(old_preferences["start_in_tray"])
+            except OSError:
+                pass
+            return str(error)
+        self.preferences = new_preferences
+        self.background = False
+        self.configure_tray()
+        return None
+
+    @staticmethod
+    def sync_autostart(enabled: bool) -> None:
+        path = autostart_path()
+        if enabled:
+            if path.exists():
+                try:
+                    existing = path.read_text(encoding="utf-8")
+                except OSError as error:
+                    raise OSError(f"Bestehender Autostart kann nicht geprüft werden: {error}") from error
+                if AUTOSTART_MARKER not in existing:
+                    raise OSError(f"Fremde Autostartdatei wird nicht überschrieben: {path}")
+            atomic_write(path, autostart_contents(), 0o600)
+            return
+        if not path.exists():
+            return
+        try:
+            existing = path.read_text(encoding="utf-8")
+        except OSError as error:
+            raise OSError(f"Bestehender Autostart kann nicht geprüft werden: {error}") from error
+        if AUTOSTART_MARKER in existing:
+            path.unlink()
+
+
+def demo_state() -> dict[str, Any]:
+    now = dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    phase = (dt.datetime.now().timestamp() % 20) / 20
+    size = 24_923_023_360
+    done = int(size * (0.38 + phase * 0.12))
+    speed = 4_404_019 + math.sin(phase * math.pi * 2) * 380_000
+    active = {
+        "name": "Projects/Linux Mint VM/disks/system.qcow2",
+        "size": size,
+        "bytes": done,
+        "percentage": done * 100 / size,
+        "speed": speed,
+        "eta_seconds": int((size - done) / speed),
+        "error": "",
+    }
+    queue_items = [
+        {"name": active["name"], "size": size, "tries": 1, "uploading": True},
+        {"name": "Backups/ISO/Linux-Mint-22.3.iso", "size": 6_700_000_000, "tries": 0, "uploading": False},
+        {"name": "Media/Project/final-render.mkv", "size": 2_900_000_000, "tries": 0, "uploading": False},
+    ]
+    history = []
+    for index in range(12):
+        moment = dt.datetime.now().astimezone() - dt.timedelta(minutes=90 * index)
+        history.append(
+            {
+                "time": moment.isoformat(timespec="seconds"),
+                "status": "warning" if index == 5 else "ready",
+                "reason": "persistent-upload-failure" if index == 5 else "mounted",
+                "vfs_queue": max(0, 3 + index),
+                "vfs_uploading": 1,
+                "errors": 433 - index * 2,
+                "notices": 173 - index,
+            }
+        )
+    return {
+        "generated_at": now,
+        "health": {"status": "ready", "summary": "Upload läuft stabil über den bestehenden Proton-Drive-Dienst."},
+        "service": {"active_state": "active", "sub_state": "running", "pid": 4242},
+        "stats": {"speed": speed},
+        "transfers": {"active": [active], "recent": []},
+        "queue": {"count": 3, "bytes": sum(item["size"] for item in queue_items), "active": 1, "items": queue_items},
+        "vfs": {"cache_bytes": size + 9_600_000_000, "cache_files": 3, "free_bytes": 758_000_000_000},
+        "bandwidth": {"configured": "4.200Mi:off", "live": "4.200Mi:off"},
+        "configuration": {"transfers": 4, "running_transfers": 4, "metadata_cache": True, "cooldown_seconds": 43200},
+        "watchdog": {"delta_errors": "+0", "delta_notices": "+0"},
+        "history": list(reversed(history)),
+    }
+
+
+def argument_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="pdrive-ui",
+        description="Native lokale Oberfläche für den bestehenden proton-drive-linux-Dienst.",
+    )
+    parser.add_argument("--demo", action="store_true", help="Oberfläche mit synthetischen Beispieldaten öffnen")
+    parser.add_argument(
+        "--background",
+        action="store_true",
+        help="Fenster beim Sitzungsstart versteckt im Tray halten",
+    )
+    parser.add_argument(
+        "--check",
+        action="store_true",
+        help="GTK-Laufzeit und Statushelfer prüfen, ohne ein Fenster zu öffnen",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
+    return parser
+
+
+def main() -> int:
+    parser = argument_parser()
+    args = parser.parse_args()
+    if args.demo and args.background:
+        parser.error("--demo und --background können nicht kombiniert werden")
+    if args.check:
+        state_command = PDriveWindow.find_state_command()
+        if not pathlib.Path(state_command).is_file() and not shutil.which(state_command):
+            print(f"pdrive-state nicht gefunden: {state_command}", file=sys.stderr)
+            return 69
+        tray_backend = "Ayatana AppIndicator" if AyatanaAppIndicator3 is not None else "GTK StatusIcon fallback"
+        print(
+            f"GTK {Gtk.get_major_version()}.{Gtk.get_minor_version()}.{Gtk.get_micro_version()}; "
+            f"tray {tray_backend}; pdrive-state {state_command}"
+        )
+        return 0
+    application = PDriveApplication(demo=args.demo, background=args.background)
+    try:
+        return application.run([])
+    except KeyboardInterrupt:
+        return 130
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

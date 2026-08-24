@@ -1,10 +1,34 @@
-# Proton Drive Linux Mount Toolkit
+<p align="center">
+  <img src="share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg"
+       width="112" height="112" alt="PDrive Control Center icon">
+</p>
 
-An opinionated, user-local Proton Drive mount for Linux Mint Cinnamon, built
-around rclone's Proton Drive backend. It integrates a writable FUSE mount into
-Nemo, starts after desktop login, keeps the rclone configuration encrypted in
-GNOME Keyring, updates itself, and ships diagnostics for the failure modes that
-matter during large uploads.
+<h1 align="center">Proton Drive Linux Mount Toolkit</h1>
+
+<p align="center">
+  A reliable Proton Drive mount for Linux Mint Cinnamon — native file-manager
+  access, guarded recovery and a live control center, all around one rclone
+  process.
+</p>
+
+<p align="center">
+  <a href="https://github.com/ClaudiuSchuster/proton-drive-linux/actions/workflows/check.yml"><img alt="Checks" src="https://github.com/ClaudiuSchuster/proton-drive-linux/actions/workflows/check.yml/badge.svg"></a>
+  <a href="LICENSE"><img alt="License GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-6f5bd5"></a>
+  <img alt="Linux Mint Cinnamon" src="https://img.shields.io/badge/Linux%20Mint-Cinnamon-75c46b">
+  <img alt="rclone Proton Drive backend" src="https://img.shields.io/badge/rclone-Proton%20Drive-4f7ee8">
+</p>
+
+<p align="center">
+  <img src="docs/assets/pdrive-control-center.png" width="100%"
+       alt="PDrive Control Center showing live upload speed, queue, cache and health">
+</p>
+
+<p align="center"><sub>Real application UI with synthetic, privacy-safe demo data.</sub></p>
+
+The toolkit integrates a writable owner-only FUSE mount into Nemo, starts after
+desktop login, keeps the rclone configuration encrypted in GNOME Keyring,
+updates its rclone binary safely and understands the failure modes that matter
+during large multi-day uploads.
 
 > [!IMPORTANT]
 > This is an independent community project. It is not affiliated with or
@@ -24,6 +48,7 @@ protect pending VFS data and require explicit confirmation for manual restarts.
 - A user systemd service that waits for the login-unlocked GNOME Keyring.
 - Full rclone VFS caching with bounded disk use and five-second write-back.
 - An owner-only Unix socket for live bandwidth and queue inspection.
+- A native GTK control center for live transfers, queue, speed and history.
 - A permanent 90-minute health timer with desktop notifications.
 - Safe status, bandwidth, cache-refresh, transfer and reauthentication helpers.
 - Signed weekly rclone updates that never restart an active mount.
@@ -44,10 +69,12 @@ Install the runtime dependencies first:
 sudo apt install \
   rclone fuse3 libfuse3-3 \
   libsecret-tools gnome-keyring libpam-gnome-keyring \
-  jq curl openssl iproute2 libnotify-bin
+  jq curl openssl iproute2 libnotify-bin \
+  python3-gi gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1
 sudo apt-mark manual \
   fuse3 libfuse3-3 libsecret-tools gnome-keyring \
-  libpam-gnome-keyring jq
+  libpam-gnome-keyring jq python3-gi gir1.2-gtk-3.0 \
+  gir1.2-ayatanaappindicator3-0.1
 ```
 
 The distribution's `rclone` package is only used as a bootstrap. The installer
@@ -88,6 +115,8 @@ findmnt -M /pdrive
 ```
 
 Nemo receives a `ProtonDrive` bookmark pointing directly at `/pdrive`.
+The desktop menu receives **PDrive Control Center**; it can also be opened with
+`pdrive-ui`.
 
 ## Command overview
 
@@ -98,6 +127,8 @@ actions. Every `--help` path is action-free.
 | --- | --- | --- |
 | `pdrive-setup` | Show setup help | `--setup` creates the first encrypted remote |
 | `pdrive-doctor` | Detailed local diagnosis | `--online` performs one bounded API listing |
+| `pdrive-state` | Read-only JSON snapshot for local integrations | None |
+| `pdrive-ui` | Native live dashboard for the existing service | Delegates only to guarded helpers |
 | `pdrive-watch` | Fresh health report | Cooldown controls and confirmed service restart; `--record` is for the timer |
 | `pdrive-bwlimit` | Show persistent and live limit | Set a limit or use `off`, live without restart |
 | `pdrive-recovery` | Show Proton metadata-cache mode | `--enable` or `--disable` for the next service instance |
@@ -107,6 +138,40 @@ actions. Every `--help` path is action-free.
 | `pdrive-reauth` | Show emergency-login guidance | `--reauth` performs one confirmed session renewal |
 
 Detailed command behavior is documented in [Operations](docs/OPERATIONS.md).
+
+## PDrive Control Center
+
+Launch the native dashboard from Cinnamon's application menu or a terminal:
+
+```bash
+pdrive-ui
+```
+
+It shows current health, live upload speed, active transfers, the persistent
+VFS queue, recent transfers, cache/free-space values, bandwidth and upload-slot
+configuration, plus the privacy-preserving 90-minute watchdog history. The
+speed graph refreshes every two seconds.
+
+The UI does **not** start rclone, log in to Proton or expose a web server. Its
+fast `pdrive-state` backend reads the existing owner-only RC Unix socket,
+systemd, `findmnt` and watchdog snapshots. Active file names are returned only
+to the local UI process and are never appended to watchdog state or history.
+
+The control menu delegates bandwidth, slot and cooldown changes to the existing
+validated helpers. Metadata refresh and service restart keep their explicit
+terminal confirmation. Under **Settings**, the window can close into Cinnamon's
+tray and optionally start there with the desktop session. The latter creates a
+single marked user autostart file; a normal menu launch still opens visibly.
+
+A synthetic screen for development and screenshots is available without
+reading or changing the service; all mutating controls are disabled in demo
+mode:
+
+```bash
+pdrive-ui --demo
+pdrive-ui --background
+pdrive-state --compact | jq
+```
 
 ## Everyday use
 
@@ -252,6 +317,7 @@ For backup pairs, permissions and the complete restoration sequence, see
 bin/             user-facing pdrive commands and the Keyring rclone wrapper
 libexec/         mount, unmount, setup and updater implementations
 systemd/user/    mount, monitor and update user units
+share/           desktop launcher and scalable application icon
 docs/            operations and troubleshooting handbook
 tests/           static, privacy and action-free-help checks
 install.sh       idempotent user-local installer
@@ -264,8 +330,8 @@ uninstall.sh     guarded removal of repository-managed files
 make check
 ```
 
-The checks validate Bash syntax, ShellCheck findings, systemd units when the
-local validation prerequisites exist, action-free help behavior and the absence
+The checks validate Bash and Python syntax, ShellCheck findings, the desktop
+entry, an isolated JSON-state fixture, action-free help behavior and the absence
 of deployment-specific paths or secrets.
 
 ## Security and limitations
@@ -275,6 +341,8 @@ of deployment-specific paths or secrets.
 - The RC API has no application password; it is restricted to a mode-0700 Unix
   socket (`srwx------`) in the user's state directory and is never exposed on
   TCP.
+- The GUI is a same-user local observer/controller. It starts no second rclone;
+  like every same-user process, it can read file names exposed by the RC API.
 - `/pdrive` is mounted with `umask 077` and is accessible only to its owner.
 - A same-user process can still stop or unmount a same-user FUSE filesystem.
 - Proton Drive's backend and API behavior can change independently of this

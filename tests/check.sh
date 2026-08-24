@@ -6,12 +6,22 @@ set -euo pipefail
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 mapfile -t shell_files < <(
     find "${project_dir}/bin" "${project_dir}/libexec" "${project_dir}/tests" \
-        -maxdepth 1 -type f -print | sort
+        -maxdepth 1 -type f -name '*.sh' -print | sort
     printf '%s\n' "${project_dir}/install.sh" "${project_dir}/uninstall.sh"
 )
 
 for shell_file in "${shell_files[@]}"; do
     bash -n "${shell_file}"
+done
+
+for python_file in "${project_dir}/bin/pdrive-state" "${project_dir}/bin/pdrive-ui"; do
+    python3 - "${python_file}" <<'PY'
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+compile(path.read_text(encoding="utf-8"), str(path), "exec")
+PY
 done
 
 if command -v shellcheck >/dev/null 2>&1; then
@@ -27,6 +37,11 @@ for shell_file in "${project_dir}"/bin/* "${project_dir}"/libexec/* \
         exit 1
     }
 done
+
+if command -v desktop-file-validate >/dev/null 2>&1; then
+    desktop-file-validate \
+        "${project_dir}/share/applications/io.github.claudiuschuster.PDriveControl.desktop"
+fi
 
 if grep -RInE --exclude-dir=.git --exclude=check.sh \
     '(/home/claudiu|Claudiu Schuster|mail@claudiuschuster|VyrwC|BoundInLove|Fit4FunX|RCLONE_ENCRYPT_V0)' \
@@ -66,4 +81,6 @@ if grep -RiqF -- 'mode-0600 Unix' "${project_dir}/README.md" "${project_dir}/doc
 fi
 
 "${project_dir}/tests/test-help.sh"
+"${project_dir}/tests/test-state.sh"
+"${project_dir}/tests/test-ui-preferences.sh"
 printf 'All repository checks passed.\n'
