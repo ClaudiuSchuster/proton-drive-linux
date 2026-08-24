@@ -44,6 +44,12 @@ menu_buttons = [
     if isinstance(widget, module.Gtk.MenuButton)
 ]
 assert len(menu_buttons) == 1
+window_labels = [
+    widget.get_text()
+    for widget in descendants(window)
+    if isinstance(widget, module.Gtk.Label)
+]
+assert "Open PDrive folder" in window_labels
 popover = menu_buttons[0].get_popover()
 assert popover is not None
 assert popover.get_child() is not None

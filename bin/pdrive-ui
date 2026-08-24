@@ -42,7 +42,7 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.3.2"
+VERSION = "0.3.3"
 REFRESH_INTERVAL_SECONDS = 2
 AUTOSTART_MARKER = "X-PDrive-Control-Center=true"
 DOCUMENTATION_URL = "https://github.com/ClaudiuSchuster/proton-drive-linux#readme"
@@ -102,6 +102,7 @@ GERMAN_TRANSLATIONS = {
     "Invalid upload-slot configuration": "Ungültige Uploadslot-Konfiguration",
     "A local live view of your existing rclone service": "Lokaler Live-Blick auf deinen bestehenden rclone-Dienst",
     "Open /pdrive in Nemo": "/pdrive in Nemo öffnen",
+    "Open PDrive folder": "PDrive-Ordner öffnen",
     "Refresh now": "Jetzt aktualisieren",
     "Controls": "Steuerung",
     "Overview": "Übersicht",
@@ -1015,7 +1016,10 @@ class PDriveWindow(Gtk.ApplicationWindow):
         header.set_title("PDrive Control Center")
         header.set_subtitle(translate("A local live view of your existing rclone service"))
 
-        open_button = Gtk.Button.new_from_icon_name("folder-open-symbolic", Gtk.IconSize.BUTTON)
+        open_button = Gtk.Button.new_from_icon_name(
+            "folder-open-symbolic",
+            Gtk.IconSize.BUTTON,
+        )
         open_button.set_tooltip_text(translate("Open /pdrive in Nemo"))
         open_button.connect("clicked", self.on_open_mount)
         header.pack_start(open_button)
@@ -1037,15 +1041,34 @@ class PDriveWindow(Gtk.ApplicationWindow):
         root.connect("size-allocate", self.on_root_size_allocate)
         self.add(root)
 
-        navigation = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL)
-        navigation.set_halign(Gtk.Align.CENTER)
+        navigation = Gtk.Grid()
+        navigation.set_column_homogeneous(True)
+        navigation.set_hexpand(True)
         navigation.set_margin_top(11)
         navigation.set_margin_bottom(2)
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.CROSSFADE)
         self.stack.set_transition_duration(180)
         switcher = Gtk.StackSwitcher(stack=self.stack)
-        navigation.pack_start(switcher, False, False, 0)
+        switcher.set_halign(Gtk.Align.CENTER)
+        navigation.attach(Gtk.Box(), 0, 0, 1, 1)
+        navigation.attach(switcher, 1, 0, 1, 1)
+        open_folder_button = Gtk.Button()
+        open_folder_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=7)
+        open_folder_row.pack_start(
+            Gtk.Image.new_from_icon_name("folder-open-symbolic", Gtk.IconSize.BUTTON),
+            False,
+            False,
+            0,
+        )
+        open_folder_row.pack_start(label("Open PDrive folder"), False, False, 0)
+        open_folder_button.add(open_folder_row)
+        open_folder_button.set_halign(Gtk.Align.END)
+        open_folder_button.set_margin_end(22)
+        open_folder_button.set_tooltip_text(translate("Open /pdrive in Nemo"))
+        open_folder_button.connect("clicked", self.on_open_mount)
+        add_css(open_folder_button, "suggested-action")
+        navigation.attach(open_folder_button, 2, 0, 1, 1)
         root.pack_start(navigation, False, False, 0)
         root.pack_start(self.stack, True, True, 0)
 

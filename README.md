@@ -152,7 +152,9 @@ VFS queue, recent transfers, cache/free-space values, bandwidth and upload-slot
 configuration, unreviewed error/notice events and the privacy-preserving
 90-minute watchdog history. The issue counter persists across timer runs and UI
 restarts until its checkmark is pressed; the speed graph refreshes every two
-seconds.
+seconds. A visible **Open PDrive folder** action beside the page tabs opens
+`/pdrive` directly in the desktop file manager; the compact header shortcut
+remains available as well.
 
 The UI does **not** start rclone, log in to Proton or expose a web server. Its
 fast `pdrive-state` backend reads the existing owner-only RC Unix socket,
