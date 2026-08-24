@@ -148,6 +148,13 @@ does not modify the privacy-preserving watchdog files, start a second rclone,
 read the encrypted remote configuration, open a network listener or contact
 Proton independently.
 
+The overview's **Unreviewed issues** card uses persistent watermarks for the
+current rclone log's cumulative error and notice counters. It therefore does
+not reset at the next 90-minute timer sample. The first 0.3.x start establishes
+a zero baseline; pressing the card's checkmark advances that baseline without
+deleting logs, watchdog history or current health warnings. Counter resets
+caused by log rotation are treated as a fresh log rather than a negative delta.
+
 The control popover calls existing helpers instead of duplicating their
 validation:
 

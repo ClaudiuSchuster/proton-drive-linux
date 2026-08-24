@@ -408,6 +408,21 @@ dialog is saving. A missing panel icon normally means the Ayatana binding is
 missing; reinstall `gir1.2-ayatanaappindicator3-0.1`. The application retains a
 legacy GTK tray fallback, but Cinnamon's supported AppIndicator path is preferred.
 
+If Cinnamon shows the correct icon for an existing favorite but a generic gear
+for the same application in search results, inspect the menu assets:
+
+```bash
+ls -l \
+  ~/.local/share/applications/io.github.claudiuschuster.PDriveControl.desktop \
+  ~/.local/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg
+```
+
+Both should be regular installed files. Development symlinks into a Git checkout
+can leave an already constructed Cinnamon application button stale because a
+target-file edit does not change the watched applications directory. Re-running
+`./install.sh` installs regular copies and refreshes the desktop database; it
+does not restart the mount or interrupt transfers.
+
 ## Disk space and cache cleanup
 
 The mount targets a 25 GiB cache and preserves at least 50 GiB free space, but

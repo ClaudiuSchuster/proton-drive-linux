@@ -23,7 +23,7 @@
        alt="PDrive Control Center showing live upload speed, queue, cache and health">
 </p>
 
-<p align="center"><sub>Real application UI with synthetic, privacy-safe demo data.</sub></p>
+<p align="center"><sub>Real application UI with synthetic, privacy-safe demo data, framed by <a href="https://github.com/ClaudiuSchuster/cinnamon-active-window-highlight">Active Window Highlight</a>.</sub></p>
 
 The toolkit integrates a writable owner-only FUSE mount into Nemo, starts after
 desktop login, keeps the rclone configuration encrypted in GNOME Keyring,
@@ -149,8 +149,10 @@ pdrive-ui
 
 It shows current health, live upload speed, active transfers, the persistent
 VFS queue, recent transfers, cache/free-space values, bandwidth and upload-slot
-configuration, plus the privacy-preserving 90-minute watchdog history. The
-speed graph refreshes every two seconds.
+configuration, unreviewed error/notice events and the privacy-preserving
+90-minute watchdog history. The issue counter persists across timer runs and UI
+restarts until its checkmark is pressed; the speed graph refreshes every two
+seconds.
 
 The UI does **not** start rclone, log in to Proton or expose a web server. Its
 fast `pdrive-state` backend reads the existing owner-only RC Unix socket,
@@ -159,8 +161,9 @@ to the local UI process and are never appended to watchdog state or history.
 
 The control menu delegates bandwidth, slot and cooldown changes to the existing
 validated helpers. Metadata refresh and service restart keep their explicit
-terminal confirmation. Under **Preferences**, the window can close into
-Cinnamon's tray and optionally start there with the desktop session. The latter
+terminal confirmation. Its header popover also exposes **Preferences**, where
+the window can be kept running in Cinnamon's tray and optionally start there
+with the desktop session. The latter
 creates a single marked user autostart file; a normal menu launch still opens
 visibly. The interface defaults to English and can be switched to German; the
 choice takes effect after restarting the Control Center.

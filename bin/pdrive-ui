@@ -32,13 +32,16 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.2.0"
+VERSION = "0.3.0"
 REFRESH_INTERVAL_SECONDS = 2
 AUTOSTART_MARKER = "X-PDrive-Control-Center=true"
 DEFAULT_PREFERENCES: dict[str, Any] = {
     "close_to_tray": False,
     "start_in_tray": False,
     "language": "en",
+    "issues_reviewed_errors": -1,
+    "issues_reviewed_notices": -1,
+    "issues_reviewed_at": "",
 }
 SUPPORTED_LANGUAGES = {"en": "English", "de": "Deutsch"}
 CURRENT_LANGUAGE = "en"
@@ -93,7 +96,7 @@ GERMAN_TRANSLATIONS = {
     "UPLOAD SPEED": "UPLOADTEMPO",
     "ACTIVE": "AKTIV",
     "QUEUE": "WARTESCHLANGE",
-    "NEW ISSUES": "NEUE PROBLEME",
+    "UNREVIEWED ISSUES": "UNGEPRÜFTE PROBLEME",
     "FREE SPACE": "FREIER SPEICHER",
     "Live upload": "Live-Upload",
     "Last five minutes · refreshed every two seconds": "Letzte fünf Minuten · Aktualisierung alle zwei Sekunden",
@@ -118,7 +121,9 @@ GERMAN_TRANSLATIONS = {
     "The current rclone process has not completed a transfer yet.": "Der aktuelle rclone-Prozess hat noch keinen Transfer abgeschlossen.",
     "Status unavailable": "Status nicht erreichbar",
     "of {slots} upload slots in use": "von {slots} Uploadslots belegt",
-    "Notices {notices} · since the last timer run": "Hinweise {notices} · seit dem letzten Timerlauf",
+    "{errors} errors · {notices} notices · since reviewed": "{errors} Fehler · {notices} Hinweise · seit der letzten Prüfung",
+    "Mark issues reviewed": "Probleme als geprüft markieren",
+    "Could not update issue review state": "Prüfstatus der Probleme konnte nicht gespeichert werden",
     "{files} local cache files": "{files} lokale Cachedateien",
     "on the cache filesystem": "auf dem Cache-Dateisystem",
     "{active} active transfer(s) · {count} file(s) queued · {speed}": "{active} aktive Transfer(s) · {count} Datei(en) in der Queue · {speed}",
@@ -259,11 +264,45 @@ def load_preferences() -> dict[str, Any]:
                 preferences[key] = payload[key]
         if payload.get("language") in SUPPORTED_LANGUAGES:
             preferences["language"] = payload["language"]
+        for key in ("issues_reviewed_errors", "issues_reviewed_notices"):
+            if isinstance(payload.get(key), int) and not isinstance(payload.get(key), bool):
+                preferences[key] = max(-1, payload[key])
+        if isinstance(payload.get("issues_reviewed_at"), str):
+            preferences["issues_reviewed_at"] = payload["issues_reviewed_at"]
     except (FileNotFoundError, OSError, json.JSONDecodeError, AttributeError):
         pass
     if preferences["start_in_tray"]:
         preferences["close_to_tray"] = True
     return preferences
+
+
+def issues_since_review(
+    preferences: dict[str, Any], watchdog: dict[str, Any]
+) -> tuple[int, int]:
+    """Return cumulative log events after the user's review watermark.
+
+    rclone's current log counters can return to zero after a log rotation or a
+    service restart. A lower current value is therefore the new-log count,
+    rather than a negative delta.
+    """
+
+    current_errors = max(0, int(watchdog.get("errors") or 0))
+    current_notices = max(0, int(watchdog.get("notices") or 0))
+    reviewed_errors = int(preferences.get("issues_reviewed_errors", -1))
+    reviewed_notices = int(preferences.get("issues_reviewed_notices", -1))
+    if reviewed_errors < 0 or reviewed_notices < 0:
+        return 0, 0
+    new_errors = (
+        current_errors - reviewed_errors
+        if current_errors >= reviewed_errors
+        else current_errors
+    )
+    new_notices = (
+        current_notices - reviewed_notices
+        if current_notices >= reviewed_notices
+        else current_notices
+    )
+    return new_errors, new_notices
 
 
 def autostart_contents() -> str:
@@ -306,6 +345,7 @@ window.pdrive-window {
 .card-title { color: #aab4c4; font-size: 11px; font-weight: 700; }
 .card-value { color: #f7f9fc; font-size: 26px; font-weight: 700; }
 .card-detail { color: #8995a7; font-size: 11px; }
+.card-action { padding: 1px; min-width: 22px; min-height: 22px; }
 .section-title { color: #f4f7fb; font-size: 16px; font-weight: 700; }
 .section-subtitle { color: #8f9bad; font-size: 11px; }
 .status-card { border-radius: 16px; padding: 20px; }
@@ -497,6 +537,8 @@ class StatCard(Gtk.Frame):
         icon.get_style_context().add_class("accent")
         title_row.pack_start(icon, False, False, 0)
         title_row.pack_start(label(title.upper(), "card-title"), True, True, 0)
+        self.title_row = title_row
+        self.action_button: Gtk.Button | None = None
         self.value = label("–", "card-value")
         self.detail = label("", "card-detail")
         self.detail.set_ellipsize(3)
@@ -508,6 +550,21 @@ class StatCard(Gtk.Frame):
     def update(self, value: str, detail: str = "") -> None:
         self.value.set_text(value)
         self.detail.set_text(detail)
+
+    def add_action(
+        self,
+        icon_name: str,
+        tooltip: str,
+        callback: Any,
+    ) -> Gtk.Button:
+        button = Gtk.Button.new_from_icon_name(icon_name, Gtk.IconSize.MENU)
+        button.set_relief(Gtk.ReliefStyle.NONE)
+        button.set_tooltip_text(translate(tooltip))
+        button.connect("clicked", callback)
+        add_css(button, "flat-action", "card-action")
+        self.title_row.pack_end(button, False, False, 0)
+        self.action_button = button
+        return button
 
 
 class SpeedGraph(Gtk.DrawingArea):
@@ -693,6 +750,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             notice.set_margin_top(4)
             box.pack_start(notice, False, False, 0)
         popover.add(box)
+        popover.show_all()
         return popover
 
     def build_status_banner(self) -> Gtk.Widget:
@@ -729,7 +787,13 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.speed_card = StatCard("Upload speed", "network-transmit-symbolic")
         self.active_card = StatCard("Active", "media-playback-start-symbolic")
         self.queue_card = StatCard("Queue", "view-list-symbolic")
-        self.problem_card = StatCard("New issues", "dialog-warning-symbolic")
+        self.problem_card = StatCard("Unreviewed issues", "dialog-warning-symbolic")
+        self.issue_review_button = self.problem_card.add_action(
+            "emblem-ok-symbolic",
+            "Mark issues reviewed",
+            self.on_mark_issues_reviewed,
+        )
+        self.issue_review_button.set_sensitive(False)
         self.cache_card = StatCard("VFS-Cache", "drive-harddisk-symbolic")
         self.free_card = StatCard("Free space", "folder-symbolic")
         cards = [self.speed_card, self.active_card, self.queue_card, self.problem_card, self.cache_card, self.free_card]
@@ -912,12 +976,17 @@ class PDriveWindow(Gtk.ApplicationWindow):
         slots = int(config.get("running_transfers") or config.get("transfers") or 0)
         self.active_card.update(str(active), translate_format("of {slots} upload slots in use", slots=slots))
         self.queue_card.update(str(queue.get("count", 0)), human_bytes(queue.get("bytes", 0)))
-        delta_errors = str(watchdog.get("delta_errors", "–"))
-        delta_notices = str(watchdog.get("delta_notices", "–"))
-        self.problem_card.update(
-            delta_errors,
-            translate_format("Notices {notices} · since the last timer run", notices=delta_notices),
-        )
+        application = self.get_application()
+        if (
+            isinstance(application, PDriveApplication)
+            and not self.demo
+            and (
+                application.preferences["issues_reviewed_errors"] < 0
+                or application.preferences["issues_reviewed_notices"] < 0
+            )
+        ):
+            application.mark_issues_reviewed(watchdog)
+        self.update_issue_card(watchdog)
         self.cache_card.update(
             human_bytes(vfs.get("cache_bytes", 0)),
             translate_format("{files} local cache files", files=vfs.get("cache_files", 0)),
@@ -959,6 +1028,25 @@ class PDriveWindow(Gtk.ApplicationWindow):
         if isinstance(application, PDriveApplication):
             application.update_indicator(state)
         return GLib.SOURCE_REMOVE
+
+    def update_issue_card(self, watchdog: dict[str, Any]) -> None:
+        application = self.get_application()
+        preferences = (
+            application.preferences
+            if isinstance(application, PDriveApplication)
+            else DEFAULT_PREFERENCES
+        )
+        errors, notices = issues_since_review(preferences, watchdog)
+        total = errors + notices
+        self.problem_card.update(
+            str(total),
+            translate_format(
+                "{errors} errors · {notices} notices · since reviewed",
+                errors=errors,
+                notices=notices,
+            ),
+        )
+        self.issue_review_button.set_sensitive(total > 0 and not self.demo)
 
     @staticmethod
     def localized_health_summary(state: dict[str, Any]) -> str:
@@ -1107,6 +1195,21 @@ class PDriveWindow(Gtk.ApplicationWindow):
             Gio.AppInfo.launch_default_for_uri(pathlib.Path("/pdrive").as_uri(), None)
         except GLib.Error as error:
             self.message("Could not open mount", str(error), Gtk.MessageType.ERROR)
+
+    def on_mark_issues_reviewed(self, _button: Gtk.Button) -> None:
+        application = self.get_application()
+        if not isinstance(application, PDriveApplication) or self.demo:
+            return
+        watchdog = self.current_state.get("watchdog", {})
+        error = application.mark_issues_reviewed(watchdog)
+        if error:
+            self.message(
+                "Could not update issue review state",
+                error,
+                Gtk.MessageType.ERROR,
+            )
+            return
+        self.update_issue_card(watchdog)
 
     def on_preferences(self, _button: Gtk.Button) -> None:
         application = self.get_application()
@@ -1314,6 +1417,14 @@ class PDriveApplication(Gtk.Application):
         self.demo = demo
         self.background = background and not demo
         self.preferences = dict(DEFAULT_PREFERENCES) if demo else load_preferences()
+        if demo:
+            self.preferences.update(
+                {
+                    "issues_reviewed_errors": 10,
+                    "issues_reviewed_notices": 5,
+                    "issues_reviewed_at": "demo",
+                }
+            )
         CURRENT_LANGUAGE = str(self.preferences["language"])
         self.window: PDriveWindow | None = None
         self.initial_activation = True
@@ -1457,11 +1568,14 @@ class PDriveApplication(Gtk.Application):
     ) -> str | None:
         if self.demo:
             return "Preferences cannot be changed in demo mode."
-        new_preferences = {
-            "close_to_tray": bool(close_to_tray or start_in_tray),
-            "start_in_tray": bool(start_in_tray),
-            "language": language if language in SUPPORTED_LANGUAGES else "en",
-        }
+        new_preferences = dict(self.preferences)
+        new_preferences.update(
+            {
+                "close_to_tray": bool(close_to_tray or start_in_tray),
+                "start_in_tray": bool(start_in_tray),
+                "language": language if language in SUPPORTED_LANGUAGES else "en",
+            }
+        )
         old_preferences = dict(self.preferences)
         try:
             self.sync_autostart(new_preferences["start_in_tray"])
@@ -1479,6 +1593,33 @@ class PDriveApplication(Gtk.Application):
         self.preferences = new_preferences
         self.background = False
         self.configure_tray()
+        return None
+
+    def mark_issues_reviewed(self, watchdog: dict[str, Any]) -> str | None:
+        if self.demo:
+            return "Preferences cannot be changed in demo mode."
+        old_preferences = dict(self.preferences)
+        new_preferences = dict(self.preferences)
+        new_preferences.update(
+            {
+                "issues_reviewed_errors": max(0, int(watchdog.get("errors") or 0)),
+                "issues_reviewed_notices": max(0, int(watchdog.get("notices") or 0)),
+                "issues_reviewed_at": str(
+                    watchdog.get("generated_at")
+                    or dt.datetime.now().astimezone().isoformat(timespec="seconds")
+                ),
+            }
+        )
+        try:
+            atomic_write(
+                preferences_path(),
+                json.dumps(new_preferences, indent=2, sort_keys=True) + "\n",
+                0o600,
+            )
+        except OSError as error:
+            self.preferences = old_preferences
+            return str(error)
+        self.preferences = new_preferences
         return None
 
     @staticmethod
@@ -1548,7 +1689,13 @@ def demo_state() -> dict[str, Any]:
         "vfs": {"cache_bytes": size + 9_600_000_000, "cache_files": 3, "free_bytes": 758_000_000_000},
         "bandwidth": {"configured": "4.200Mi:off", "live": "4.200Mi:off"},
         "configuration": {"transfers": 4, "running_transfers": 4, "metadata_cache": True, "cooldown_seconds": 43200},
-        "watchdog": {"delta_errors": "+0", "delta_notices": "+0"},
+        "watchdog": {
+            "generated_at": now,
+            "errors": 12,
+            "notices": 8,
+            "delta_errors": "+0",
+            "delta_notices": "+0",
+        },
         "history": list(reversed(history)),
     }
 

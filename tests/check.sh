@@ -83,4 +83,5 @@ fi
 "${project_dir}/tests/test-help.sh"
 "${project_dir}/tests/test-state.sh"
 "${project_dir}/tests/test-ui-preferences.sh"
+"${project_dir}/tests/test-ui-widgets.sh"
 printf 'All repository checks passed.\n'

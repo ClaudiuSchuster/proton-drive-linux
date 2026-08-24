@@ -25,6 +25,9 @@ assert module.load_preferences() == {
     "close_to_tray": False,
     "start_in_tray": False,
     "language": "en",
+    "issues_reviewed_errors": -1,
+    "issues_reviewed_notices": -1,
+    "issues_reviewed_at": "",
 }
 assert module.translate("Preferences") == "Preferences"
 module.CURRENT_LANGUAGE = "de"
@@ -40,15 +43,50 @@ assert module.AUTOSTART_MARKER in autostart.read_text(encoding="utf-8")
 
 module.atomic_write(
     module.preferences_path(),
-    json.dumps({"close_to_tray": False, "start_in_tray": True, "language": "de"}),
+    json.dumps(
+        {
+            "close_to_tray": False,
+            "start_in_tray": True,
+            "language": "de",
+            "issues_reviewed_errors": 40,
+            "issues_reviewed_notices": 9,
+            "issues_reviewed_at": "2026-08-24T12:00:00+02:00",
+        }
+    ),
     0o600,
 )
 assert module.load_preferences() == {
     "close_to_tray": True,
     "start_in_tray": True,
     "language": "de",
+    "issues_reviewed_errors": 40,
+    "issues_reviewed_notices": 9,
+    "issues_reviewed_at": "2026-08-24T12:00:00+02:00",
 }
 assert module.preferences_path().stat().st_mode & 0o777 == 0o600
+
+reviewed = module.load_preferences()
+assert module.issues_since_review(reviewed, {"errors": 45, "notices": 11}) == (5, 2)
+assert module.issues_since_review(reviewed, {"errors": 3, "notices": 2}) == (3, 2)
+assert module.issues_since_review(module.DEFAULT_PREFERENCES, {"errors": 99, "notices": 8}) == (0, 0)
+
+application = module.PDriveApplication()
+assert application.update_preferences(False, False, "en") is None
+updated = module.load_preferences()
+assert updated["issues_reviewed_errors"] == 40
+assert updated["issues_reviewed_notices"] == 9
+assert updated["issues_reviewed_at"] == "2026-08-24T12:00:00+02:00"
+assert application.mark_issues_reviewed(
+    {
+        "errors": 45,
+        "notices": 12,
+        "generated_at": "2026-08-24T13:30:00+02:00",
+    }
+) is None
+reviewed_again = module.load_preferences()
+assert reviewed_again["issues_reviewed_errors"] == 45
+assert reviewed_again["issues_reviewed_notices"] == 12
+assert reviewed_again["issues_reviewed_at"] == "2026-08-24T13:30:00+02:00"
 
 module.PDriveApplication.sync_autostart(False)
 assert not autostart.exists()
