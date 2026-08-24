@@ -229,9 +229,12 @@ watchdog state. Health history on disk is capped at 512 samples, the state
 adapter exposes 48, and the UI renders the latest 24.
 
 The control popover opens guarded operations, Preferences, an About dialog and
-a native Markdown documentation window with Getting started, Operations and
-Troubleshooting pages. The About dialog reports the installed PDrive Control
-Center version, project authors, GPL license and canonical GitHub project link.
+a native Markdown documentation window with Getting started, Operations,
+Troubleshooting, Security and License pages. The About dialog reports the
+installed PDrive Control Center version, project authors, GPL license and
+canonical GitHub project link.
+Selecting any popover action closes the menu before its dialog or operation
+starts, so stale controls never remain open behind another window.
 Its **License** action opens the complete locally installed GPL text in the
 native documentation viewer, without requiring a browser or network access;
 software updates remain the responsibility of the documented installer or

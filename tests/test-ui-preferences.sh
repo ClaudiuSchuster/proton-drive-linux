@@ -43,7 +43,7 @@ assert module.translate("About …") == "Über …"
 assert module.translate("GitHub project") == "GitHub-Projekt"
 assert module.translate("License") == "Lizenz"
 assert module.translate(
-    "Fabian Schneider — comic relief, lively development chats and plenty of screenshot feedback"
+    "Fabian Schneider — comic relief, lively development chats and plenty of screenshots"
 ).startswith("Fabian Schneider — Quatschkomödie")
 assert module.translate("Keep running in the tray when the window closes").startswith("Beim Schließen")
 assert module.translate("Keep live metrics updating while hidden in the tray").startswith("Live-Metriken")

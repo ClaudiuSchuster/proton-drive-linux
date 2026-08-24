@@ -144,7 +144,15 @@ assert documentation_button.get_sensitive()
 assert button_with_label("Preferences …").get_sensitive()
 about_button = button_with_label("About …")
 assert about_button.get_sensitive()
-window.on_about(about_button)
+menu_buttons[0].set_active(True)
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
+assert popover.get_visible()
+about_button.clicked()
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
+assert not popover.get_visible()
+assert not menu_buttons[0].get_active()
 about_dialog = window.about_dialog
 assert isinstance(about_dialog, module.Gtk.AboutDialog)
 assert about_dialog.get_program_name() == "PDrive Control Center"
@@ -153,9 +161,9 @@ assert about_dialog.get_website() == module.PROJECT_URL
 assert about_dialog.get_website_label() == "GitHub project"
 assert about_dialog.get_license_type() == module.Gtk.License.GPL_3_0
 assert about_dialog.get_authors() == [
-    "Claudiu Schuster — creator and maintainer",
-    "OpenAI Codex — design and engineering collaborator",
-    "Fabian Schneider — comic relief, lively development chats and plenty of screenshot feedback\n"
+    "Claudiu Schuster — creator and maintainer\nhttps://github.com/ClaudiuSchuster",
+    "OpenAI Codex — design and engineering collaborator\nhttps://github.com/openai/codex",
+    "Fabian Schneider — comic relief, lively development chats and plenty of screenshots\n"
     "https://github.com/Fabian123333",
 ]
 assert about_dialog.get_comments().startswith("We — Claudiu & Codex — loved turning")

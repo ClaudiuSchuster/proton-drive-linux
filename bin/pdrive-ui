@@ -176,7 +176,7 @@ GERMAN_TRANSLATIONS = {
     "GitHub project": "GitHub-Projekt",
     "Claudiu Schuster — creator and maintainer": "Claudiu Schuster — Schöpfer und Maintainer",
     "OpenAI Codex — design and engineering collaborator": "OpenAI Codex — Design- und Engineering-Partner",
-    "Fabian Schneider — comic relief, lively development chats and plenty of screenshot feedback": "Fabian Schneider — Quatschkomödie, lebhafte Entwicklungschats und jede Menge Screenshot-Feedback",
+    "Fabian Schneider — comic relief, lively development chats and plenty of screenshots": "Fabian Schneider — Quatschkomödie, lebhafte Entwicklungschats und jede Menge Screenshots",
     "We — Claudiu & Codex — loved turning a stubborn real-world mount into something observable, careful and genuinely pleasant to use. Made with love for people on this beautiful world who want Linux to feel like home. 💜": "Wir — Claudiu & Codex — haben es geliebt, aus einem widerspenstigen realen Mount etwas Beobachtbares, Sorgfältiges und wirklich Angenehmes zu machen. Mit Liebe gemacht für Menschen auf dieser wunderschönen Welt, die möchten, dass Linux sich wie Zuhause anfühlt. 💜",
     "Loading status …": "Status wird geladen …",
     "Connecting to the local RC socket.": "Live-Verbindung zum lokalen RC-Socket wird aufgebaut.",
@@ -2468,6 +2468,11 @@ class PDriveWindow(Gtk.ApplicationWindow):
 
     def build_actions_popover(self) -> Gtk.Popover:
         popover = Gtk.Popover()
+
+        def activate(button: Gtk.Button, callback: Any) -> None:
+            popover.hide()
+            callback(button)
+
         box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=7)
         box.set_margin_top(12)
         box.set_margin_bottom(12)
@@ -2500,7 +2505,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             )
             row.pack_start(label(text), True, True, 0)
             button.add(row)
-            button.connect("clicked", callback)
+            button.connect("clicked", activate, callback)
             box.pack_start(button, False, False, 0)
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         separator.set_margin_top(3)
@@ -2519,7 +2524,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         proton_web_row.pack_start(label("Open Proton Drive on the web"), True, True, 0)
         proton_web_button.add(proton_web_row)
         proton_web_button.set_tooltip_text(translate("Open Proton Drive on the web"))
-        proton_web_button.connect("clicked", self.on_open_proton_web)
+        proton_web_button.connect("clicked", activate, self.on_open_proton_web)
         box.pack_start(proton_web_button, False, False, 0)
         documentation_button = Gtk.Button()
         add_css(documentation_button, "flat-action")
@@ -2534,7 +2539,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         documentation_row.pack_start(label("Documentation …"), True, True, 0)
         documentation_button.add(documentation_row)
         documentation_button.set_tooltip_text(translate("Documentation"))
-        documentation_button.connect("clicked", self.on_documentation)
+        documentation_button.connect("clicked", activate, self.on_documentation)
         box.pack_start(documentation_button, False, False, 0)
         preferences_button = Gtk.Button()
         add_css(preferences_button, "flat-action")
@@ -2549,7 +2554,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         preferences_row.pack_start(label("Preferences …"), True, True, 0)
         preferences_button.add(preferences_row)
         preferences_button.set_tooltip_text(translate("Preferences"))
-        preferences_button.connect("clicked", self.on_preferences)
+        preferences_button.connect("clicked", activate, self.on_preferences)
         box.pack_start(preferences_button, False, False, 0)
         about_button = Gtk.Button()
         add_css(about_button, "flat-action")
@@ -2564,7 +2569,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         about_row.pack_start(label("About …"), True, True, 0)
         about_button.add(about_row)
         about_button.set_tooltip_text(translate("About PDrive Control Center"))
-        about_button.connect("clicked", self.on_about)
+        about_button.connect("clicked", activate, self.on_about)
         box.pack_start(about_button, False, False, 0)
         popover.add(box)
         box.show_all()
@@ -3857,11 +3862,10 @@ class PDriveWindow(Gtk.ApplicationWindow):
             dialog.set_license_type(Gtk.License.GPL_3_0)
             dialog.set_authors(
                 [
-                    translate("Claudiu Schuster — creator and maintainer"),
-                    translate("OpenAI Codex — design and engineering collaborator"),
-                    translate(
-                        "Fabian Schneider — comic relief, lively development chats and plenty of screenshot feedback"
-                    )
+                    translate("Claudiu Schuster — creator and maintainer") + "\nhttps://github.com/ClaudiuSchuster",
+                    translate("OpenAI Codex — design and engineering collaborator")
+                    + "\nhttps://github.com/openai/codex",
+                    translate("Fabian Schneider — comic relief, lively development chats and plenty of screenshots")
                     + "\nhttps://github.com/Fabian123333",
                 ]
             )
