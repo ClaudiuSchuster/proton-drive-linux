@@ -13,6 +13,7 @@
 
 <p align="center">
   <a href="https://github.com/ClaudiuSchuster/proton-drive-linux/actions/workflows/check.yml"><img alt="Checks" src="https://github.com/ClaudiuSchuster/proton-drive-linux/actions/workflows/check.yml/badge.svg"></a>
+  <a href="https://github.com/ClaudiuSchuster/proton-drive-linux/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/ClaudiuSchuster/proton-drive-linux?display_name=tag&amp;sort=semver"></a>
   <a href="LICENSE"><img alt="License GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-6f5bd5"></a>
   <img alt="Linux Mint Cinnamon" src="https://img.shields.io/badge/Linux%20Mint-Cinnamon-75c46b">
   <img alt="rclone Proton Drive backend" src="https://img.shields.io/badge/rclone-Proton%20Drive-4f7ee8">

@@ -4,6 +4,14 @@
 set -euo pipefail
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
+project_version="$(< "${project_dir}/VERSION")"
+if [[ ! "${project_version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    printf 'Invalid project version: %s\n' "${project_version}" >&2
+    exit 1
+fi
+grep -qF "VERSION = \"${project_version}\"" "${project_dir}/bin/pdrive-ui"
+grep -qF "TOOL_VERSION = \"${project_version}\"" "${project_dir}/bin/pdrive-state"
+
 mapfile -t shell_files < <(
     find "${project_dir}/bin" "${project_dir}/libexec" "${project_dir}/tests" \
         -maxdepth 1 -type f -name '*.sh' -print | sort
