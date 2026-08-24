@@ -33,6 +33,23 @@ for service in pdrive-watch.service proton-drive-update.service \
     grep -qFx 'UMask=0077' "${unit_dir}/${service}"
 done
 
+declare -A expected_exec_starts=(
+    [pdrive-watch.service]='%h/.local/bin/pdrive-watch --record'
+    [proton-drive-update.service]='%h/.local/libexec/proton-drive-update'
+    [rclone-proton-drive.service]='%h/.local/libexec/rclone-proton-mount'
+    [rclone-selfupdate.service]='%h/.local/libexec/rclone-selfupdate'
+)
+declare -A expected_sources=(
+    [pdrive-watch.service]='bin/pdrive-watch'
+    [proton-drive-update.service]='libexec/proton-drive-update'
+    [rclone-proton-drive.service]='libexec/rclone-proton-mount'
+    [rclone-selfupdate.service]='libexec/rclone-selfupdate'
+)
+for service in "${!expected_exec_starts[@]}"; do
+    grep -qFx "ExecStart=${expected_exec_starts[${service}]}" "${unit_dir}/${service}"
+    [[ -x "${project_dir}/${expected_sources[${service}]}" ]]
+done
+
 mount_unit="${unit_dir}/rclone-proton-drive.service"
 grep -qFx 'Type=notify' "${mount_unit}"
 grep -qFx 'TimeoutStartSec=infinity' "${mount_unit}"
@@ -59,14 +76,19 @@ fi
 
 if command -v systemd-analyze >/dev/null 2>&1; then
     verify_output=''
-    if ! verify_output="$(systemd-analyze --user verify \
-        "${unit_dir}"/*.service "${unit_dir}"/*.timer 2>&1)"; then
-        printf '%s\n' "${verify_output}" >&2
-        exit 1
-    fi
+    set +e
+    verify_output="$(systemd-analyze --user verify \
+        "${unit_dir}"/*.service "${unit_dir}"/*.timer 2>&1)"
+    verify_status=$?
+    set -e
     verify_output="$(grep -Ev \
-        '^Failed to (bind private socket|connect to system bus): Operation not permitted$' \
+        -e '^Failed to (bind private socket|connect to system bus): Operation not permitted$' \
+        -e '^(pdrive-watch|proton-drive-update|rclone-proton-drive|rclone-selfupdate)\.service: Command /[^ ]+/\.local/(bin|libexec)/(pdrive-watch|proton-drive-update|rclone-proton-mount|rclone-selfupdate) is not executable: No such file or directory$' \
         <<< "${verify_output}" || true)"
+    if (( verify_status != 0 )) && [[ -n "${verify_output}" ]]; then
+        printf '%s\n' "${verify_output}" >&2
+        exit "${verify_status}"
+    fi
     if [[ -n "${verify_output}" ]]; then
         printf '%s\n' "${verify_output}" >&2
     fi
