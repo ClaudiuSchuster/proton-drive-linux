@@ -35,9 +35,12 @@ assert module.load_preferences() == {
 }
 assert module.translate("Preferences") == "Preferences"
 assert module.translate("Documentation …") == "Documentation …"
+assert module.translate("About …") == "About …"
 module.CURRENT_LANGUAGE = "de"
 assert module.translate("Preferences") == "Einstellungen"
 assert module.translate("Documentation …") == "Handbuch …"
+assert module.translate("About …") == "Über …"
+assert module.translate("GitHub project") == "GitHub-Projekt"
 assert module.translate("Keep running in the tray when the window closes").startswith("Beim Schließen")
 assert module.translate("Keep live metrics updating while hidden in the tray").startswith("Live-Metriken")
 module.CURRENT_LANGUAGE = "en"

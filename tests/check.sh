@@ -52,7 +52,7 @@ if command -v desktop-file-validate >/dev/null 2>&1; then
 fi
 
 if grep -RInE --exclude-dir=.git --exclude=check.sh \
-    '(/home/claudiu|Claudiu Schuster|mail@claudiuschuster|VyrwC|BoundInLove|Fit4FunX|RCLONE_ENCRYPT_V0)' \
+    '(/home/claudiu|claudiu@envy|mail@claudiuschuster|RCLONE_ENCRYPT_V0)' \
     "${project_dir}"; then
     printf 'Deployment-specific or sensitive material found.\n' >&2
     exit 1

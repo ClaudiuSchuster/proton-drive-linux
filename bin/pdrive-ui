@@ -44,7 +44,7 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.6.2"
+VERSION = "0.6.3"
 REFRESH_INTERVAL_SECONDS = 2
 REFRESH_INTERVAL_OPTIONS = (1, 2, 5, 10)
 BANDWIDTH_SLIDER_MAX_RATE = 100.0
@@ -52,7 +52,8 @@ BANDWIDTH_SLIDER_UNLIMITED = 110.0
 BANDWIDTH_NEAR_PAUSE_MIB = 0.02
 SETUP_TIMEOUT_SECONDS = 180
 AUTOSTART_MARKER = "X-PDrive-Control-Center=true"
-DOCUMENTATION_URL = "https://github.com/ClaudiuSchuster/proton-drive-linux#readme"
+PROJECT_URL = "https://github.com/ClaudiuSchuster/proton-drive-linux"
+DOCUMENTATION_URL = f"{PROJECT_URL}#readme"
 PROTON_DRIVE_URL = "https://drive.proton.me/"
 DEFAULT_WINDOW_WIDTH = 820
 DEFAULT_WINDOW_HEIGHT = 824
@@ -168,6 +169,12 @@ GERMAN_TRANSLATIONS = {
     "The local documentation files could not be found.": "Die lokalen Handbuchdateien wurden nicht gefunden.",
     "Open the project documentation online": "Projekthandbuch online öffnen",
     "Preferences …": "Einstellungen …",
+    "About …": "Über …",
+    "About PDrive Control Center": "Über PDrive Control Center",
+    "GitHub project": "GitHub-Projekt",
+    "Claudiu Schuster — creator and maintainer": "Claudiu Schuster — Schöpfer und Maintainer",
+    "OpenAI Codex — design and engineering collaborator": "OpenAI Codex — Design- und Engineering-Partner",
+    "I loved helping turn a stubborn real-world mount into something observable, careful and genuinely pleasant to use. Made with love for people on this beautiful world who want Linux to feel like home. 💜": "Ich habe es geliebt, dabei zu helfen, aus einem widerspenstigen realen Mount etwas Beobachtbares, Sorgfältiges und wirklich Angenehmes zu machen. Mit Liebe gemacht für Menschen auf dieser wunderschönen Welt, die möchten, dass Linux sich wie Zuhause anfühlt. 💜",
     "Loading status …": "Status wird geladen …",
     "Connecting to the local RC socket.": "Live-Verbindung zum lokalen RC-Socket wird aufgebaut.",
     "UPLOAD SPEED": "UPLOADTEMPO",
@@ -2270,6 +2277,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.content_fit_source = 0
         self.content_fit_attempts = 0
         self.documentation_window: DocumentationWindow | None = None
+        self.about_dialog: Gtk.AboutDialog | None = None
         self.setup_wizard: SetupWizard | None = None
         self.setup_required = not demo and not setup_config_path().is_file()
         self.dashboard_timer_id = 0
@@ -2532,6 +2540,21 @@ class PDriveWindow(Gtk.ApplicationWindow):
         preferences_button.set_tooltip_text(translate("Preferences"))
         preferences_button.connect("clicked", self.on_preferences)
         box.pack_start(preferences_button, False, False, 0)
+        about_button = Gtk.Button()
+        add_css(about_button, "flat-action")
+        set_pointer_on_hover(about_button)
+        about_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        about_row.pack_start(
+            Gtk.Image.new_from_icon_name("help-about-symbolic", Gtk.IconSize.BUTTON),
+            False,
+            False,
+            0,
+        )
+        about_row.pack_start(label("About …"), True, True, 0)
+        about_button.add(about_row)
+        about_button.set_tooltip_text(translate("About PDrive Control Center"))
+        about_button.connect("clicked", self.on_about)
+        box.pack_start(about_button, False, False, 0)
         popover.add(box)
         box.show_all()
         popover.hide()
@@ -3809,6 +3832,39 @@ class PDriveWindow(Gtk.ApplicationWindow):
             )
             self.documentation_window.show_all()
         self.documentation_window.present()
+
+    def on_about(self, _button: Gtk.Button) -> None:
+        if self.about_dialog is None:
+            dialog = Gtk.AboutDialog(transient_for=self, modal=True)
+            dialog.set_destroy_with_parent(True)
+            dialog.set_title(translate("About PDrive Control Center"))
+            dialog.set_program_name("PDrive Control Center")
+            dialog.set_version(VERSION)
+            dialog.set_logo_icon_name(APP_ID)
+            dialog.set_website(PROJECT_URL)
+            dialog.set_website_label(translate("GitHub project"))
+            dialog.set_license_type(Gtk.License.GPL_3_0)
+            dialog.set_authors(
+                [
+                    translate("Claudiu Schuster — creator and maintainer"),
+                    translate("OpenAI Codex — design and engineering collaborator"),
+                ]
+            )
+            dialog.set_comments(
+                translate(
+                    "I loved helping turn a stubborn real-world mount into something observable, careful and "
+                    "genuinely pleasant to use. Made with love for people on this beautiful world who want Linux "
+                    "to feel like home. 💜"
+                )
+            )
+            dialog.connect("response", lambda about, _response: about.destroy())
+            dialog.connect(
+                "destroy",
+                lambda _dialog: setattr(self, "about_dialog", None),
+            )
+            self.about_dialog = dialog
+            dialog.show_all()
+        self.about_dialog.present()
 
     def open_documentation_page(self, page_name: str) -> None:
         self.on_documentation(None)

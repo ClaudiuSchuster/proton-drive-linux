@@ -228,9 +228,13 @@ result and exit status, uptime, restart count, mount filesystem and the latest
 watchdog state. Health history on disk is capped at 512 samples, the state
 adapter exposes 48, and the UI renders the latest 24.
 
-The control popover opens guarded operations, Preferences and a native Markdown
-documentation window with Getting started, Operations and Troubleshooting
-pages. It prefers `$XDG_DATA_HOME/doc/proton-drive-linux`, then conventional
+The control popover opens guarded operations, Preferences, an About dialog and
+a native Markdown documentation window with Getting started, Operations and
+Troubleshooting pages. The About dialog reports the installed PDrive Control
+Center version, project authors, GPL license and canonical GitHub project link;
+software updates remain the responsibility of the documented installer or
+future system package manager. The documentation viewer prefers
+`$XDG_DATA_HOME/doc/proton-drive-linux`, then conventional
 `/usr/share/doc/proton-drive-linux` package files and finally a development
 checkout. Headings, lists, tables, quotations, GitHub callouts, code, local
 project images and links are rendered by GTK without WebKit or another runtime

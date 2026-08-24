@@ -110,7 +110,7 @@ popover_buttons = [
     for widget in descendants(popover.get_child())
     if isinstance(widget, module.Gtk.Button)
 ]
-assert len(popover_buttons) == 8
+assert len(popover_buttons) == 9
 assert all(button.get_visible() for button in popover_buttons)
 assert all(button.get_sensitive() for button in popover_buttons)
 assert all(button.get_tooltip_text() for button in popover_buttons)
@@ -125,6 +125,7 @@ popover_labels = [
 ]
 assert "Documentation …" in popover_labels
 assert "Open Proton Drive on the web" in popover_labels
+assert "About …" in popover_labels
 
 def button_with_label(text):
     return next(
@@ -141,6 +142,23 @@ def button_with_label(text):
 documentation_button = button_with_label("Documentation …")
 assert documentation_button.get_sensitive()
 assert button_with_label("Preferences …").get_sensitive()
+about_button = button_with_label("About …")
+assert about_button.get_sensitive()
+window.on_about(about_button)
+about_dialog = window.about_dialog
+assert isinstance(about_dialog, module.Gtk.AboutDialog)
+assert about_dialog.get_program_name() == "PDrive Control Center"
+assert about_dialog.get_version() == module.VERSION
+assert about_dialog.get_website() == module.PROJECT_URL
+assert about_dialog.get_website_label() == "GitHub project"
+assert about_dialog.get_license_type() == module.Gtk.License.GPL_3_0
+assert about_dialog.get_authors() == [
+    "Claudiu Schuster — creator and maintainer",
+    "OpenAI Codex — design and engineering collaborator",
+]
+assert "Made with love for people on this beautiful world" in about_dialog.get_comments()
+about_dialog.destroy()
+assert window.about_dialog is None
 assert window.problem_card.get_tooltip_text() == "Review issue details"
 assert window.mark_issues_reviewed_button.get_label() == "Mark issues reviewed"
 
