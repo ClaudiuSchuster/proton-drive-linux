@@ -55,6 +55,14 @@ AUTOSTART_MARKER = "X-PDrive-Control-Center=true"
 PROJECT_URL = "https://github.com/ClaudiuSchuster/proton-drive-linux"
 DOCUMENTATION_URL = f"{PROJECT_URL}#readme"
 PROTON_DRIVE_URL = "https://drive.proton.me/"
+ABOUT_CREDITS = (
+    ("Claudiu Schuster — creator and maintainer", "https://github.com/ClaudiuSchuster"),
+    ("OpenAI Codex — design and engineering collaborator", "https://github.com/openai/codex"),
+    (
+        "Fabian Schneider — comic relief, lively development chats and plenty of screenshots",
+        "https://github.com/Fabian123333",
+    ),
+)
 DEFAULT_WINDOW_WIDTH = 820
 DEFAULT_WINDOW_HEIGHT = 824
 SETUP_WINDOW_HEIGHT = 720
@@ -759,10 +767,19 @@ window.pdrive-window {
 }
 .pdrive-window headerbar label { color: #f4f7fb; }
 .pdrive-about *:link,
-.pdrive-about *:visited,
-.pdrive-about button:link > label,
-.pdrive-about button:visited > label {
+.pdrive-about *:visited { color: #dce4ee; }
+.pdrive-about *:link:hover,
+.pdrive-about *:visited:hover { color: #ffffff; }
+.pdrive-about button.pdrive-about-credit {
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  min-height: 0;
+  padding: 0;
+}
+.pdrive-about button.pdrive-about-credit > label {
   color: #ffffff;
+  font-size: 11px;
   text-decoration-line: none;
 }
 .page { padding: 22px; }
@@ -3868,15 +3885,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             dialog.set_website(PROJECT_URL)
             dialog.set_website_label(translate("GitHub project"))
             dialog.set_license_type(Gtk.License.GPL_3_0)
-            dialog.set_authors(
-                [
-                    translate("Claudiu Schuster — creator and maintainer") + "\nhttps://github.com/ClaudiuSchuster",
-                    translate("OpenAI Codex — design and engineering collaborator")
-                    + "\nhttps://github.com/openai/codex",
-                    translate("Fabian Schneider — comic relief, lively development chats and plenty of screenshots")
-                    + "\nhttps://github.com/Fabian123333",
-                ]
-            )
+            dialog.set_authors([translate(description) + "\n" + url for description, url in ABOUT_CREDITS])
             dialog.set_comments(
                 translate(
                     "We — Claudiu & Codex — loved turning a stubborn real-world mount into something observable, "
@@ -3900,7 +3909,63 @@ class PDriveWindow(Gtk.ApplicationWindow):
             ]
             if len(license_buttons) == 1:
                 license_buttons[0].connect("clicked", self.on_about_license)
+            credits_labels = {"credits", "mitwirkende"}
+            credits_buttons = [
+                widget
+                for widget in widget_descendants(dialog)
+                if isinstance(widget, Gtk.Button)
+                and (widget.get_label() or "").replace("_", "").casefold() in credits_labels
+            ]
+            if len(credits_buttons) == 1:
+                credits_buttons[0].connect_after("clicked", self.on_about_credits)
         self.about_dialog.present()
+
+    def on_about_credits(self, _button: Gtk.Button) -> None:
+        GLib.idle_add(self.replace_about_credit_links)
+
+    def replace_about_credit_links(self) -> bool:
+        dialog = self.about_dialog
+        if dialog is None:
+            return GLib.SOURCE_REMOVE
+        credits_by_url = {url: translate(description) for description, url in ABOUT_CREDITS}
+        for widget in tuple(widget_descendants(dialog)):
+            if not isinstance(widget, Gtk.Label) or not widget.get_use_markup():
+                continue
+            markup = widget.get_label()
+            url = next(
+                (candidate for candidate in credits_by_url if f'href="{candidate}"' in markup),
+                None,
+            )
+            parent = widget.get_parent()
+            if url is None or not isinstance(parent, Gtk.Grid):
+                continue
+            placement = {
+                name: parent.child_get_property(widget, name)
+                for name in ("left-attach", "top-attach", "width", "height")
+            }
+            credit = Gtk.Button(label=credits_by_url[url])
+            credit.set_relief(Gtk.ReliefStyle.NONE)
+            credit.set_halign(Gtk.Align.START)
+            credit.set_tooltip_text(url)
+            add_css(credit, "pdrive-about-credit")
+            set_pointer_on_hover(credit)
+            credit.connect("clicked", lambda _credit, target=url: self.open_about_credit(target))
+            parent.remove(widget)
+            parent.attach(
+                credit,
+                placement["left-attach"],
+                placement["top-attach"],
+                placement["width"],
+                placement["height"],
+            )
+            credit.show_all()
+        return GLib.SOURCE_REMOVE
+
+    def open_about_credit(self, url: str) -> None:
+        try:
+            Gio.AppInfo.launch_default_for_uri(url, None)
+        except GLib.Error as error:
+            self.message("Could not open project link", str(error), Gtk.MessageType.ERROR)
 
     def on_about_license(self, _button: Gtk.Button) -> None:
         if self.about_dialog is not None:

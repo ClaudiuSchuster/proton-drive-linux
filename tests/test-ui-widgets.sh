@@ -162,7 +162,6 @@ assert about_dialog.get_website_label() == "GitHub project"
 assert about_dialog.get_license_type() == module.Gtk.License.GPL_3_0
 assert about_dialog.get_style_context().has_class("pdrive-about")
 assert b".pdrive-about *:link" in module.CSS
-assert b".pdrive-about button:link > label" in module.CSS
 assert about_dialog.get_authors() == [
     "Claudiu Schuster — creator and maintainer\nhttps://github.com/ClaudiuSchuster",
     "OpenAI Codex — design and engineering collaborator\nhttps://github.com/openai/codex",
@@ -177,6 +176,36 @@ about_buttons = [
     for widget in descendants(about_dialog)
     if isinstance(widget, module.Gtk.Button)
 ]
+credits_button = next(
+    button
+    for button in about_buttons
+    if (button.get_label() or "").replace("_", "").casefold() == "credits"
+)
+credits_button.clicked()
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
+credit_buttons = [
+    widget
+    for widget in descendants(about_dialog)
+    if isinstance(widget, module.Gtk.Button)
+    and widget.get_style_context().has_class("pdrive-about-credit")
+]
+assert len(credit_buttons) == 3
+assert {button.get_tooltip_text() for button in credit_buttons} == {
+    url for _description, url in module.ABOUT_CREDITS
+}
+assert all(button.get_sensitive() and button.get_visible() for button in credit_buttons)
+assert all(button.get_halign() == module.Gtk.Align.START for button in credit_buttons)
+assert all(button.get_events() & module.Gdk.EventMask.ENTER_NOTIFY_MASK for button in credit_buttons)
+credit_urls = {url for _description, url in module.ABOUT_CREDITS}
+assert all(
+    not (
+        label.get_use_markup()
+        and any(f'href="{url}"' in label.get_label() for url in credit_urls)
+    )
+    for label in descendants(about_dialog)
+    if isinstance(label, module.Gtk.Label)
+)
 license_buttons = [
     button
     for button in about_buttons
