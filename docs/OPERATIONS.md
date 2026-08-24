@@ -189,9 +189,9 @@ only its own marked autostart file. A manual menu launch remains visible.
 
 The same owner-only preferences file stores the last normal content width and
 height. Resize events are debounced before writing; maximized and fullscreen
-geometry is ignored. A fresh profile starts at 1120×927 content pixels, matching
-the polished default layout on Cinnamon while remaining independent of GTK
-shadow and header-bar dimensions.
+geometry is ignored. A fresh profile starts at 1120×932 content pixels, showing
+the complete Overview without a vertical scrollbar on Cinnamon while remaining
+independent of GTK shadow and header-bar dimensions.
 
 On X11 Cinnamon the tray uses GTK StatusIcon so a left click opens/focuses the
 Control Center and a right click opens the existing Open, Open `/pdrive`, and

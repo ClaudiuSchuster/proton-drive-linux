@@ -31,7 +31,7 @@ assert module.load_preferences() == {
     "issues_reviewed_notices": -1,
     "issues_reviewed_at": "",
     "window_width": 1120,
-    "window_height": 927,
+    "window_height": 932,
 }
 assert module.translate("Preferences") == "Preferences"
 assert module.translate("Documentation …") == "Documentation …"

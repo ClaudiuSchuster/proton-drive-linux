@@ -20,10 +20,17 @@
 
 <p align="center">
   <img src="docs/assets/pdrive-control-center.png" width="100%"
-       alt="PDrive Control Center showing live upload speed, queue, cache and health">
+       alt="PDrive Control Center showing its complete overview and Open PDrive folder action">
 </p>
 
-<p align="center"><sub>Real application UI with synthetic, privacy-safe demo data, framed by <a href="https://github.com/ClaudiuSchuster/cinnamon-active-window-highlight">Active Window Highlight</a>.</sub></p>
+<p align="center"><sub>Complete Overview at the scrollbar-free default height, using synthetic privacy-safe demo data and <a href="https://github.com/ClaudiuSchuster/cinnamon-active-window-highlight">Active Window Highlight</a>.</sub></p>
+
+<p align="center">
+  <img src="docs/assets/pdrive-control-menu.png" width="320"
+       alt="PDrive Control Center menu with guarded controls, documentation and preferences">
+</p>
+
+<p align="center"><sub>Guarded controls, the in-app manual and Preferences remain one click away.</sub></p>
 
 The toolkit integrates a writable owner-only FUSE mount into Nemo, starts after
 desktop login, keeps the rclone configuration encrypted in GNOME Keyring,

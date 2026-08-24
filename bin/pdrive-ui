@@ -42,12 +42,12 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.3.3"
+VERSION = "0.3.4"
 REFRESH_INTERVAL_SECONDS = 2
 AUTOSTART_MARKER = "X-PDrive-Control-Center=true"
 DOCUMENTATION_URL = "https://github.com/ClaudiuSchuster/proton-drive-linux#readme"
 DEFAULT_WINDOW_WIDTH = 1120
-DEFAULT_WINDOW_HEIGHT = 927
+DEFAULT_WINDOW_HEIGHT = 932
 MIN_WINDOW_WIDTH = 640
 MIN_WINDOW_HEIGHT = 480
 MAX_WINDOW_DIMENSION = 16384
