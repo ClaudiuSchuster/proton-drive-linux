@@ -42,7 +42,7 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.3.4"
+VERSION = "0.3.5"
 REFRESH_INTERVAL_SECONDS = 2
 AUTOSTART_MARKER = "X-PDrive-Control-Center=true"
 DOCUMENTATION_URL = "https://github.com/ClaudiuSchuster/proton-drive-linux#readme"
@@ -459,6 +459,25 @@ button.flat-action {
 }
 button.flat-action:hover { background: rgba(105,215,255,0.13); }
 button.destructive-action { color: #ff91a3; }
+button.primary-folder-action {
+  background-image: linear-gradient(to bottom, #344657, #263442);
+  border: 1px solid #4b6073;
+  border-bottom-color: #17222d;
+  border-radius: 9px;
+  box-shadow: inset 0 1px rgba(255,255,255,0.13), 0 2px 4px rgba(0,0,0,0.32);
+  color: #edf5fc;
+  padding: 7px 12px;
+  text-shadow: 0 1px rgba(0,0,0,0.55);
+}
+button.primary-folder-action:hover {
+  background-image: linear-gradient(to bottom, #3b5264, #2b3d4c);
+  border-color: #5e8095;
+  color: #ffffff;
+}
+button.primary-folder-action:active {
+  background-image: linear-gradient(to bottom, #23303c, #2d3d4b);
+  box-shadow: inset 0 2px 3px rgba(0,0,0,0.38);
+}
 stackswitcher button {
   background: transparent;
   border: 0;
@@ -1067,7 +1086,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         open_folder_button.set_margin_end(22)
         open_folder_button.set_tooltip_text(translate("Open /pdrive in Nemo"))
         open_folder_button.connect("clicked", self.on_open_mount)
-        add_css(open_folder_button, "suggested-action")
+        add_css(open_folder_button, "primary-folder-action")
         navigation.attach(open_folder_button, 2, 0, 1, 1)
         root.pack_start(navigation, False, False, 0)
         root.pack_start(self.stack, True, True, 0)
