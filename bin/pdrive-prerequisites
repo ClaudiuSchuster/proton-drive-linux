@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+umask 077
+
+readonly target_rclone="${PDRIVE_REAL_RCLONE:-${HOME}/.local/libexec/rclone-bin}"
+
+usage() {
+    printf '%s\n' \
+        'Usage: pdrive-prerequisites [--check|--install-rclone]' \
+        '' \
+        'Without an option or with --help, this command only prints help.' \
+        '--check           verify the user-local rclone and Proton backend' \
+        '--install-rclone  bootstrap the latest stable rclone atomically from' \
+        '                  an installed distribution rclone binary' \
+        '' \
+        'System packages and /pdrive are intentionally prepared by trusted' \
+        'system executables through Polkit, not by this user-writable helper.'
+}
+
+find_bootstrap_rclone() {
+    local candidate
+    for candidate in "${PDRIVE_BOOTSTRAP_RCLONE:-}" /usr/bin/rclone /usr/local/bin/rclone; do
+        [[ -n "${candidate}" ]] || continue
+        if [[ -x "${candidate}" && "${candidate}" != "${target_rclone}" ]]; then
+            printf '%s\n' "${candidate}"
+            return 0
+        fi
+    done
+    return 1
+}
+
+check_rclone() {
+    [[ -x "${target_rclone}" ]] || return 1
+    "${target_rclone}" help backend protondrive >/dev/null 2>&1
+}
+
+case "${1:-}" in
+    '')
+        (( $# == 0 )) || { usage >&2; exit 2; }
+        usage
+        ;;
+    --check)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        if check_rclone; then
+            printf 'Ready: %s provides the Proton Drive backend.\n' "${target_rclone}"
+        else
+            printf 'Missing or incompatible user-local rclone: %s\n' "${target_rclone}" >&2
+            exit 69
+        fi
+        ;;
+    --install-rclone)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        if check_rclone; then
+            printf 'Already ready: %s\n' "${target_rclone}"
+            exit 0
+        fi
+        bootstrap_rclone="$(find_bootstrap_rclone || true)"
+        if [[ -z "${bootstrap_rclone}" ]]; then
+            printf 'No distribution rclone was found in /usr/bin or /usr/local/bin.\n' >&2
+            exit 69
+        fi
+        mkdir -p -- "${target_rclone%/*}"
+        temporary_rclone="$(mktemp "${target_rclone%/*}/.rclone-bin.XXXXXX")"
+        cleanup() { rm -f -- "${temporary_rclone:-}"; }
+        trap cleanup EXIT
+        install -m 0755 "${bootstrap_rclone}" "${temporary_rclone}"
+        "${temporary_rclone}" selfupdate --stable
+        if ! "${temporary_rclone}" help backend protondrive >/dev/null 2>&1; then
+            printf 'The downloaded rclone does not provide the protondrive backend.\n' >&2
+            exit 70
+        fi
+        mv -f -- "${temporary_rclone}" "${target_rclone}"
+        trap - EXIT
+        printf 'Installed the latest Proton-capable rclone at %s.\n' "${target_rclone}"
+        ;;
+    -h|--help)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        usage
+        ;;
+    *)
+        printf 'Unknown option: %s\n\n' "$1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

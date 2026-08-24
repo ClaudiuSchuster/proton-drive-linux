@@ -129,9 +129,11 @@ if [[ ! -x "${real_rclone}" ]]; then
 fi
 
 for source_file in "${project_dir}"/bin/*; do
+    [[ -f "${source_file}" ]] || continue
     install -m 0755 "${source_file}" "${bin_dir}/$(basename -- "${source_file}")"
 done
 for source_file in "${project_dir}"/libexec/*; do
+    [[ -f "${source_file}" ]] || continue
     install -m 0755 "${source_file}" "${libexec_dir}/$(basename -- "${source_file}")"
 done
 for source_file in "${project_dir}"/systemd/user/*; do
@@ -179,7 +181,7 @@ printf '%s\n' \
     'No running rclone process or transfer was restarted.' \
     'Open “PDrive Control Center” from the desktop menu or run pdrive-ui.'
 if [[ ! -e "${HOME}/.config/rclone/rclone.conf" ]]; then
-    printf '%s\n' 'Next: run pdrive-setup --setup in a normal Cinnamon terminal.'
+    printf '%s\n' 'Next: open PDrive Control Center for guided setup, or run pdrive-setup --setup.'
 else
     printf '%s\n' 'Existing encrypted configuration retained. Check with pdrive-doctor.'
 fi

@@ -4,11 +4,12 @@
 set -euo pipefail
 umask 077
 
-readonly rclone_bin="${HOME}/.local/bin/rclone"
-readonly config_dir="${HOME}/.config/rclone"
-readonly config_file="${config_dir}/rclone.conf"
+readonly rclone_bin="${PDRIVE_RCLONE_BIN:-${HOME}/.local/bin/rclone}"
+readonly config_file="${PDRIVE_RCLONE_CONFIG:-${HOME}/.config/rclone/rclone.conf}"
+readonly config_dir="${config_file%/*}"
 readonly state_dir="${HOME}/.local/state/rclone"
-readonly mount_dir='/pdrive'
+readonly mount_dir="${PDRIVE_MOUNT_DIR:-/pdrive}"
+machine_mode=false
 
 usage() {
     printf '%s\n' \
@@ -19,7 +20,9 @@ usage() {
         'stores its random encryption key in GNOME Keyring, performs one' \
         'bounded login test, and enables the user service and health timers.' \
         '' \
-        'Existing rclone.conf files are never overwritten.'
+        'Existing rclone.conf files are never overwritten.' \
+        'PDrive Control Center uses a private stdin transport so credentials' \
+        'never appear in process arguments, environment variables or logs.'
 }
 
 case "${1:-}" in
@@ -30,6 +33,10 @@ case "${1:-}" in
         ;;
     --setup)
         (( $# == 1 )) || { usage >&2; exit 2; }
+        ;;
+    --setup-from-stdin)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        machine_mode=true
         ;;
     -h|--help)
         (( $# == 1 )) || { usage >&2; exit 2; }
@@ -43,7 +50,7 @@ case "${1:-}" in
         ;;
 esac
 
-if [[ ! -t 0 || ! -t 1 ]]; then
+if [[ "${machine_mode}" != true && ( ! -t 0 || ! -t 1 ) ]]; then
     printf 'Run pdrive-setup --setup in a normal terminal.\n' >&2
     exit 64
 fi
@@ -69,34 +76,48 @@ if [[ -e "${config_file}" ]]; then
     exit 73
 fi
 
-printf '%s\n' \
-    'Proton Drive rclone setup' \
-    '=========================' \
-    '' \
-    'Credentials remain on this computer. Password input is hidden.' \
-    'The resulting rclone.conf is encrypted with a random key held by' \
-    'your login-unlocked GNOME Keyring.' \
-    ''
+if [[ "${machine_mode}" == true ]]; then
+    if ! IFS= read -r -d '' username \
+        || ! IFS= read -r -d '' password \
+        || ! IFS= read -r -d '' two_factor; then
+        printf 'Invalid credential transport from PDrive Control Center.\n' >&2
+        exit 65
+    fi
+else
+    printf '%s\n' \
+        'Proton Drive rclone setup' \
+        '=========================' \
+        '' \
+        'Credentials remain on this computer. Password input is hidden.' \
+        'The resulting rclone.conf is encrypted with a random key held by' \
+        'your login-unlocked GNOME Keyring.' \
+        ''
 
-read -r -p 'Proton username or email address: ' username
+    read -r -p 'Proton username or email address: ' username
+    read -r -s -p 'Proton password: ' password
+    printf '\n'
+    read -r -s -p 'Repeat password: ' password_confirm
+    printf '\n'
+    if [[ -z "${password}" || "${password}" != "${password_confirm}" ]]; then
+        unset password password_confirm
+        printf 'Passwords are empty or do not match.\n' >&2
+        exit 65
+    fi
+    unset password_confirm
+
+    read -r -s -p 'Current six-digit 2FA code (empty if 2FA is disabled): ' two_factor
+    printf '\n'
+fi
+
 if [[ -z "${username}" || "${username}" == *$'\n'* || "${username}" == *$'\r'* ]]; then
     printf 'Invalid username.\n' >&2
     exit 65
 fi
-
-read -r -s -p 'Proton password: ' password
-printf '\n'
-read -r -s -p 'Repeat password: ' password_confirm
-printf '\n'
-if [[ -z "${password}" || "${password}" != "${password_confirm}" ]]; then
-    unset password password_confirm
-    printf 'Passwords are empty or do not match.\n' >&2
+if [[ -z "${password}" || "${password}" == *$'\n'* || "${password}" == *$'\r'* ]]; then
+    unset password two_factor
+    printf 'Invalid password.\n' >&2
     exit 65
 fi
-unset password_confirm
-
-read -r -s -p 'Current six-digit 2FA code (empty if 2FA is disabled): ' two_factor
-printf '\n'
 if [[ -n "${two_factor}" && ! "${two_factor}" =~ ^[0-9]{6}$ ]]; then
     unset password two_factor
     printf 'The 2FA code must be empty or exactly six digits.\n' >&2
@@ -145,13 +166,10 @@ unset obscured_password
 
 "${rclone_bin}" --config="${temporary_config}" config encryption set
 "${rclone_bin}" --config="${temporary_config}" config encryption check
-mv -f -- "${temporary_config}" "${config_file}"
-chmod 0600 "${config_file}"
-
 printf '\nTesting exactly one bounded Proton login ...\n'
 set +e
 timeout --signal=TERM 90s "${rclone_bin}" \
-    --config="${config_file}" \
+    --config="${temporary_config}" \
     --cache-dir="${HOME}/.cache/rclone" \
     --low-level-retries=0 \
     --retries=1 \
@@ -160,19 +178,26 @@ login_rc=$?
 set -e
 
 # A TOTP is valid only once and must not remain in unattended configuration.
-"${rclone_bin}" --config="${config_file}" config update proton 2fa '' --no-output
+"${rclone_bin}" --config="${temporary_config}" config update proton 2fa '' --no-output
 unset two_factor
 
 if (( login_rc != 0 )); then
     printf '%s\n' \
-        'Login test failed. The encrypted configuration was retained, but the' \
+        'Login test failed. No rclone configuration was installed and the' \
         'mount service was not enabled or started. Do not retry quickly after' \
         "HTTP 429; wait for Proton's complete backoff, then use pdrive-reauth --reauth." >&2
     exit "${login_rc}"
 fi
 
+mv -f -- "${temporary_config}" "${config_file}"
+chmod 0600 "${config_file}"
+
 systemctl --user daemon-reload
-systemctl --user enable --now \
+systemctl --user enable \
+    rclone-proton-drive.service \
+    pdrive-watch.timer \
+    rclone-selfupdate.timer
+systemctl --user start --no-block \
     rclone-proton-drive.service \
     pdrive-watch.timer \
     rclone-selfupdate.timer
@@ -180,15 +205,16 @@ systemctl --user enable --now \
 bookmark_file="${HOME}/.config/gtk-3.0/bookmarks"
 mkdir -p -- "${bookmark_file%/*}"
 touch "${bookmark_file}"
-if ! grep -qFx 'file:///pdrive ProtonDrive' "${bookmark_file}"; then
-    printf 'file:///pdrive ProtonDrive\n' >> "${bookmark_file}"
+bookmark="file://${mount_dir} ProtonDrive"
+if ! grep -qFx "${bookmark}" "${bookmark_file}"; then
+    printf '%s\n' "${bookmark}" >> "${bookmark_file}"
 fi
 
 printf '%s\n' \
     '' \
-    'Setup complete. Proton Drive is mounted at /pdrive.' \
+    "Setup complete. Proton Drive is starting at ${mount_dir}." \
     'Run pdrive-doctor and pdrive-watch for a first health check.'
-if command -v nemo >/dev/null 2>&1; then
+if [[ "${machine_mode}" != true ]] && command -v nemo >/dev/null 2>&1; then
     nemo "${mount_dir}" >/dev/null 2>&1 &
     disown || true
 fi

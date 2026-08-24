@@ -13,6 +13,21 @@ journalctl --user -u rclone-proton-drive.service -n 100 --no-pager
 Only add `pdrive-doctor --online` when no HTTP 429 backoff is active and a real
 API test is necessary.
 
+## First-run wizard cannot continue
+
+The readiness page identifies whether commands, the current rclone backend or
+`/pdrive` still need attention. On Linux Mint, Debian and Ubuntu, **Install and
+prepare automatically** uses Polkit and may show the normal administrator
+password prompt. If package installation is unavailable or fails, expand
+**Manual setup for advanced users**, run the displayed commands in a terminal,
+then select **Check again**.
+
+A failed Proton login does not install `rclone.conf`; correct the problem and
+retry with a fresh six-digit 2FA code. After an HTTP 429 response, do not submit
+codes repeatedly: wait for Proton's complete backoff first. If the encrypted
+config exists but service activation failed after login, open the dashboard and
+run `pdrive-doctor`; the valid account configuration is retained.
+
 ## Safe evidence collection
 
 Prefer local, redacted evidence:

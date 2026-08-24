@@ -19,7 +19,7 @@ snapshot() {
 
 before="$(snapshot)"
 for helper in pdrive-bwlimit pdrive-cache-age pdrive-doctor pdrive-draft-recovery pdrive-reauth \
-    pdrive-recovery pdrive-refresh pdrive-setup pdrive-state pdrive-transfers \
+    pdrive-prerequisites pdrive-recovery pdrive-refresh pdrive-setup pdrive-state pdrive-transfers \
     pdrive-ui pdrive-watch; do
     HOME="${test_home}" "${project_dir}/bin/${helper}" --help >/dev/null
 done

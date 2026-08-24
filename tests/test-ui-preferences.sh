@@ -31,8 +31,6 @@ assert module.load_preferences() == {
     "issues_reviewed_errors": -1,
     "issues_reviewed_notices": -1,
     "issues_reviewed_at": "",
-    "window_width": 1120,
-    "window_height": 932,
 }
 assert module.translate("Preferences") == "Preferences"
 assert module.translate("Documentation …") == "Documentation …"
@@ -65,8 +63,6 @@ module.atomic_write(
             "issues_reviewed_errors": 40,
             "issues_reviewed_notices": 9,
             "issues_reviewed_at": "2026-08-24T12:00:00+02:00",
-            "window_width": 1180,
-            "window_height": 860,
         }
     ),
     0o600,
@@ -79,8 +75,6 @@ assert module.load_preferences() == {
     "issues_reviewed_errors": 40,
     "issues_reviewed_notices": 9,
     "issues_reviewed_at": "2026-08-24T12:00:00+02:00",
-    "window_width": 1180,
-    "window_height": 860,
 }
 assert module.preferences_path().stat().st_mode & 0o777 == 0o600
 
@@ -96,12 +90,6 @@ assert updated["poll_in_background"] is False
 assert updated["issues_reviewed_errors"] == 40
 assert updated["issues_reviewed_notices"] == 9
 assert updated["issues_reviewed_at"] == "2026-08-24T12:00:00+02:00"
-assert updated["window_width"] == 1180
-assert updated["window_height"] == 860
-assert application.update_window_size(1040, 780) is None
-resized = module.load_preferences()
-assert resized["window_width"] == 1040
-assert resized["window_height"] == 780
 assert application.mark_issues_reviewed(
     {
         "errors": 45,

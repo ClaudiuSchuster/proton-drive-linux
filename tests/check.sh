@@ -82,6 +82,9 @@ fi
 
 "${project_dir}/tests/test-help.sh"
 "${project_dir}/tests/test-cache-age.sh"
+"${project_dir}/tests/test-prerequisites.sh"
+"${project_dir}/tests/test-setup.sh"
+"${project_dir}/tests/test-setup-wizard-ui.sh"
 "${project_dir}/tests/test-state.sh"
 "${project_dir}/tests/test-ui-preferences.sh"
 "${project_dir}/tests/test-ui-widgets.sh"

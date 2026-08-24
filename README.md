@@ -93,20 +93,32 @@ channel into `~/.local/libexec/rclone-bin`.
 git clone https://github.com/ClaudiuSchuster/proton-drive-linux.git
 cd proton-drive-linux
 ./install.sh
-pdrive-setup --setup
+pdrive-ui
 ```
 
 The installer may request `sudo` once to create `/pdrive` as a mode-0700
 directory owned by the current user. Everything else is installed below the
-user's home directory. `pdrive-setup --setup` then:
+user's home directory. On the first launch, PDrive Control Center opens its
+integrated setup wizard instead of an unconfigured dashboard. The wizard:
 
-1. reads the Proton username, password and optional current 2FA code;
-2. creates a random rclone configuration password;
-3. stores that password in the login-unlocked GNOME Keyring;
-4. writes and encrypts `~/.config/rclone/rclone.conf`;
-5. performs exactly one bounded Proton login test;
-6. removes the one-time 2FA code again; and
-7. enables the mount, health monitor and rclone update timer.
+1. checks the required command-line tools, `/pdrive` ownership and the
+   Proton-capable user-local rclone;
+2. can install missing Debian/Ubuntu/Mint packages through Polkit and prepare
+   rclone and `/pdrive`, while showing manual commands for advanced users;
+3. reads the Proton username, password and optional current 2FA code through a
+   private anonymous pipe rather than process arguments or environment values;
+4. creates a random rclone configuration password and stores it in the
+   login-unlocked GNOME Keyring;
+5. performs exactly one bounded login test against a temporary encrypted config;
+6. removes the one-time 2FA code and commits `rclone.conf` only after login
+   succeeds; and
+7. enables the mount, health monitor and rclone update timer without blocking
+   the interface while the mount starts.
+
+The automatic path executes only fixed system programs (`apt-get` and
+`/usr/bin/install`) through Polkit; no user-writable project script runs as
+root. Advanced users can inspect and prepare every prerequisite themselves, or
+use the equivalent terminal flow with `pdrive-setup --setup`.
 
 Existing `rclone.conf`, helper configuration, cache and state files are never
 overwritten by `./install.sh`. Re-running it after `git pull` updates the
@@ -132,6 +144,7 @@ actions. Every `--help` path is action-free.
 | Command                 | Default behavior                               | Explicit changes                                                             |
 | ----------------------- | ---------------------------------------------- | ---------------------------------------------------------------------------- |
 | `pdrive-setup`          | Show setup help                                | `--setup` creates the first encrypted remote                                 |
+| `pdrive-prerequisites`  | Show prerequisite help                         | Check or atomically bootstrap a Proton-capable user rclone                   |
 | `pdrive-doctor`         | Detailed local diagnosis                       | `--online` performs one bounded API listing                                  |
 | `pdrive-state`          | Read-only JSON snapshot for local integrations | None                                                                         |
 | `pdrive-ui`             | Native live dashboard for the existing service | Delegates only to guarded helpers                                            |
@@ -164,8 +177,8 @@ seconds. A visible **Open PDrive folder** action beside the page tabs opens
 remains available as well. The Active, Queue and VFS-Cache cards open their
 matching detail section in the Transfers page.
 
-The UI does **not** start rclone, log in to Proton or expose a web server. Its
-fast `pdrive-state` backend reads the existing owner-only RC Unix socket,
+After first-run setup, the UI does **not** perform background logins or expose a
+web server. Its fast `pdrive-state` backend reads the existing owner-only RC Unix socket,
 systemd, `findmnt` and watchdog snapshots. Active file names are returned only
 to the local UI process and are never appended to watchdog state or history.
 
@@ -182,8 +195,9 @@ external material. The autostart option creates a single marked user file; a
 normal menu launch still opens visibly. The interface defaults to English and
 can be switched to German; the choice takes effect after restarting the Control
 Center. The control popover always starts closed and opens only when requested.
-The last normal window size is restored across launches; maximized and
-fullscreen geometry is deliberately ignored.
+Each launch starts at the compact 820-pixel content width. The window then grows
+vertically just enough to show the complete Overview without a scrollbar, up to
+the monitor's usable height; smaller screens retain normal scrolling.
 
 ## Everyday use
 

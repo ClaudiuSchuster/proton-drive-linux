@@ -46,8 +46,21 @@ The RC API socket is owner-only mode `0700` (`srwx------`) under the service's
 
 ## First setup
 
-`pdrive-setup` without options and `pdrive-setup --help` only print guidance.
-The explicit setup is:
+When `~/.config/rclone/rclone.conf` is absent, PDrive Control Center opens its
+integrated first-run wizard. Its readiness page checks required commands, the
+owner-only `/pdrive` directory and the user-local rclone Proton backend. On
+Debian, Ubuntu and Linux Mint it can use Polkit to run the fixed system
+executables `/usr/bin/apt-get` and `/usr/bin/install`; project scripts always
+remain unprivileged. An expandable section provides equivalent manual commands
+for advanced users.
+
+The account page transports username, password and the optional current 2FA
+code as three NUL-delimited values over an anonymous stdin pipe. They never
+appear in process arguments, environment variables or logs, and the password
+and 2FA widgets are cleared as soon as the bounded worker starts.
+
+`pdrive-setup` without options and `pdrive-setup --help` remain action-free.
+The equivalent explicit terminal setup is:
 
 ```bash
 pdrive-setup --setup
@@ -63,8 +76,27 @@ service=rclone
 account=proton-drive
 ```
 
-The one-time 2FA code is cleared immediately after the bounded initial login,
-whether that login succeeds or fails.
+The login test uses a temporary mode-0600 encrypted configuration. The final
+`rclone.conf` is installed atomically only after that one bounded test succeeds;
+failed logins leave no final or temporary config. The one-time 2FA code is
+cleared immediately after the test, whether it succeeds or fails. Service start
+is requested with `systemctl --user start --no-block`, so a slow initial mount
+does not freeze the wizard.
+
+### `pdrive-prerequisites`
+
+```bash
+pdrive-prerequisites --check
+pdrive-prerequisites --install-rclone
+pdrive-prerequisites --help
+```
+
+`--install-rclone` copies an installed distribution rclone into a private
+temporary file, updates that copy from rclone's stable channel, verifies the
+`protondrive` backend and only then atomically installs it as
+`~/.local/libexec/rclone-bin`. It never installs system packages or edits
+`/pdrive` itself; those privileged operations remain visible Polkit steps in the
+wizard.
 
 ## Status and diagnosis
 
@@ -196,11 +228,11 @@ with `X-PDrive-Control-Center=true`, whose command is `pdrive-ui --background`.
 The application refuses to overwrite a same-named unmarked file and removes
 only its own marked autostart file. A manual menu launch remains visible.
 
-The same owner-only preferences file stores the last normal content width and
-height. Resize events are debounced before writing; maximized and fullscreen
-geometry is ignored. A fresh profile starts at 1120×932 content pixels, showing
-the complete Overview without a vertical scrollbar on Cinnamon while remaining
-independent of GTK shadow and header-bar dimensions.
+Window geometry is deliberately not persisted. Every launch starts at a compact
+820-pixel content width and grows vertically to show the complete Overview when
+the monitor allows it. This avoids a vertical scrollbar caused by stale geometry
+or a one-pixel theme difference while remaining independent of GTK shadow and
+header-bar dimensions. Smaller screens retain normal scrolling.
 
 On X11 Cinnamon the tray uses GTK StatusIcon so a left click opens/focuses the
 Control Center and a right click opens the existing Open, Open `/pdrive`, and

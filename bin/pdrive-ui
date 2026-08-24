@@ -42,16 +42,17 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.4.0"
+VERSION = "0.5.0"
 REFRESH_INTERVAL_SECONDS = 2
+SETUP_TIMEOUT_SECONDS = 180
 AUTOSTART_MARKER = "X-PDrive-Control-Center=true"
 DOCUMENTATION_URL = "https://github.com/ClaudiuSchuster/proton-drive-linux#readme"
-DEFAULT_WINDOW_WIDTH = 1120
+DEFAULT_WINDOW_WIDTH = 820
 DEFAULT_WINDOW_HEIGHT = 932
+SETUP_WINDOW_HEIGHT = 720
 MIN_WINDOW_WIDTH = 640
 MIN_WINDOW_HEIGHT = 480
 MAX_WINDOW_DIMENSION = 16384
-WINDOW_SIZE_SAVE_DELAY_MS = 700
 DOCUMENTATION_PAGES = (
     ("guide", "Getting started", "README.md", "README.md"),
     ("operations", "Operations", "OPERATIONS.md", "docs/OPERATIONS.md"),
@@ -65,11 +66,35 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     "issues_reviewed_errors": -1,
     "issues_reviewed_notices": -1,
     "issues_reviewed_at": "",
-    "window_width": DEFAULT_WINDOW_WIDTH,
-    "window_height": DEFAULT_WINDOW_HEIGHT,
 }
 SUPPORTED_LANGUAGES = {"en": "English", "de": "Deutsch"}
 CURRENT_LANGUAGE = "en"
+SYSTEM_PACKAGES = (
+    "rclone",
+    "fuse3",
+    "libfuse3-3",
+    "libsecret-tools",
+    "gnome-keyring",
+    "libpam-gnome-keyring",
+    "jq",
+    "curl",
+    "openssl",
+    "iproute2",
+    "libnotify-bin",
+)
+REQUIRED_RUNTIME_COMMANDS = (
+    "curl",
+    "findmnt",
+    "flock",
+    "fusermount3",
+    "jq",
+    "mountpoint",
+    "openssl",
+    "secret-tool",
+    "ss",
+    "systemctl",
+    "timeout",
+)
 
 GERMAN_TRANSLATIONS = {
     "Ready": "Bereit",
@@ -244,6 +269,53 @@ GERMAN_TRANSLATIONS = {
     "Open /pdrive": "/pdrive öffnen",
     "Quit": "Beenden",
     "Preferences cannot be changed in demo mode.": "Im Demo-Modus können Einstellungen nicht geändert werden.",
+    "First-run setup": "Ersteinrichtung",
+    "Needs attention": "Benötigt Aufmerksamkeit",
+    "Missing": "Fehlt",
+    "Welcome to PDrive": "Willkommen bei PDrive",
+    "Connect Proton Drive to your Linux desktop": "Verbinde Proton Drive mit deinem Linux-Desktop",
+    "This guided setup checks the local tools, prepares a private mount and connects your Proton account.": "Diese geführte Einrichtung prüft die lokalen Werkzeuge, bereitet einen privaten Mount vor und verbindet dein Proton-Konto.",
+    "System readiness": "Systembereitschaft",
+    "Required command-line tools": "Erforderliche Kommandozeilenwerkzeuge",
+    "Latest Proton-capable rclone": "Aktuelles Proton-fähiges rclone",
+    "Private /pdrive mountpoint": "Privater /pdrive-Mountpunkt",
+    "All prerequisites are ready.": "Alle Voraussetzungen sind bereit.",
+    "Some prerequisites still need attention.": "Einige Voraussetzungen benötigen noch Aufmerksamkeit.",
+    "Install and prepare automatically": "Automatisch installieren und vorbereiten",
+    "Check again": "Erneut prüfen",
+    "Manual setup for advanced users": "Manuelle Einrichtung für erfahrene Nutzer",
+    "Automatic preparation uses your system package manager through Polkit. Project code never runs as root.": "Die automatische Vorbereitung nutzt deinen System-Paketmanager über Polkit. Projektcode läuft niemals als root.",
+    "Install the listed packages yourself, create /pdrive as an owner-only directory, then install a current rclone with Proton Drive support.": "Installiere die aufgeführten Pakete selbst, erstelle /pdrive als nur für den Eigentümer zugängliches Verzeichnis und installiere danach ein aktuelles rclone mit Proton-Drive-Unterstützung.",
+    "Automatic package installation is available on Debian, Ubuntu and Linux Mint systems with Polkit.": "Die automatische Paketinstallation ist auf Debian-, Ubuntu- und Linux-Mint-Systemen mit Polkit verfügbar.",
+    "Preparing your system …": "Dein System wird vorbereitet …",
+    "The package manager may ask for your administrator password.": "Der Paketmanager fragt möglicherweise nach deinem Administratorpasswort.",
+    "Preparation failed": "Vorbereitung fehlgeschlagen",
+    "The prerequisites could not be prepared automatically. You can retry or use the manual instructions.": "Die Voraussetzungen konnten nicht automatisch vorbereitet werden. Du kannst es erneut versuchen oder die manuelle Anleitung verwenden.",
+    "Proton account": "Proton-Konto",
+    "Username or email": "Benutzername oder E-Mail",
+    "Password": "Passwort",
+    "Repeat password": "Passwort wiederholen",
+    "Current 2FA code (optional)": "Aktueller 2FA-Code (optional)",
+    "Use a fresh six-digit code. Leave this empty when two-factor authentication is disabled.": "Verwende einen frischen sechsstelligen Code. Lass das Feld leer, wenn Zwei-Faktor-Authentifizierung deaktiviert ist.",
+    "Show passwords": "Passwörter anzeigen",
+    "Back": "Zurück",
+    "Connect securely": "Sicher verbinden",
+    "Credentials are sent through a private anonymous pipe, never through process arguments, environment variables or logs.": "Zugangsdaten werden durch eine private anonyme Pipe übertragen, niemals über Prozessargumente, Umgebungsvariablen oder Logs.",
+    "Enter your Proton username or email address.": "Gib deinen Proton-Benutzernamen oder deine E-Mail-Adresse ein.",
+    "Passwords are empty or do not match.": "Die Passwörter sind leer oder stimmen nicht überein.",
+    "The 2FA code must be empty or exactly six digits.": "Der 2FA-Code muss leer oder genau sechsstellig sein.",
+    "Connecting to Proton Drive": "Verbindung mit Proton Drive wird hergestellt",
+    "One bounded login attempt is running. Please do not submit another code while it is active.": "Ein begrenzter Loginversuch läuft. Bitte sende währenddessen keinen weiteren Code.",
+    "Setup complete": "Einrichtung abgeschlossen",
+    "Your encrypted configuration is stored in GNOME Keyring and Proton Drive is starting at /pdrive.": "Deine verschlüsselte Konfiguration ist im GNOME Keyring gespeichert und Proton Drive startet unter /pdrive.",
+    "Your account is connected, but service activation needs attention. Open the Control Center and run pdrive-doctor.": "Dein Konto ist verbunden, aber die Dienstaktivierung benötigt Aufmerksamkeit. Öffne das Control Center und führe pdrive-doctor aus.",
+    "Open Control Center": "Control Center öffnen",
+    "Try again": "Erneut versuchen",
+    "Could not start the setup helper.": "Der Einrichtungshelfer konnte nicht gestartet werden.",
+    "The login attempt timed out. Check the network and try again with a fresh 2FA code.": "Der Loginversuch hat das Zeitlimit überschritten. Prüfe das Netzwerk und versuche es mit einem frischen 2FA-Code erneut.",
+    "Proton temporarily rate-limited login attempts. Wait for the complete backoff before trying again.": "Proton hat Loginversuche vorübergehend begrenzt. Warte die vollständige Sperrzeit ab, bevor du es erneut versuchst.",
+    "Proton did not accept the login. Check the credentials and retry once with a fresh 2FA code.": "Proton hat den Login nicht akzeptiert. Prüfe die Zugangsdaten und versuche es einmal mit einem frischen 2FA-Code erneut.",
+    "No configuration was installed, so it is safe to retry after correcting the problem.": "Es wurde keine Konfiguration installiert; nach Behebung des Problems kannst du sicher erneut versuchen.",
 }
 
 GERMAN_HEALTH_SUMMARIES = {
@@ -302,6 +374,72 @@ def autostart_path() -> pathlib.Path:
     return xdg_path("XDG_CONFIG_HOME", pathlib.Path.home() / ".config") / "autostart" / f"{APP_ID}.desktop"
 
 
+def setup_config_path() -> pathlib.Path:
+    configured = os.environ.get("PDRIVE_RCLONE_CONFIG")
+    return pathlib.Path(configured).expanduser() if configured else pathlib.Path.home() / ".config/rclone/rclone.conf"
+
+
+def mount_path() -> pathlib.Path:
+    return pathlib.Path(os.environ.get("PDRIVE_MOUNT_DIR", "/pdrive")).expanduser()
+
+
+def resolve_command(environment_name: str, executable: str) -> str:
+    configured = os.environ.get(environment_name)
+    if configured:
+        return configured
+    installed = shutil.which(executable)
+    if installed:
+        return installed
+    return str(pathlib.Path(__file__).with_name(executable))
+
+
+def automatic_package_install_supported() -> bool:
+    if not pathlib.Path("/usr/bin/pkexec").is_file() or not pathlib.Path("/usr/bin/apt-get").is_file():
+        return False
+    try:
+        release = pathlib.Path("/etc/os-release").read_text(encoding="utf-8").lower()
+    except OSError:
+        return False
+    return any(identifier in release for identifier in ("debian", "ubuntu", "linuxmint"))
+
+
+def setup_readiness() -> dict[str, Any]:
+    missing_commands = [command for command in REQUIRED_RUNTIME_COMMANDS if shutil.which(command) is None]
+    real_rclone = pathlib.Path(
+        os.environ.get("PDRIVE_REAL_RCLONE", pathlib.Path.home() / ".local/libexec/rclone-bin")
+    ).expanduser()
+    rclone_ready = False
+    if real_rclone.is_file() and os.access(real_rclone, os.X_OK):
+        try:
+            rclone_ready = (
+                subprocess.run(
+                    [str(real_rclone), "help", "backend", "protondrive"],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=8,
+                ).returncode
+                == 0
+            )
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    mount = mount_path()
+    try:
+        mount_ready = mount.is_dir() and not mount.is_symlink() and mount.stat().st_uid == os.getuid()
+    except OSError:
+        mount_ready = False
+    return {
+        "commands_ready": not missing_commands,
+        "missing_commands": missing_commands,
+        "rclone_ready": rclone_ready,
+        "real_rclone": str(real_rclone),
+        "mount_ready": mount_ready,
+        "mount": str(mount),
+        "ready": not missing_commands and rclone_ready and mount_ready,
+        "automatic": automatic_package_install_supported(),
+    }
+
+
 def documentation_path(installed_name: str, repository_relative: str) -> pathlib.Path | None:
     data_home = xdg_path("XDG_DATA_HOME", pathlib.Path.home() / ".local" / "share")
     candidates = (
@@ -349,14 +487,6 @@ def load_preferences() -> dict[str, Any]:
                 preferences[key] = max(-1, payload[key])
         if isinstance(payload.get("issues_reviewed_at"), str):
             preferences["issues_reviewed_at"] = payload["issues_reviewed_at"]
-        dimensions = (
-            ("window_width", MIN_WINDOW_WIDTH),
-            ("window_height", MIN_WINDOW_HEIGHT),
-        )
-        for key, minimum in dimensions:
-            value = payload.get(key)
-            if isinstance(value, int) and not isinstance(value, bool) and minimum <= value <= MAX_WINDOW_DIMENSION:
-                preferences[key] = value
     except (FileNotFoundError, OSError, json.JSONDecodeError, AttributeError):
         pass
     if preferences["start_in_tray"]:
@@ -521,6 +651,42 @@ popover { background: #1b202a; border: 1px solid rgba(255,255,255,0.10); }
   background: #171b24;
   border-bottom: 1px solid rgba(255,255,255,0.07);
   padding: 8px;
+}
+.setup-page { padding: 34px 54px; }
+.setup-hero { color: #ffffff; font-size: 28px; font-weight: 700; }
+.setup-lead { color: #aab4c4; font-size: 14px; }
+.setup-step { color: #69d7ff; font-size: 11px; font-weight: 700; }
+.setup-ready { color: #59e0b7; font-weight: 700; }
+.setup-attention { color: #ffc76a; font-weight: 700; }
+.setup-check-row {
+  background: rgba(255,255,255,0.035);
+  border-radius: 9px;
+  padding: 10px 12px;
+}
+.setup-code {
+  background: #0d1016;
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 8px;
+  color: #c8d4e3;
+  font-family: monospace;
+  padding: 9px;
+}
+button.setup-primary {
+  background-image: linear-gradient(to bottom, #3e83a1, #28617a);
+  border: 1px solid #5aa6c5;
+  border-bottom-color: #183c4d;
+  border-radius: 9px;
+  box-shadow: inset 0 1px rgba(255,255,255,0.18), 0 2px 4px rgba(0,0,0,0.32);
+  color: #ffffff;
+  padding: 9px 18px;
+}
+button.setup-primary:hover { background-image: linear-gradient(to bottom, #4994b3, #2e718d); }
+.setup-error {
+  background: #42232a;
+  border: 1px solid #a74659;
+  border-radius: 9px;
+  color: #ffdce2;
+  padding: 11px;
 }
 """
 
@@ -1067,34 +1233,441 @@ class DocumentationWindow(Gtk.Window):
                 )
 
 
+class SetupWizard(Gtk.Box):
+    """Transactional first-run setup embedded in the main application window."""
+
+    def __init__(self, window: "PDriveWindow") -> None:
+        super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=0)
+        self.window = window
+        self.preparing = False
+        self.connecting = False
+        self.readiness: dict[str, Any] = {}
+        self.stack = Gtk.Stack()
+        self.stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
+        self.stack.set_transition_duration(220)
+        self.pack_start(self.stack, True, True, 0)
+        self.build_readiness_page()
+        self.build_account_page()
+        self.build_progress_page()
+        self.build_success_page()
+        self.refresh_readiness()
+
+    @staticmethod
+    def page_box(step: str, title: str, subtitle: str) -> Gtk.Box:
+        page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
+        add_css(page, "setup-page")
+        page.pack_start(label(step.upper(), "setup-step"), False, False, 0)
+        page.pack_start(label(title, "setup-hero"), False, False, 0)
+        lead = label(subtitle, "setup-lead")
+        lead.set_line_wrap(True)
+        page.pack_start(lead, False, False, 0)
+        return page
+
+    @staticmethod
+    def action_button(text: str, primary: bool = False) -> Gtk.Button:
+        button = Gtk.Button(label=translate(text))
+        add_css(button, "setup-primary" if primary else "flat-action")
+        return button
+
+    def build_readiness_page(self) -> None:
+        page = self.page_box(
+            "Step 1 of 2",
+            "Welcome to PDrive",
+            "This guided setup checks the local tools, prepares a private mount and connects your Proton account.",
+        )
+        page.pack_start(label("System readiness", "section-title"), False, False, 2)
+        self.readiness_rows: dict[str, tuple[Gtk.Image, Gtk.Label]] = {}
+        for key, title in (
+            ("commands", "Required command-line tools"),
+            ("rclone", "Latest Proton-capable rclone"),
+            ("mount", "Private /pdrive mountpoint"),
+        ):
+            row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=11)
+            add_css(row, "setup-check-row")
+            icon = Gtk.Image.new_from_icon_name("content-loading-symbolic", Gtk.IconSize.BUTTON)
+            row.pack_start(icon, False, False, 0)
+            row.pack_start(label(title), True, True, 0)
+            status = label("…", "section-subtitle", 1.0)
+            row.pack_end(status, False, False, 0)
+            page.pack_start(row, False, False, 0)
+            self.readiness_rows[key] = (icon, status)
+
+        self.readiness_summary = label("", "section-subtitle")
+        self.readiness_summary.set_line_wrap(True)
+        page.pack_start(self.readiness_summary, False, False, 0)
+
+        self.manual_expander = Gtk.Expander(label=translate("Manual setup for advanced users"))
+        manual_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=9)
+        manual_box.set_margin_top(8)
+        manual_note = label(
+            "Install the listed packages yourself, create /pdrive as an owner-only directory, "
+            "then install a current rclone with Proton Drive support.",
+            "section-subtitle",
+        )
+        manual_note.set_line_wrap(True)
+        manual_box.pack_start(manual_note, False, False, 0)
+        manual_command = Gtk.Label(
+            label=(
+                "sudo apt install "
+                + " ".join(SYSTEM_PACKAGES)
+                + '\nsudo install -d -m 0700 -o "$USER" -g "$(id -gn)" /pdrive'
+                + "\npdrive-prerequisites --install-rclone"
+            ),
+            xalign=0.0,
+        )
+        manual_command.set_selectable(True)
+        manual_command.set_line_wrap(True)
+        add_css(manual_command, "setup-code")
+        manual_box.pack_start(manual_command, False, False, 0)
+        self.manual_expander.add(manual_box)
+        page.pack_start(self.manual_expander, False, False, 0)
+
+        self.preparation_progress = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        self.preparation_progress.set_no_show_all(True)
+        self.preparation_spinner = Gtk.Spinner()
+        self.preparation_progress.pack_start(self.preparation_spinner, False, False, 0)
+        self.preparation_progress.pack_start(label("Preparing your system …"), False, False, 0)
+        page.pack_start(self.preparation_progress, False, False, 0)
+        self.preparation_progress.hide()
+
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        self.prepare_button = self.action_button("Install and prepare automatically")
+        self.prepare_button.set_no_show_all(True)
+        self.prepare_button.connect("clicked", self.on_prepare)
+        actions.pack_start(self.prepare_button, False, False, 0)
+        check_button = self.action_button("Check again")
+        check_button.connect("clicked", lambda _button: self.refresh_readiness())
+        actions.pack_start(check_button, False, False, 0)
+        self.continue_button = self.action_button("Continue", primary=True)
+        self.continue_button.connect("clicked", lambda _button: self.stack.set_visible_child_name("account"))
+        actions.pack_end(self.continue_button, False, False, 0)
+        page.pack_end(actions, False, False, 0)
+        self.stack.add_named(page, "readiness")
+
+    def build_account_page(self) -> None:
+        page = self.page_box(
+            "Step 2 of 2",
+            "Proton account",
+            "Credentials are sent through a private anonymous pipe, never through process arguments, environment variables or logs.",
+        )
+        form = Gtk.Grid(column_spacing=16, row_spacing=12)
+        form.set_column_homogeneous(False)
+        self.username_entry = Gtk.Entry()
+        self.username_entry.set_input_purpose(Gtk.InputPurpose.EMAIL)
+        self.password_entry = Gtk.Entry()
+        self.password_confirm_entry = Gtk.Entry()
+        self.two_factor_entry = Gtk.Entry()
+        for entry in (self.password_entry, self.password_confirm_entry, self.two_factor_entry):
+            entry.set_visibility(False)
+            entry.set_invisible_char("●")
+        self.two_factor_entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+        self.two_factor_entry.set_max_length(6)
+        for row_index, (title, entry) in enumerate(
+            (
+                ("Username or email", self.username_entry),
+                ("Password", self.password_entry),
+                ("Repeat password", self.password_confirm_entry),
+                ("Current 2FA code (optional)", self.two_factor_entry),
+            )
+        ):
+            form.attach(label(title), 0, row_index, 1, 1)
+            entry.set_hexpand(True)
+            form.attach(entry, 1, row_index, 1, 1)
+        page.pack_start(card(form), False, False, 0)
+        two_factor_note = label(
+            "Use a fresh six-digit code. Leave this empty when two-factor authentication is disabled.",
+            "section-subtitle",
+        )
+        two_factor_note.set_line_wrap(True)
+        page.pack_start(two_factor_note, False, False, 0)
+        show_passwords = Gtk.CheckButton(label=translate("Show passwords"))
+        show_passwords.connect("toggled", self.on_show_passwords)
+        page.pack_start(show_passwords, False, False, 0)
+        self.account_error = label("", "setup-error")
+        self.account_error.set_no_show_all(True)
+        self.account_error.set_line_wrap(True)
+        page.pack_start(self.account_error, False, False, 0)
+        self.account_error.hide()
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        back_button = self.action_button("Back")
+        back_button.connect("clicked", lambda _button: self.stack.set_visible_child_name("readiness"))
+        actions.pack_start(back_button, False, False, 0)
+        connect_button = self.action_button("Connect securely", primary=True)
+        connect_button.connect("clicked", self.on_connect)
+        actions.pack_end(connect_button, False, False, 0)
+        page.pack_end(actions, False, False, 0)
+        self.stack.add_named(page, "account")
+
+    def build_progress_page(self) -> None:
+        page = self.page_box(
+            "Secure setup",
+            "Connecting to Proton Drive",
+            "One bounded login attempt is running. Please do not submit another code while it is active.",
+        )
+        spinner = Gtk.Spinner()
+        spinner.set_size_request(64, 64)
+        spinner.set_halign(Gtk.Align.CENTER)
+        spinner.start()
+        page.pack_start(spinner, True, True, 20)
+        self.stack.add_named(page, "progress")
+
+    def build_success_page(self) -> None:
+        page = self.page_box(
+            "Ready",
+            "Setup complete",
+            "Your encrypted configuration is stored in GNOME Keyring and Proton Drive is starting at /pdrive.",
+        )
+        self.success_detail = next(
+            child
+            for child in page.get_children()
+            if isinstance(child, Gtk.Label) and child.get_style_context().has_class("setup-lead")
+        )
+        icon = Gtk.Image.new_from_icon_name("emblem-ok-symbolic", Gtk.IconSize.DIALOG)
+        add_css(icon, "good")
+        icon.set_pixel_size(72)
+        page.pack_start(icon, True, True, 24)
+        open_button = self.action_button("Open Control Center", primary=True)
+        open_button.set_halign(Gtk.Align.END)
+        open_button.connect("clicked", lambda _button: self.window.enter_dashboard())
+        page.pack_end(open_button, False, False, 0)
+        self.stack.add_named(page, "success")
+
+    def refresh_readiness(self) -> None:
+        self.readiness = setup_readiness()
+        values = {
+            "commands": self.readiness["commands_ready"],
+            "rclone": self.readiness["rclone_ready"],
+            "mount": self.readiness["mount_ready"],
+        }
+        for key, ready in values.items():
+            icon, status = self.readiness_rows[key]
+            icon.set_from_icon_name(
+                "emblem-ok-symbolic" if ready else "dialog-warning-symbolic",
+                Gtk.IconSize.BUTTON,
+            )
+            add_css(icon, "good" if ready else "warning")
+            status.set_text(translate("Ready" if ready else "Needs attention"))
+        if self.readiness["ready"]:
+            self.readiness_summary.set_text(translate("All prerequisites are ready."))
+            add_css(self.readiness_summary, "setup-ready")
+        else:
+            missing = ", ".join(self.readiness["missing_commands"])
+            detail = translate("Some prerequisites still need attention.")
+            if missing:
+                detail += f" {translate('Missing')}: {missing}."
+            self.readiness_summary.set_text(detail)
+            add_css(self.readiness_summary, "setup-attention")
+        self.continue_button.set_sensitive(bool(self.readiness["ready"]) and not self.preparing)
+        self.prepare_button.set_visible(not self.readiness["ready"])
+        self.prepare_button.set_sensitive(bool(self.readiness["automatic"]) and not self.preparing)
+        if not self.readiness["automatic"] and not self.readiness["ready"]:
+            self.prepare_button.set_tooltip_text(
+                translate(
+                    "Automatic package installation is available on Debian, Ubuntu and Linux Mint systems with Polkit."
+                )
+            )
+
+    def on_prepare(self, _button: Gtk.Button) -> None:
+        if self.preparing or not self.readiness.get("automatic"):
+            return
+        self.preparing = True
+        self.prepare_button.set_sensitive(False)
+        self.continue_button.set_sensitive(False)
+        self.preparation_progress.show_all()
+        self.preparation_spinner.start()
+        threading.Thread(target=self.prepare_worker, daemon=True).start()
+
+    def prepare_worker(self) -> None:
+        success = True
+        try:
+            readiness = setup_readiness()
+            system_rclone = pathlib.Path("/usr/bin/rclone").is_file() or pathlib.Path("/usr/local/bin/rclone").is_file()
+            if readiness["missing_commands"] or not system_rclone:
+                subprocess.run(
+                    ["/usr/bin/pkexec", "/usr/bin/apt-get", "install", "-y", *SYSTEM_PACKAGES],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=900,
+                )
+            mount = mount_path()
+            if not readiness["mount_ready"]:
+                if str(mount) != "/pdrive":
+                    raise RuntimeError("automatic preparation only creates /pdrive")
+                subprocess.run(
+                    [
+                        "/usr/bin/pkexec",
+                        "/usr/bin/install",
+                        "-d",
+                        "-m",
+                        "0700",
+                        "-o",
+                        str(os.getuid()),
+                        "-g",
+                        str(os.getgid()),
+                        "/pdrive",
+                    ],
+                    check=True,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=120,
+                )
+            prerequisite_command = resolve_command("PDRIVE_PREREQUISITES_BIN", "pdrive-prerequisites")
+            subprocess.run(
+                [prerequisite_command, "--install-rclone"],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=300,
+            )
+        except (OSError, RuntimeError, subprocess.CalledProcessError, subprocess.TimeoutExpired):
+            success = False
+        GLib.idle_add(self.preparation_finished, success)
+
+    def preparation_finished(self, success: bool) -> bool:
+        self.preparing = False
+        self.preparation_spinner.stop()
+        self.preparation_progress.hide()
+        self.refresh_readiness()
+        if not success or not self.readiness["ready"]:
+            self.window.message(
+                "Preparation failed",
+                "The prerequisites could not be prepared automatically. You can retry or use the manual instructions.",
+                Gtk.MessageType.ERROR,
+            )
+        return GLib.SOURCE_REMOVE
+
+    def on_show_passwords(self, button: Gtk.CheckButton) -> None:
+        visible = button.get_active()
+        self.password_entry.set_visibility(visible)
+        self.password_confirm_entry.set_visibility(visible)
+
+    def show_account_error(self, message: str) -> None:
+        self.account_error.set_text(translate(message))
+        self.account_error.show()
+
+    def on_connect(self, _button: Gtk.Button) -> None:
+        if self.connecting:
+            return
+        username = self.username_entry.get_text().strip()
+        password = self.password_entry.get_text()
+        confirmation = self.password_confirm_entry.get_text()
+        two_factor = self.two_factor_entry.get_text().strip()
+        if not username:
+            self.show_account_error("Enter your Proton username or email address.")
+            return
+        if not password or password != confirmation:
+            self.show_account_error("Passwords are empty or do not match.")
+            return
+        if two_factor and not re.fullmatch(r"[0-9]{6}", two_factor):
+            self.show_account_error("The 2FA code must be empty or exactly six digits.")
+            return
+        payload = bytearray()
+        for value in (username, password, two_factor):
+            payload.extend(value.encode("utf-8"))
+            payload.append(0)
+        self.password_entry.set_text("")
+        self.password_confirm_entry.set_text("")
+        self.two_factor_entry.set_text("")
+        self.account_error.hide()
+        self.connecting = True
+        self.stack.set_visible_child_name("progress")
+        del password, confirmation, two_factor
+        threading.Thread(target=self.connect_worker, args=(payload,), daemon=True).start()
+
+    def connect_worker(self, payload: bytearray) -> None:
+        returncode = 127
+        error_text = ""
+        try:
+            command = resolve_command("PDRIVE_SETUP_BIN", "pdrive-setup")
+            process = subprocess.Popen(
+                [command, "--setup-from-stdin"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                _stdout, stderr = process.communicate(bytes(payload), timeout=SETUP_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                _stdout, stderr = process.communicate()
+                returncode = 124
+            else:
+                returncode = process.returncode
+            error_text = stderr.decode("utf-8", errors="replace")[-4096:]
+        except OSError:
+            error_text = "helper-unavailable"
+        finally:
+            for index in range(len(payload)):
+                payload[index] = 0
+            payload.clear()
+        GLib.idle_add(self.connect_finished, returncode, error_text)
+
+    def connect_finished(self, returncode: int, error_text: str) -> bool:
+        self.connecting = False
+        if returncode == 0:
+            self.stack.set_visible_child_name("success")
+            return GLib.SOURCE_REMOVE
+        if setup_config_path().is_file():
+            self.success_detail.set_text(
+                translate(
+                    "Your account is connected, but service activation needs attention. "
+                    "Open the Control Center and run pdrive-doctor."
+                )
+            )
+            self.stack.set_visible_child_name("success")
+            return GLib.SOURCE_REMOVE
+        if error_text == "helper-unavailable":
+            message = "Could not start the setup helper."
+        elif returncode == 124:
+            message = "The login attempt timed out. Check the network and try again with a fresh 2FA code."
+        elif "429" in error_text or "rate" in error_text.lower():
+            message = (
+                "Proton temporarily rate-limited login attempts. Wait for the complete backoff before trying again."
+            )
+        else:
+            message = "Proton did not accept the login. Check the credentials and retry once with a fresh 2FA code."
+        self.account_error.set_text(
+            translate(message)
+            + " "
+            + translate("No configuration was installed, so it is safe to retry after correcting the problem.")
+        )
+        self.account_error.show()
+        self.stack.set_visible_child_name("account")
+        return GLib.SOURCE_REMOVE
+
+
 class PDriveWindow(Gtk.ApplicationWindow):
     def __init__(self, application: Gtk.Application, demo: bool = False) -> None:
         super().__init__(application=application)
         self.demo = demo
         self.refreshing = False
         self.closed = False
-        self.window_size_save_source = 0
-        self.pending_window_size: tuple[int, int] | None = None
+        self.content_fit_source = 0
+        self.content_fit_attempts = 0
         self.documentation_window: DocumentationWindow | None = None
+        self.setup_wizard: SetupWizard | None = None
+        self.setup_required = not demo and not setup_config_path().is_file()
+        self.dashboard_timer_started = False
         self.speed_samples: collections.deque[float] = collections.deque(maxlen=150)
         self.current_state: dict[str, Any] = {}
         self.history_signature: tuple[Any, ...] = ()
         self.set_title("PDrive Control Center")
         self.set_icon_name(APP_ID)
-        preferences = getattr(application, "preferences", DEFAULT_PREFERENCES)
+        self.set_position(Gtk.WindowPosition.CENTER)
         self.set_default_size(
-            DEFAULT_WINDOW_WIDTH if demo else int(preferences["window_width"]),
-            DEFAULT_WINDOW_HEIGHT if demo else int(preferences["window_height"]),
+            DEFAULT_WINDOW_WIDTH,
+            SETUP_WINDOW_HEIGHT if self.setup_required else DEFAULT_WINDOW_HEIGHT,
         )
         self.set_size_request(820, 620)
         add_css(self, "pdrive-window")
         self.connect("destroy", self.on_destroy)
         self.connect("delete-event", application.on_window_delete)
         self.state_command = self.find_state_command()
-        self.build_ui()
-        self.set_empty_lists()
-        self.request_refresh()
-        GLib.timeout_add_seconds(REFRESH_INTERVAL_SECONDS, self.on_refresh_timer)
+        if self.setup_required:
+            self.build_setup_ui()
+        else:
+            self.enter_dashboard()
 
     @staticmethod
     def find_state_command() -> str:
@@ -1106,6 +1679,37 @@ class PDriveWindow(Gtk.ApplicationWindow):
             return installed
         sibling = pathlib.Path(__file__).with_name("pdrive-state")
         return str(sibling)
+
+    def build_setup_ui(self) -> None:
+        header = Gtk.HeaderBar()
+        header.set_show_close_button(True)
+        header.set_title("PDrive Control Center")
+        header.set_subtitle(translate("First-run setup"))
+        documentation_button = Gtk.Button.new_from_icon_name("help-browser-symbolic", Gtk.IconSize.BUTTON)
+        documentation_button.set_tooltip_text(translate("Documentation"))
+        documentation_button.connect("clicked", self.on_documentation)
+        header.pack_end(documentation_button)
+        self.set_titlebar(header)
+        self.setup_wizard = SetupWizard(self)
+        self.root = self.setup_wizard
+        self.add(self.root)
+        self.schedule_content_fit()
+
+    def enter_dashboard(self) -> None:
+        current_child = self.get_child()
+        if current_child is not None:
+            self.remove(current_child)
+            current_child.destroy()
+        self.setup_required = False
+        self.setup_wizard = None
+        self.build_ui()
+        self.set_empty_lists()
+        self.show_all()
+        self.request_refresh()
+        if not self.dashboard_timer_started:
+            GLib.timeout_add_seconds(REFRESH_INTERVAL_SECONDS, self.on_refresh_timer)
+            self.dashboard_timer_started = True
+        self.schedule_content_fit()
 
     def build_ui(self) -> None:
         header = Gtk.HeaderBar()
@@ -1135,7 +1739,6 @@ class PDriveWindow(Gtk.ApplicationWindow):
 
         root = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=0)
         self.root = root
-        root.connect("size-allocate", self.on_root_size_allocate)
         self.add(root)
 
         navigation = Gtk.Grid()
@@ -1260,6 +1863,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
 
     def build_overview(self) -> Gtk.Widget:
         scroller = Gtk.ScrolledWindow()
+        self.overview_scroller = scroller
         scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=16)
         add_css(page, "page")
@@ -1494,47 +2098,44 @@ class PDriveWindow(Gtk.ApplicationWindow):
         )
 
     def on_destroy(self, _widget: Gtk.Widget) -> None:
-        if self.window_size_save_source:
-            GLib.source_remove(self.window_size_save_source)
-            self.window_size_save_source = 0
-            self.persist_window_size()
+        if self.content_fit_source:
+            GLib.source_remove(self.content_fit_source)
+            self.content_fit_source = 0
         self.closed = True
 
-    def on_root_size_allocate(
-        self,
-        _widget: Gtk.Widget,
-        allocation: Gdk.Rectangle,
-    ) -> None:
-        if self.demo or self.closed:
+    def schedule_content_fit(self) -> None:
+        if self.closed or self.content_fit_source:
             return
-        gdk_window = self.get_window()
-        if gdk_window is not None and gdk_window.get_state() & (Gdk.WindowState.MAXIMIZED | Gdk.WindowState.FULLSCREEN):
-            return
-        if allocation.width < MIN_WINDOW_WIDTH or allocation.height < MIN_WINDOW_HEIGHT:
-            return
-        self.pending_window_size = (allocation.width, allocation.height)
-        if self.window_size_save_source:
-            GLib.source_remove(self.window_size_save_source)
-        self.window_size_save_source = GLib.timeout_add(
-            WINDOW_SIZE_SAVE_DELAY_MS,
-            self.persist_window_size,
-        )
+        self.content_fit_attempts = 0
+        self.content_fit_source = GLib.timeout_add(80, self.fit_content_height)
 
-    def persist_window_size(self) -> bool:
-        self.window_size_save_source = 0
-        if self.demo or self.closed:
+    def fit_content_height(self) -> bool:
+        if self.closed:
+            self.content_fit_source = 0
             return GLib.SOURCE_REMOVE
-        gdk_window = self.get_window()
-        if gdk_window is not None and gdk_window.get_state() & (Gdk.WindowState.MAXIMIZED | Gdk.WindowState.FULLSCREEN):
-            return GLib.SOURCE_REMOVE
-        if self.pending_window_size is None:
-            return GLib.SOURCE_REMOVE
-        width, height = self.pending_window_size
-        if width < MIN_WINDOW_WIDTH or height < MIN_WINDOW_HEIGHT:
-            return GLib.SOURCE_REMOVE
-        application = self.get_application()
-        if isinstance(application, PDriveApplication):
-            application.update_window_size(width, height)
+        self.content_fit_attempts += 1
+        overflow = 0.0
+        if not self.setup_required and hasattr(self, "overview_scroller"):
+            adjustment = self.overview_scroller.get_vadjustment()
+            overflow = max(0.0, adjustment.get_upper() - adjustment.get_page_size())
+        elif self.root is not None:
+            _minimum, natural = self.root.get_preferred_height()
+            overflow = max(0.0, natural - self.root.get_allocated_height())
+        if overflow > 0.5:
+            width, height = self.get_size()
+            maximum_height = MAX_WINDOW_DIMENSION
+            gdk_window = self.get_window()
+            display = Gdk.Display.get_default()
+            if gdk_window is not None and display is not None:
+                monitor = display.get_monitor_at_window(gdk_window)
+                if monitor is not None:
+                    maximum_height = max(MIN_WINDOW_HEIGHT, monitor.get_workarea().height - 8)
+            target_height = min(maximum_height, height + math.ceil(overflow) + 4)
+            if target_height > height:
+                self.resize(width, target_height)
+        if self.content_fit_attempts < 4 and overflow > 0.5:
+            return GLib.SOURCE_CONTINUE
+        self.content_fit_source = 0
         return GLib.SOURCE_REMOVE
 
     def on_refresh_timer(self) -> bool:
@@ -1549,7 +2150,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         return GLib.SOURCE_CONTINUE
 
     def request_refresh(self) -> None:
-        if self.refreshing or self.closed:
+        if self.setup_required or self.refreshing or self.closed:
             return
         self.refreshing = True
         thread = threading.Thread(target=self.load_state, daemon=True)
@@ -2205,7 +2806,8 @@ class PDriveWindow(Gtk.ApplicationWindow):
 class PDriveApplication(Gtk.Application):
     def __init__(self, demo: bool = False, background: bool = False) -> None:
         global CURRENT_LANGUAGE
-        flags = Gio.ApplicationFlags.NON_UNIQUE if demo else Gio.ApplicationFlags.FLAGS_NONE
+        non_unique = demo or os.environ.get("PDRIVE_UI_NON_UNIQUE") == "1"
+        flags = Gio.ApplicationFlags.NON_UNIQUE if non_unique else Gio.ApplicationFlags.FLAGS_NONE
         super().__init__(application_id=APP_ID, flags=flags)
         self.demo = demo
         self.background = background and not demo
@@ -2387,26 +2989,6 @@ class PDriveApplication(Gtk.Application):
         self.preferences = new_preferences
         self.background = False
         self.configure_tray()
-        return None
-
-    def update_window_size(self, width: int, height: int) -> str | None:
-        if self.demo:
-            return None
-        width = max(MIN_WINDOW_WIDTH, min(MAX_WINDOW_DIMENSION, int(width)))
-        height = max(MIN_WINDOW_HEIGHT, min(MAX_WINDOW_DIMENSION, int(height)))
-        if self.preferences.get("window_width") == width and self.preferences.get("window_height") == height:
-            return None
-        new_preferences = dict(self.preferences)
-        new_preferences.update({"window_width": width, "window_height": height})
-        try:
-            atomic_write(
-                preferences_path(),
-                json.dumps(new_preferences, indent=2, sort_keys=True) + "\n",
-                0o600,
-            )
-        except OSError as error:
-            return str(error)
-        self.preferences = new_preferences
         return None
 
     def mark_issues_reviewed(self, watchdog: dict[str, Any]) -> str | None:
