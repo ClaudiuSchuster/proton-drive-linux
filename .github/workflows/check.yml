@@ -13,6 +13,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - name: Install checks
-        run: sudo apt-get update && sudo apt-get install -y shellcheck
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            desktop-file-utils \
+            gir1.2-ayatanaappindicator3-0.1 \
+            gir1.2-gtk-3.0 \
+            python3-gi \
+            shellcheck
       - name: Validate repository
         run: make check
