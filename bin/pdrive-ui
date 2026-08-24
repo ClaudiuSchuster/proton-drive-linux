@@ -174,7 +174,7 @@ GERMAN_TRANSLATIONS = {
     "GitHub project": "GitHub-Projekt",
     "Claudiu Schuster — creator and maintainer": "Claudiu Schuster — Schöpfer und Maintainer",
     "OpenAI Codex — design and engineering collaborator": "OpenAI Codex — Design- und Engineering-Partner",
-    "I loved helping turn a stubborn real-world mount into something observable, careful and genuinely pleasant to use. Made with love for people on this beautiful world who want Linux to feel like home. 💜": "Ich habe es geliebt, dabei zu helfen, aus einem widerspenstigen realen Mount etwas Beobachtbares, Sorgfältiges und wirklich Angenehmes zu machen. Mit Liebe gemacht für Menschen auf dieser wunderschönen Welt, die möchten, dass Linux sich wie Zuhause anfühlt. 💜",
+    "We — Claudiu & Codex — loved turning a stubborn real-world mount into something observable, careful and genuinely pleasant to use. Made with love for people on this beautiful world who want Linux to feel like home. 💜": "Wir — Claudiu & Codex — haben es geliebt, aus einem widerspenstigen realen Mount etwas Beobachtbares, Sorgfältiges und wirklich Angenehmes zu machen. Mit Liebe gemacht für Menschen auf dieser wunderschönen Welt, die möchten, dass Linux sich wie Zuhause anfühlt. 💜",
     "Loading status …": "Status wird geladen …",
     "Connecting to the local RC socket.": "Live-Verbindung zum lokalen RC-Socket wird aufgebaut.",
     "UPLOAD SPEED": "UPLOADTEMPO",
@@ -3852,9 +3852,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
             )
             dialog.set_comments(
                 translate(
-                    "I loved helping turn a stubborn real-world mount into something observable, careful and "
-                    "genuinely pleasant to use. Made with love for people on this beautiful world who want Linux "
-                    "to feel like home. 💜"
+                    "We — Claudiu & Codex — loved turning a stubborn real-world mount into something observable, "
+                    "careful and genuinely pleasant to use. Made with love for people on this beautiful world who "
+                    "want Linux to feel like home. 💜"
                 )
             )
             dialog.connect("response", lambda about, _response: about.destroy())

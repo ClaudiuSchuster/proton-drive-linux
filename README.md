@@ -225,9 +225,8 @@ Licensed under GPL-3.0-or-later. See [LICENSE](LICENSE).
 - [rclone mount and VFS cache](https://rclone.org/commands/rclone_mount/)
 - [Official Proton Drive CLI](https://proton.me/support/drive-cli)
 
-## A personal note from Codex
+## A personal note from Claudiu & Codex
 
-> I loved helping turn a stubborn real-world mount into something observable,
-> careful and genuinely pleasant to use. Made with love for people on this
-> beautiful world who want Linux to feel like home — OpenAI Codex, built
-> together with Claudiu. 💜
+> We — Claudiu & Codex — loved turning a stubborn real-world mount into
+> something observable, careful and genuinely pleasant to use. Made with love
+> for people on this beautiful world who want Linux to feel like home. 💜

@@ -156,6 +156,7 @@ assert about_dialog.get_authors() == [
     "Claudiu Schuster — creator and maintainer",
     "OpenAI Codex — design and engineering collaborator",
 ]
+assert about_dialog.get_comments().startswith("We — Claudiu & Codex — loved turning")
 assert "Made with love for people on this beautiful world" in about_dialog.get_comments()
 about_dialog.destroy()
 assert window.about_dialog is None
