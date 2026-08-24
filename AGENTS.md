@@ -190,7 +190,11 @@ project-specific; CI remains the authority for mechanical formatting rules.
   are green.
 - Release notes must summarize user-visible changes since the previous release,
   state the supported upgrade path and link the full comparison. Do not expose
-  private deployment details, maintainer-session notes or credentials.
+  private deployment details, maintainer-session notes or credentials. In
+  particular, never mention a maintainer's live installation, repository
+  symlinks, host-specific state, current commit deployment, service PIDs, local
+  paths, or private operating workflow. Keep those facts only in the private
+  work log or machine-specific operations documentation.
 - Name GitHub Releases `vX.Y.Z — PDrive Control Center` so the version remains
   visible in GitHub's narrow release list. Keep the matching Git tag exactly
   `vX.Y.Z`.
