@@ -458,6 +458,14 @@ ISSUE_PRIORITY = {
     "vfs-startup": 0,
 }
 
+UPLOAD_INCIDENT_CATEGORIES = {
+    "draft-conflict",
+    "http-422",
+    "http-5xx",
+    "upload-retry",
+    "rclone-error",
+}
+
 
 def issue_timestamp(value: str) -> dt.datetime | None:
     try:
@@ -473,7 +481,7 @@ def issues_are_related(left: dict[str, Any], right: dict[str, Any]) -> bool:
     right_time = issue_timestamp(str(right.get("timestamp") or ""))
     if left_time is None or right_time is None:
         return False
-    if abs((right_time - left_time).total_seconds()) > 10:
+    if abs((right_time - left_time).total_seconds()) > 30:
         return False
     left_subject = str(left.get("subject") or "")
     right_subject = str(right.get("subject") or "")
@@ -481,8 +489,19 @@ def issues_are_related(left: dict[str, Any], right: dict[str, Any]) -> bool:
         return True
     if str(left.get("message") or "") == str(right.get("message") or ""):
         return True
-    categories = {str(left.get("category") or ""), str(right.get("category") or "")}
-    return "draft-conflict" in categories and bool(categories & {"http-422", "upload-retry"})
+
+    # Proton may emit a share-level API line immediately before the path-level
+    # upload failure it explains. Correlate only in that direction: a new
+    # share-level line starts a new attempt and must never bridge two files that
+    # happen to fail close together during parallel uploads.
+    left_category = str(left.get("category") or "")
+    right_category = str(right.get("category") or "")
+    backend_context = left_subject.lower().startswith("proton drive root link id ")
+    return (
+        backend_context
+        and left_category in {"http-422", "http-5xx", "rclone-error"}
+        and right_category in {"draft-conflict", "upload-retry"}
+    )
 
 
 def merge_issue_attempt(events: list[dict[str, Any]]) -> dict[str, Any]:
@@ -511,7 +530,11 @@ def consolidate_issues(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Expose one ongoing incident per root cause and affected subject."""
 
     attempts: list[list[dict[str, Any]]] = []
-    for event in events:
+    ordered_events = sorted(
+        events,
+        key=lambda event: issue_timestamp(str(event.get("timestamp") or "")) or dt.datetime.min.astimezone(),
+    )
+    for event in ordered_events:
         # A missing VFS during the mount's normal startup window is operational
         # noise, not something a user can or should review.
         if event.get("category") == "vfs-startup":
@@ -526,8 +549,9 @@ def consolidate_issues(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for attempt in attempts:
         event = merge_issue_attempt(attempt)
         subject = str(event.get("subject") or "")
+        category = str(event.get("category") or "")
         key = (
-            str(event.get("category") or ""),
+            "upload" if subject and category in UPLOAD_INCIDENT_CATEGORIES else category,
             subject or str(event.get("title") or ""),
         )
         previous = incidents.get(key)
@@ -553,6 +577,89 @@ def consolidate_issues(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         ),
         reverse=True,
     )
+
+
+def issue_path(value: str) -> str:
+    return value.strip().lstrip("/")
+
+
+def completed_after_issue(event: dict[str, Any], transfers: list[dict[str, Any]]) -> str:
+    subject = issue_path(str(event.get("subject") or ""))
+    observed = issue_timestamp(str(event.get("last_seen") or event.get("timestamp") or ""))
+    if not subject or observed is None:
+        return ""
+    completed_at = ""
+    completed_time: dt.datetime | None = None
+    for transfer in transfers:
+        if issue_path(str(transfer.get("name") or "")) != subject or transfer.get("error"):
+            continue
+        candidate = str(transfer.get("completed_at") or "")
+        candidate_time = issue_timestamp(candidate)
+        if candidate_time is None or candidate_time < observed:
+            continue
+        if completed_time is None or candidate_time > completed_time:
+            completed_at = candidate
+            completed_time = candidate_time
+    return completed_at
+
+
+def enrich_issue_lifecycles(
+    issues: dict[str, Any],
+    queue: dict[str, Any],
+    transfers: list[dict[str, Any]],
+    latest: dict[str, Any],
+) -> dict[str, Any]:
+    """Resolve log incidents only when current runtime evidence proves recovery."""
+
+    queue_items = {
+        issue_path(str(item.get("name") or "")): item for item in queue.get("items", []) if isinstance(item, dict)
+    }
+    events = []
+    for raw_event in issues.get("events", []):
+        event = dict(raw_event)
+        category = str(event.get("category") or "")
+        subject = issue_path(str(event.get("subject") or ""))
+        lifecycle = "active"
+        resolution = ""
+        resolved_at = ""
+        queue_item = queue_items.get(subject)
+        completed_at = completed_after_issue(event, transfers)
+        if completed_at and category in UPLOAD_INCIDENT_CATEGORIES:
+            lifecycle = "resolved"
+            resolved_at = completed_at
+            resolution = "The affected upload completed successfully after rclone recovered."
+            event["level"] = "notice"
+            event["title"] = "Upload recovered automatically"
+            event["guidance"] = "No action is required. Keep the recovery record for context."
+        elif queue_item is not None and category in UPLOAD_INCIDENT_CATEGORIES:
+            if bool(queue_item.get("uploading")) or int(queue_item.get("tries") or 0) >= 2:
+                lifecycle = "recovering"
+        elif (
+            category == "dns"
+            and str(latest.get("dns") or "").lower() == "ok"
+            and (issue_timestamp(str(latest.get("generated_at") or "")) or dt.datetime.min.astimezone())
+            >= (issue_timestamp(str(event.get("last_seen") or "")) or dt.datetime.max.replace(tzinfo=dt.timezone.utc))
+        ):
+            lifecycle = "resolved"
+            resolved_at = str(latest.get("generated_at") or "")
+            resolution = "DNS connectivity is healthy again."
+            event["level"] = "notice"
+            event["title"] = "Network resolution recovered"
+            event["guidance"] = "No action is required while current DNS and mount health remain ready."
+        event["lifecycle"] = lifecycle
+        event["resolution"] = resolution
+        event["resolved_at"] = resolved_at
+        events.append(event)
+
+    active_events = [event for event in events if event["lifecycle"] != "resolved"]
+    enriched = dict(issues)
+    enriched["events"] = events
+    enriched["errors"] = sum(1 for event in active_events if event["level"] in {"error", "critical"})
+    enriched["notices"] = sum(1 for event in active_events if event["level"] == "notice")
+    enriched["active"] = sum(1 for event in events if event["lifecycle"] == "active")
+    enriched["recovering"] = sum(1 for event in events if event["lifecycle"] == "recovering")
+    enriched["resolved"] = sum(1 for event in events if event["lifecycle"] == "resolved")
+    return enriched
 
 
 def recent_issues(limit: int = 200, maximum_bytes: int = 512 * 1024) -> dict[str, Any]:
@@ -608,7 +715,7 @@ def recent_issues(limit: int = 200, maximum_bytes: int = 512 * 1024) -> dict[str
             }
         )
     incidents = consolidate_issues(events)
-    retained = incidents[-limit:]
+    retained = incidents[:limit]
     return {
         "available": True,
         "events": retained,
@@ -805,6 +912,9 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
     transferred = rc_payloads.get("core/transferred", {}).get("transferred", [])
     if not isinstance(transferred, list):
         transferred = []
+    recent_transfers = [
+        normalize_transfer(item, completed=True) for item in transferred[-24:] if isinstance(item, dict)
+    ]
     active_raw = stats.get("transferring", [])
     if not isinstance(active_raw, list):
         active_raw = []
@@ -918,9 +1028,7 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
         },
         "transfers": {
             "active": active,
-            "recent": [
-                normalize_transfer(item, completed=True) for item in transferred[-24:] if isinstance(item, dict)
-            ],
+            "recent": recent_transfers,
         },
         "queue": queue,
         "vfs": {
@@ -953,7 +1061,7 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
             "cache_max_age_valid": cache_max_age_valid,
             "cooldown_seconds": latest["cooldown_seconds"],
         },
-        "issues": recent_issues(),
+        "issues": enrich_issue_lifecycles(recent_issues(), queue, recent_transfers, latest),
         "watchdog": latest,
         "history": history_entries(),
     }

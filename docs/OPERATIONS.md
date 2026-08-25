@@ -140,6 +140,14 @@ The timer alone calls `pdrive-watch --record`. That mode atomically updates
 owner-only state files and sends desktop notifications on important changes.
 Do not use `--record` as an interactive status shortcut.
 
+Notification delivery follows `notification_policy` in the owner-only Control
+Center preferences file. **Important** is the default: warning and critical
+states plus an issued guarded recovery are announced, while routine ready
+transitions stay quiet. **Critical only** reports only critical states, **All**
+also reports ready transitions, and **Off** suppresses desktop notifications.
+The policy changes delivery only; detection, history and recovery safety gates
+continue unchanged.
+
 ### Reading counters correctly
 
 The `Uploads`, `queued`, `errors` and `notices` totals come from lines in the
@@ -182,19 +190,26 @@ does not modify the privacy-preserving watchdog files, start a second rclone,
 read the encrypted remote configuration, open a network listener or contact
 Proton independently.
 
-The overview's **Unreviewed issues** card uses persistent watermarks for the
-current rclone log's cumulative error and notice counters. It therefore does
-not reset at the next 90-minute timer sample. The first 0.3.x start establishes
-a zero baseline. Opening the card navigates to the Issue review section, where
-each retained event shows its local timestamp, severity, PDrive-specific
-category, affected path or component, sanitized rclone context and a suggested
-next step. API URLs, Proton share/link identifiers and credential-shaped values
-are redacted before entering the JSON snapshot. Only the explicit **Mark issues
-reviewed** action advances the watermark; it does not delete logs, watchdog
-history or current health warnings. Counter resets caused by log rotation are
-treated as a fresh log rather than a negative delta. The adapter reads only a
-bounded tail of the local log, so it reports when an older event count outlives
-the retained detail window.
+The overview's **Unreviewed issues** card uses a persistent review timestamp;
+it therefore does not reset at the next 90-minute timer sample. Adjacent rclone
+lines for one backend attempt are correlated, and repeated attempts for the
+same affected path become one incident. Runtime evidence then assigns an
+explicit lifecycle:
+
+- **active** means no recovery evidence exists;
+- **recovering** means the affected item is still queued and retrying; and
+- **resolved** requires positive evidence such as a later successful transfer
+  of the same path or restored DNS health.
+
+Only active and recovering incidents contribute to the unreviewed counter.
+Automatically resolved incidents remain visible as a single informational
+recovery record. An old message or a path merely disappearing from the queue is
+never enough to declare success. Each retained incident shows its local
+timestamp, severity, category, affected path or component, repeat count,
+sanitized rclone context and a suggested next step. API URLs, Proton share/link
+identifiers and credential-shaped values are redacted before entering the JSON
+snapshot. Only **Mark issues reviewed** advances the watermark; it does not
+delete logs, watchdog history, recovery records or current health warnings.
 
 The Active, Queue and VFS-Cache overview cards provide keyboard and pointer
 shortcuts into the corresponding Transfers sections. The cache
@@ -273,16 +288,18 @@ service.
 
 #### Preferences
 
-Open **hamburger menu → Preferences**. These settings belong to the desktop UI;
-they do not change rclone, upload safety or the watchdog policy.
+Open **hamburger menu → Preferences**. These settings do not change rclone,
+upload safety or watchdog recovery decisions. The notification choice is read
+by the independent watchdog even while the Control Center is closed.
 
-| Setting                                 | Choices and default                             | Behavior                                                                                               |
-| --------------------------------------- | ----------------------------------------------- | ------------------------------------------------------------------------------------------------------ |
-| Keep running in tray on window close    | Off / On; default **Off**                       | On hides the window instead of quitting the UI. The mount service continues either way.                |
-| Start hidden with the desktop session   | Off / On; default **Off**                       | Creates PDrive's marked Cinnamon autostart entry and implies close-to-tray. Manual launches open.      |
-| Keep live metrics updating while hidden | Off / On; default **Off**                       | On continues two-second-style UI polling in the tray. Off saves resources; the watchdog continues.     |
-| Live metrics interval                   | **1, 2, 5 or 10 seconds**; default **2**        | Changes UI cards and graph sampling immediately after Save. It does not change the 90-minute watchdog. |
-| Language                                | **English** or **Deutsch**; default **English** | Saved immediately; visible text changes after quitting and reopening the Control Center.               |
+| Setting                                 | Choices and default                                              | Behavior                                                                                                     |
+| --------------------------------------- | ---------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Keep running in tray on window close    | Off / On; default **Off**                                        | On hides the window instead of quitting the UI. The mount service continues either way.                      |
+| Start hidden with the desktop session   | Off / On; default **Off**                                        | Creates PDrive's marked Cinnamon autostart entry and implies close-to-tray. Manual launches open.            |
+| Keep live metrics updating while hidden | Off / On; default **Off**                                        | On continues two-second-style UI polling in the tray. Off saves resources; the watchdog continues.           |
+| Desktop notifications                   | **Important**, Critical only, All, or Off; default **Important** | Important reports warnings, critical failures and recovery actions but suppresses routine ready transitions. |
+| Live metrics interval                   | **1, 2, 5 or 10 seconds**; default **2**                         | Changes UI cards and graph sampling immediately after Save. It does not change the 90-minute watchdog.       |
+| Language                                | **English** or **Deutsch**; default **English**                  | Saved immediately; visible text changes after quitting and reopening the Control Center.                     |
 
 Preferences are written atomically to mode-0600
 `~/.config/pdrive-ui.json`. Enabling session startup atomically manages

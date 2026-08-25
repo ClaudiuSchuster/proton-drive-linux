@@ -458,6 +458,7 @@ def inspect_preferences_dialog(dialog):
         if isinstance(widget, module.Gtk.ComboBoxText)
     ]
     interval_combo = next(combo for combo in combos if combo.get_active_id() == "2")
+    notification_combo = next(combo for combo in combos if combo.get_active_id() == "important")
     language_combo = next(combo for combo in combos if combo.get_active_id() == "en")
     interval_combo.set_active_id("5")
     assert save_button.get_sensitive()
@@ -466,6 +467,10 @@ def inspect_preferences_dialog(dialog):
     language_combo.set_active_id("de")
     assert save_button.get_sensitive()
     language_combo.set_active_id("en")
+    assert not save_button.get_sensitive()
+    notification_combo.set_active_id("critical")
+    assert save_button.get_sensitive()
+    notification_combo.set_active_id("important")
     assert not save_button.get_sensitive()
     return module.Gtk.ResponseType.CANCEL
 
