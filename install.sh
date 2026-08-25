@@ -191,7 +191,8 @@ create_default "${config_dir}/pdrive-transfers.conf" 'transfers=4'
 systemctl --user daemon-reload
 systemctl --user enable rclone-selfupdate.timer >/dev/null
 if [[ -r "${HOME}/.config/rclone/rclone.conf" ]]; then
-    systemctl --user enable --now rclone-proton-drive.service pdrive-watch.timer >/dev/null
+    systemctl --user enable --now rclone-proton-drive.service pdrive-watch.timer \
+        pdrive-draft-recovery.timer >/dev/null
 fi
 if [[ "${enable_proton_cli_updater}" == true ]]; then
     systemctl --user enable proton-drive-update.timer >/dev/null

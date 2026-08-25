@@ -550,17 +550,50 @@ backoff plus a small margin. Repeated “tests” can extend the block.
 pdrive-draft-recovery
 pdrive-draft-recovery --enable
 pdrive-draft-recovery --disable
+pdrive-draft-recovery --recover-now
 ```
 
-This is not a routine repair switch. Enabling `replace_existing_draft` permits
-rclone to delete or replace an incomplete server-side upload draft at the same
-target name. The helper requires metadata-cache recovery mode first and does not
-restart the service, because the changed backend options may select a different
-VFS namespace.
+`pdrive-draft-recovery.timer` checks every five minutes for the exact failure
+where an incomplete server-side upload draft blocks the same locally queued
+file. It remains inactive in parallel-client-compatible metadata mode. In
+exclusive metadata-cache mode it still requires all of these independent
+signals before changing anything:
 
-Never enable it without separately verifying where the complete local Dirty
-data lives. Disabling is refused until all Proton Dirty metadata is gone. Read
-the draft section in [Troubleshooting](TROUBLESHOOTING.md) before use.
+- the same queue item has failed at least twice;
+- a log line explicitly reports an existing upload draft for that queued cache
+  object; the evidence remains bound to its metadata inode rather than expiring
+  while a very large upload is still the same queue generation;
+- a later retry confirms the same privacy-preserving item fingerprint;
+- a 20-second activity probe finds no meaningful TCP payload, rclone transfer
+  progress, process reads or filesystem I/O;
+- the live and calculated VFS namespaces agree;
+- Dirty VFS metadata contains at least the complete queued byte count;
+- no target namespace exists that would require an unsafe directory merge.
+
+After confirmation, the helper stops only the mount service, atomically renames
+both VFS data and metadata directories, enables draft replacement and validates
+that the restarted mount exposes the preserved queue from the exact recovery
+namespace. It never copies, truncates or deletes pending content. If any step
+fails, it restores the original configuration and namespace before restarting
+the conservative mount. When the queue and all Dirty metadata become empty, a
+later timer run performs the same guarded round trip back to normal behavior.
+
+The automatic path deliberately needs two observations. `--recover-now` skips
+only that waiting period; every cache, namespace, exclusivity and rollback guard
+still applies. It is useful after a human has already verified the exact draft
+conflict. Status and logs are available without remote listing:
+
+```bash
+systemctl --user status pdrive-draft-recovery.timer
+journalctl --user -u pdrive-draft-recovery.service -n 100 --no-pager
+jq . ~/.local/state/rclone/pdrive-draft-recovery-latest.json
+```
+
+The older `--enable`/`--disable` controls remain available for audited manual
+recovery. They intentionally do not restart rclone or relocate cache data.
+Never use them without separately verifying the complete Dirty payload and
+exact namespace. Read the draft section in
+[Troubleshooting](TROUBLESHOOTING.md) before manual use.
 
 ## Service control
 
@@ -676,7 +709,7 @@ chmod 755 ~/.local/libexec/rclone-bin ~/.local/libexec/rclone-proton-*
 sudo install -d -m 0700 -o "$(id -un)" -g "$(id -gn)" /pdrive
 systemctl --user daemon-reload
 systemctl --user enable rclone-proton-drive.service \
-  pdrive-watch.timer rclone-selfupdate.timer
+  pdrive-watch.timer pdrive-draft-recovery.timer rclone-selfupdate.timer
 pdrive-doctor
 ```
 

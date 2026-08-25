@@ -92,7 +92,7 @@ if [[ "${confirmation}" != 'UNINSTALL' ]]; then
 fi
 
 systemctl --user disable --now \
-    pdrive-watch.timer rclone-proton-drive.service \
+    pdrive-watch.timer pdrive-draft-recovery.timer rclone-proton-drive.service \
     rclone-selfupdate.timer proton-drive-update.timer >/dev/null 2>&1 || true
 
 for file_name in pdrive-bwlimit pdrive-cache-age pdrive-doctor pdrive-draft-recovery pdrive-reauth \
@@ -110,7 +110,7 @@ fi
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "${applications_dir}" >/dev/null 2>&1 || true
 fi
-for file_name in proton-drive-update rclone-bin rclone-proton-mount \
+for file_name in pdrive-draft-recovery-auto proton-drive-update rclone-bin rclone-proton-mount \
     rclone-proton-unmount rclone-selfupdate reauth-rclone-proton setup-rclone-proton; do
     rm -f -- "${libexec_dir}/${file_name}"
 done

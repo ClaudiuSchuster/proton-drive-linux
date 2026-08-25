@@ -80,7 +80,11 @@ EOF
 cat > "${state_dir}/proton-mount.log" <<'EOF'
 2026/08/24 09:57:58 ERROR : rc: "vfs/queue": error: no VFS active and "fs" parameter not supplied
 2026/08/24 09:58:00 NOTICE: proton drive root link ID 'private-share': 422 POST https://drive-api.proton.me/drive/shares/private-share/files?token=private: A file already exists
-2026/08/24 09:59:00 ERROR : Projects/demo.qcow2: vfs cache: failed to upload try #4, will retry in 5m0s
+2026/08/24 09:58:00 ERROR : Projects/demo.qcow2: a draft exist - usually this means a failed upload attempt
+2026/08/24 09:58:00 ERROR : Projects/demo.qcow2: vfs cache: failed to upload try #4, will retry in 5m0s
+2026/08/24 10:03:00 NOTICE: proton drive root link ID 'private-share': 422 POST https://drive-api.proton.me/drive/shares/private-share/files?token=private: A file already exists
+2026/08/24 10:03:00 ERROR : Projects/demo.qcow2: a draft exist - usually this means a failed upload attempt
+2026/08/24 10:03:00 ERROR : Projects/demo.qcow2: vfs cache: failed to upload try #5, will retry in 5m0s
 EOF
 printf '%s\n' \
     '2026-08-24T10:00:00+02:00 status=ready reason=mounted service=active/running pid=4242 mount=ready dns=ok tcp=established progress=yes success=1 queued=1 errors=7 notices=3 vfs_queue=1 vfs_queue_bytes=2097152 vfs_uploading=1 vfs_failed=0' \
@@ -131,13 +135,16 @@ jq -e '
     and .watchdog.summary == "Proton Drive is mounted and ready."
     and .watchdog.hint == "Run pdrive-watch for a detailed local diagnosis."
     and .issues.available == true
-    and (.issues.events | length) == 3
-    and .issues.events[0].category == "vfs-startup"
-    and .issues.events[1].category == "http-422"
-    and (.issues.events[1].subject | contains("private-share") | not)
-    and (.issues.events[1].message | contains("private-share") | not)
-    and (.issues.events[1].message | contains("<Proton API URL>"))
-    and .issues.events[2].category == "upload-retry"
+    and (.issues.events | length) == 1
+    and .issues.events[0].category == "draft-conflict"
+    and .issues.events[0].level == "error"
+    and .issues.events[0].occurrences == 2
+    and .issues.events[0].raw_events == 6
+    and .issues.raw_events == 7
+    and .issues.errors == 1
+    and .issues.notices == 0
+    and (.issues.events[0].subject | contains("private-share") | not)
+    and (.issues.events[0].message | contains("private-share") | not)
     and .history[0].vfs_queue == 1
 ' "${state_json}" >/dev/null
 

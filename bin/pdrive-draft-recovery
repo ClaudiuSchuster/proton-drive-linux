@@ -8,6 +8,7 @@ readonly draft_config="${HOME}/.config/pdrive-draft-recovery.conf"
 readonly recovery_config="${HOME}/.config/pdrive-recovery.conf"
 readonly service_name='rclone-proton-drive.service'
 readonly vfs_meta_root="${HOME}/.cache/rclone/vfsMeta"
+readonly auto_helper="${HOME}/.local/libexec/pdrive-draft-recovery-auto"
 
 usage() {
     printf '%s\n' \
@@ -16,6 +17,7 @@ usage() {
         'Ohne Option: konfigurierten und laufenden Draft-Recovery-Modus anzeigen.' \
         '--enable:  unvollständige Proton-Upload-Drafts beim nächsten Upload ersetzen.' \
         '--disable: konservatives Verhalten wiederherstellen; nur bei leerer Dirty-Queue.' \
+        '--recover-now: bestätigten Draft-Konflikt sofort mit allen Cache-Schutzprüfungen behandeln.' \
         '-h, --help: nur diese Hilfe anzeigen.' \
         '' \
         "Konfiguration: ${draft_config}" \
@@ -162,6 +164,14 @@ case "${1:-}" in
         printf '%s\n' \
             'Konservatives Draft-Verhalten wurde atomar konfiguriert; der Dienst blieb unangetastet.'
         show_status
+        ;;
+    --recover-now)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        if [[ ! -x "${auto_helper}" ]]; then
+            printf 'Recovery helper is missing or not executable: %s\n' "${auto_helper}" >&2
+            exit 69
+        fi
+        exec "${auto_helper}" --recover-now
         ;;
     -h|--help)
         (( $# == 1 )) || { usage >&2; exit 2; }

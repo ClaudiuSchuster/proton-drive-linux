@@ -368,7 +368,7 @@ def classify_issue(message: str, level: str) -> tuple[str, str, str]:
         return (
             "draft-conflict",
             "Remote upload draft conflict",
-            "Confirm that no other Proton client is writing this file, then use the guarded draft-recovery workflow.",
+            "The guarded recovery timer will intervene only in exclusive metadata-cache mode after a later retry confirms the conflict.",
         )
     if any(
         marker in lowered
@@ -422,6 +422,105 @@ def classify_issue(message: str, level: str) -> tuple[str, str, str]:
     )
 
 
+ISSUE_PRIORITY = {
+    "draft-conflict": 100,
+    "http-429": 90,
+    "dns": 80,
+    "http-5xx": 70,
+    "http-422": 60,
+    "upload-retry": 50,
+    "rclone-error": 40,
+    "notice": 30,
+    "vfs-startup": 0,
+}
+
+
+def issue_timestamp(value: str) -> dt.datetime | None:
+    try:
+        return dt.datetime.fromisoformat(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def issues_are_related(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """Return whether two adjacent log lines describe one backend attempt."""
+
+    left_time = issue_timestamp(str(left.get("timestamp") or ""))
+    right_time = issue_timestamp(str(right.get("timestamp") or ""))
+    if left_time is None or right_time is None:
+        return False
+    if abs((right_time - left_time).total_seconds()) > 10:
+        return False
+    left_subject = str(left.get("subject") or "")
+    right_subject = str(right.get("subject") or "")
+    if left_subject and left_subject == right_subject:
+        return True
+    if str(left.get("message") or "") == str(right.get("message") or ""):
+        return True
+    categories = {str(left.get("category") or ""), str(right.get("category") or "")}
+    return "draft-conflict" in categories and bool(categories & {"http-422", "upload-retry"})
+
+
+def merge_issue_attempt(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """Collapse the log lines emitted for one rclone attempt into one event."""
+
+    chosen = max(
+        events,
+        key=lambda event: (
+            ISSUE_PRIORITY.get(str(event.get("category") or ""), 10),
+            str(event.get("level") or "") in {"error", "critical"},
+        ),
+    )
+    merged = dict(chosen)
+    merged["level"] = (
+        "error" if any(str(event.get("level") or "") in {"error", "critical"} for event in events) else "notice"
+    )
+    merged["first_seen"] = str(events[0].get("timestamp") or "")
+    merged["last_seen"] = str(events[-1].get("timestamp") or "")
+    merged["timestamp"] = merged["last_seen"]
+    merged["occurrences"] = 1
+    merged["raw_events"] = len(events)
+    return merged
+
+
+def consolidate_issues(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Expose one ongoing incident per root cause and affected subject."""
+
+    attempts: list[list[dict[str, Any]]] = []
+    for event in events:
+        # A missing VFS during the mount's normal startup window is operational
+        # noise, not something a user can or should review.
+        if event.get("category") == "vfs-startup":
+            continue
+        if attempts and issues_are_related(attempts[-1][-1], event):
+            attempts[-1].append(event)
+        else:
+            attempts.append([event])
+
+    incidents: dict[tuple[str, str], dict[str, Any]] = {}
+    order: list[tuple[str, str]] = []
+    for attempt in attempts:
+        event = merge_issue_attempt(attempt)
+        subject = str(event.get("subject") or "")
+        key = (str(event.get("category") or ""), subject or str(event.get("title") or ""))
+        previous = incidents.get(key)
+        if previous is None:
+            incidents[key] = event
+            order.append(key)
+            continue
+        previous["last_seen"] = event["last_seen"]
+        previous["timestamp"] = event["last_seen"]
+        previous["occurrences"] = int(previous.get("occurrences") or 1) + 1
+        previous["raw_events"] = int(previous.get("raw_events") or 1) + int(event.get("raw_events") or 1)
+        if event["level"] == "error":
+            previous["level"] = "error"
+        # Keep the latest actionable backend wording while retaining the first
+        # observation time and stable incident identity.
+        previous["message"] = event["message"]
+        previous["guidance"] = event["guidance"]
+    return [incidents[key] for key in order]
+
+
 def recent_issues(limit: int = 200, maximum_bytes: int = 512 * 1024) -> dict[str, Any]:
     """Return recent sanitized ERROR/NOTICE/CRITICAL events without remote I/O."""
 
@@ -472,7 +571,16 @@ def recent_issues(limit: int = 200, maximum_bytes: int = 512 * 1024) -> dict[str
                 "guidance": guidance,
             }
         )
-    return {"available": True, "events": events[-limit:], "error": ""}
+    incidents = consolidate_issues(events)
+    retained = incidents[-limit:]
+    return {
+        "available": True,
+        "events": retained,
+        "error": "",
+        "errors": sum(1 for event in retained if event["level"] == "error"),
+        "notices": sum(1 for event in retained if event["level"] == "notice"),
+        "raw_events": len(events),
+    }
 
 
 HISTORY_NUMBERS = {

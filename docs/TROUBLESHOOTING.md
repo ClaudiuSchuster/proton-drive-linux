@@ -318,12 +318,34 @@ First confirm all of the following:
 - the exact VFS backend namespace for the changed options is understood;
 - a normal retry or one controlled restart does not resolve it.
 
-Only then consider `pdrive-draft-recovery --enable`. It intentionally does not
-restart rclone. `replace_existing_draft` changes remote state and can also alter
-the cache namespace selected by backend options. A blind restart can make the
-local queue appear to vanish even though its data still exists under another
-cache directory. Treat namespace mapping and Remote verification as a manual,
-audited recovery procedure.
+In exclusive metadata-cache mode, `pdrive-draft-recovery.timer` automates those
+checks for the narrow, explicit `a draft exist` failure. It binds that backend
+conflict to the queued file identity, size and VFS metadata inode, requires a later retry,
+measures process-owned TCP, rclone-byte, process-read and filesystem-I/O deltas
+over 20 seconds, validates the complete Dirty byte count and
+calculates rclone's option-derived namespace from the same MD5/base64 algorithm
+used by rclone v1.75.0. It then atomically renames both `vfs` and `vfsMeta`,
+validates the preserved queue after restart and returns to the conservative
+namespace only after the queue is clean.
+
+Inspect the automation before intervening:
+
+```bash
+systemctl --user status pdrive-draft-recovery.timer
+journalctl --user -u pdrive-draft-recovery.service -n 100 --no-pager
+jq . ~/.local/state/rclone/pdrive-draft-recovery-latest.json
+```
+
+If the exact conflict is already independently confirmed, the supported
+accelerated path is `pdrive-draft-recovery --recover-now`. It skips the second
+timer observation, not the cache or rollback guards.
+
+`pdrive-draft-recovery --enable` remains a manual expert switch. It
+intentionally does not restart rclone or relocate cache data.
+`replace_existing_draft` changes remote state and also alters the cache
+namespace selected by backend options. A blind restart can make the local queue
+appear to vanish even though its data still exists under another cache
+directory. Treat any manual namespace mapping as an audited recovery procedure.
 
 Disable draft replacement only after every Proton Dirty file is gone. The
 helper enforces that final guard.

@@ -22,7 +22,9 @@ for shell_file in "${shell_files[@]}"; do
     bash -n "${shell_file}"
 done
 
-for python_file in "${project_dir}/bin/pdrive-state" "${project_dir}/bin/pdrive-ui"; do
+for python_file in "${project_dir}/bin/pdrive-state" "${project_dir}/bin/pdrive-ui" \
+    "${project_dir}/libexec/pdrive-draft-recovery-auto" \
+    "${project_dir}/tests/test-draft-recovery.py"; do
     python3 - "${python_file}" <<'PY'
 import pathlib
 import sys
@@ -90,6 +92,7 @@ fi
 "${project_dir}/tests/test-reauth.sh"
 "${project_dir}/tests/test-setup-wizard-ui.sh"
 "${project_dir}/tests/test-state.sh"
+PYTHONDONTWRITEBYTECODE=1 python3 "${project_dir}/tests/test-draft-recovery.py"
 "${project_dir}/tests/test-ui-preferences.sh"
 "${project_dir}/tests/test-ui-widgets.sh"
 printf 'All repository checks passed.\n'

@@ -263,6 +263,7 @@ GERMAN_TRANSLATIONS = {
     "The counters report new events, but their sanitized log details are no longer available.": "Die Zähler melden neue Ereignisse, aber ihre bereinigten Logdetails sind nicht mehr verfügbar.",
     "Showing {shown} of {total} unreviewed event(s); {missing} older detail(s) are outside the retained log tail.": "{shown} von {total} ungeprüften Ereignis(sen) sichtbar; {missing} ältere Details liegen außerhalb des eingelesenen Logendes.",
     "{errors} error(s) and {notices} notice(s) await review.": "{errors} Fehler und {notices} Hinweise warten auf Prüfung.",
+    "Repeated {count} times · first seen {time}": "{count}-mal wiederholt · erstmals {time}",
     "Suggested next step": "Empfohlener nächster Schritt",
     "Open troubleshooting": "Fehlerbehebung öffnen",
     "Service diagnostics": "Dienstdiagnose",
@@ -279,7 +280,7 @@ GERMAN_TRANSLATIONS = {
     "VFS endpoint queried before mount readiness": "VFS-Endpunkt vor Mount-Bereitschaft abgefragt",
     "No action is needed when the service is active and /pdrive is writable. Refresh the view to confirm.": "Keine Aktion nötig, wenn der Dienst aktiv und /pdrive beschreibbar ist. Aktualisiere zur Bestätigung die Ansicht.",
     "Remote upload draft conflict": "Konflikt mit einem Remote-Uploadentwurf",
-    "Confirm that no other Proton client is writing this file, then use the guarded draft-recovery workflow.": "Stelle sicher, dass kein anderer Proton-Client diese Datei schreibt, und verwende danach den abgesicherten Draft-Recovery-Ablauf.",
+    "The guarded recovery timer will intervene only in exclusive metadata-cache mode after a later retry confirms the conflict.": "Der abgesicherte Recovery-Timer greift nur im exklusiven Metadaten-Cache-Modus ein, nachdem ein späterer Versuch den Konflikt bestätigt hat.",
     "Network name resolution failed": "Netzwerk-Namensauflösung fehlgeschlagen",
     "Restore the network or DNS route and let rclone retry. Never clear pending VFS cache data.": "Stelle Netzwerk oder DNS wieder her und lasse rclone erneut versuchen. Lösche niemals ausstehende VFS-Cache-Daten.",
     "Proton temporarily rate-limited the request": "Proton hat die Anfrage vorübergehend begrenzt",
@@ -614,49 +615,87 @@ def load_preferences() -> dict[str, Any]:
     return preferences
 
 
-def issues_since_review(preferences: dict[str, Any], watchdog: dict[str, Any]) -> tuple[int, int]:
-    """Return cumulative log events after the user's review watermark.
+def unreviewed_events(preferences: dict[str, Any], issues: dict[str, Any]) -> list[dict[str, Any]]:
+    """Return consolidated incidents observed after the review watermark."""
 
-    rclone's current log counters can return to zero after a log rotation or a
-    service restart. A lower current value is therefore the new-log count,
-    rather than a negative delta.
-    """
+    reviewed_at = str(preferences.get("issues_reviewed_at") or "")
+    if not reviewed_at:
+        return []
+    try:
+        reviewed_time = dt.datetime.fromisoformat(reviewed_at)
+    except ValueError:
+        reviewed_time = dt.datetime.min.replace(tzinfo=dt.timezone.utc)
+    raw_events = issues.get("events", [])
+    if not isinstance(raw_events, list):
+        return []
+    selected = []
+    for event in raw_events:
+        if not isinstance(event, dict):
+            continue
+        try:
+            event_time = dt.datetime.fromisoformat(str(event.get("last_seen") or event.get("timestamp") or ""))
+            if event_time.tzinfo is None:
+                event_time = event_time.replace(tzinfo=dt.timezone.utc)
+            comparison_time = reviewed_time
+            if comparison_time.tzinfo is None:
+                comparison_time = comparison_time.replace(tzinfo=dt.timezone.utc)
+        except ValueError:
+            continue
+        if event_time > comparison_time:
+            selected.append(event)
+    return selected
 
-    current_errors = max(0, int(watchdog.get("errors") or 0))
-    current_notices = max(0, int(watchdog.get("notices") or 0))
-    reviewed_errors = int(preferences.get("issues_reviewed_errors", -1))
-    reviewed_notices = int(preferences.get("issues_reviewed_notices", -1))
-    if reviewed_errors < 0 or reviewed_notices < 0:
-        return 0, 0
-    new_errors = current_errors - reviewed_errors if current_errors >= reviewed_errors else current_errors
-    new_notices = current_notices - reviewed_notices if current_notices >= reviewed_notices else current_notices
-    return new_errors, new_notices
+
+def issues_since_review(preferences: dict[str, Any], issues: dict[str, Any]) -> tuple[int, int]:
+    events = unreviewed_events(preferences, issues)
+    errors = sum(1 for event in events if str(event.get("level") or "").lower() in {"error", "critical"})
+    notices = sum(1 for event in events if str(event.get("level") or "").lower() == "notice")
+    return errors, notices
 
 
 def unreviewed_issue_events(
     preferences: dict[str, Any],
-    watchdog: dict[str, Any],
     issues: dict[str, Any],
 ) -> tuple[list[dict[str, Any]], int]:
-    """Select the newest issue details that correspond to cumulative deltas."""
+    """Select consolidated issue details newer than the review watermark."""
 
-    new_errors, new_notices = issues_since_review(preferences, watchdog)
-    raw_events = issues.get("events", [])
-    if not isinstance(raw_events, list):
-        raw_events = []
-    events = [event for event in raw_events if isinstance(event, dict)]
-    all_error_indices = [
-        index for index, event in enumerate(events) if str(event.get("level", "")).lower() in {"error", "critical"}
-    ]
-    all_notice_indices = [
-        index for index, event in enumerate(events) if str(event.get("level", "")).lower() == "notice"
-    ]
-    error_indices = all_error_indices[-new_errors:] if new_errors else []
-    notice_indices = all_notice_indices[-new_notices:] if new_notices else []
-    selected_indices = set(error_indices + notice_indices)
-    selected = [event for index, event in enumerate(events) if index in selected_indices]
-    missing = max(0, new_errors + new_notices - len(selected))
-    return selected, missing
+    return unreviewed_events(preferences, issues), 0
+
+
+def network_counter_rate(
+    previous: tuple[int, int, float] | None,
+    network_io: dict[str, Any],
+    pid: int,
+    now: float,
+    counter_name: str,
+    fixture_speed_name: str,
+) -> tuple[float, tuple[int, int, float] | None]:
+    """Derive honest process traffic from cumulative Linux TCP counters."""
+
+    if fixture_speed_name in network_io:
+        return max(0.0, float(network_io.get(fixture_speed_name) or 0)), previous
+    if not network_io.get("available") or pid <= 0:
+        return 0.0, None
+    counter = max(0, int(network_io.get(counter_name) or 0))
+    current = (pid, counter, now)
+    if previous is None:
+        return 0.0, current
+    previous_pid, previous_counter, previous_time = previous
+    elapsed = now - previous_time
+    if previous_pid != pid or counter < previous_counter or elapsed < 0.25 or elapsed > 10:
+        return 0.0, current
+    return (counter - previous_counter) / elapsed, current
+
+
+def network_send_rate(
+    previous: tuple[int, int, float] | None,
+    network_io: dict[str, Any],
+    pid: int,
+    now: float,
+) -> tuple[float, tuple[int, int, float] | None]:
+    """Derive PDrive upload bytes/second from process-owned TCP counters."""
+
+    return network_counter_rate(previous, network_io, pid, now, "sent_bytes", "send_speed")
 
 
 def network_receive_rate(
@@ -667,19 +706,7 @@ def network_receive_rate(
 ) -> tuple[float, tuple[int, int, float] | None]:
     """Derive PDrive receive bytes/second from process-owned TCP counters."""
 
-    if "receive_speed" in network_io:
-        return max(0.0, float(network_io.get("receive_speed") or 0)), previous
-    if not network_io.get("available") or pid <= 0:
-        return 0.0, None
-    received = max(0, int(network_io.get("received_bytes") or 0))
-    current = (pid, received, now)
-    if previous is None:
-        return 0.0, current
-    previous_pid, previous_received, previous_time = previous
-    elapsed = now - previous_time
-    if previous_pid != pid or received < previous_received or elapsed < 0.25 or elapsed > 10:
-        return 0.0, current
-    return (received - previous_received) / elapsed, current
+    return network_counter_rate(previous, network_io, pid, now, "received_bytes", "receive_speed")
 
 
 def bandwidth_slider_position(rate: str) -> float:
@@ -2318,6 +2345,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.dashboard_timer_id = 0
         self.speed_samples: collections.deque[float] = collections.deque(maxlen=150)
         self.download_samples: collections.deque[float] = collections.deque(maxlen=150)
+        self.network_send_baseline: tuple[int, int, float] | None = None
         self.network_receive_baseline: tuple[int, int, float] | None = None
         self.capacity_refresh_due = 0.0
         self.remote_capacity: dict[str, Any] = {}
@@ -3245,7 +3273,6 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.refreshing = False
         self.current_state = state
         health = state.get("health", {})
-        stats = state.get("stats", {})
         queue = state.get("queue", {})
         transfers = state.get("transfers", {})
         watchdog = state.get("watchdog", {})
@@ -3266,7 +3293,13 @@ class PDriveWindow(Gtk.ApplicationWindow):
         )
         self.updated_label.set_text(dt.datetime.now().strftime("%H:%M:%S"))
 
-        speed = float(stats.get("speed") or 0)
+        sample_time = time.monotonic()
+        speed, self.network_send_baseline = network_send_rate(
+            self.network_send_baseline,
+            network_io if isinstance(network_io, dict) else {},
+            int(service.get("pid") or 0),
+            sample_time,
+        )
         self.speed_samples.append(speed)
         self.speed_graph.push(speed)
         self.update_graph_axis(self.speed_graph)
@@ -3274,7 +3307,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             self.network_receive_baseline,
             network_io if isinstance(network_io, dict) else {},
             int(service.get("pid") or 0),
-            time.monotonic(),
+            sample_time,
         )
         self.download_samples.append(download_speed)
         self.download_graph.push(download_speed)
@@ -3288,18 +3321,16 @@ class PDriveWindow(Gtk.ApplicationWindow):
         slots = int(config.get("running_transfers") or config.get("transfers") or 0)
         self.active_card.update(str(active), translate_format("of {slots} upload slots in use", slots=slots))
         self.queue_card.update(str(queue.get("count", 0)), human_bytes(queue.get("bytes", 0)))
+        issues = state.get("issues", {})
         application = self.get_application()
         if (
             isinstance(application, PDriveApplication)
             and not self.demo
-            and (
-                application.preferences["issues_reviewed_errors"] < 0
-                or application.preferences["issues_reviewed_notices"] < 0
-            )
+            and not application.preferences.get("issues_reviewed_at")
         ):
-            application.mark_issues_reviewed(watchdog)
-        self.update_issue_card(watchdog)
-        self.update_issues(watchdog, state.get("issues", {}))
+            application.mark_issues_reviewed(state)
+        self.update_issue_card(issues)
+        self.update_issues(issues)
         cache_card_detail = translate_format(
             "{pending} pending upload · {files} cache file(s)",
             pending=human_bytes(vfs.get("pending_bytes", 0)),
@@ -3463,10 +3494,10 @@ class PDriveWindow(Gtk.ApplicationWindow):
             application.update_indicator(state)
         return GLib.SOURCE_REMOVE
 
-    def update_issue_card(self, watchdog: dict[str, Any]) -> None:
+    def update_issue_card(self, issues: dict[str, Any]) -> None:
         application = self.get_application()
         preferences = application.preferences if isinstance(application, PDriveApplication) else DEFAULT_PREFERENCES
-        errors, notices = issues_since_review(preferences, watchdog)
+        errors, notices = issues_since_review(preferences, issues)
         total = errors + notices
         self.problem_card.update(
             str(total),
@@ -3509,6 +3540,21 @@ class PDriveWindow(Gtk.ApplicationWindow):
             subject_label.set_selectable(True)
             subject_label.set_line_wrap(True)
             content.pack_start(subject_label, False, False, 0)
+        occurrences = max(1, int(event.get("occurrences") or 1))
+        if occurrences > 1:
+            content.pack_start(
+                label(
+                    translate_format(
+                        "Repeated {count} times · first seen {time}",
+                        count=occurrences,
+                        time=local_time(str(event.get("first_seen") or "")),
+                    ),
+                    "transfer-meta",
+                ),
+                False,
+                False,
+                0,
+            )
         message = label(str(event.get("message") or ""), "issue-message")
         message.set_line_wrap(True)
         message.set_selectable(True)
@@ -3527,11 +3573,11 @@ class PDriveWindow(Gtk.ApplicationWindow):
         row.add(outer)
         return row
 
-    def update_issues(self, watchdog: dict[str, Any], issues: dict[str, Any]) -> None:
+    def update_issues(self, issues: dict[str, Any]) -> None:
         application = self.get_application()
         preferences = application.preferences if isinstance(application, PDriveApplication) else DEFAULT_PREFERENCES
-        events, missing = unreviewed_issue_events(preferences, watchdog, issues)
-        errors, notices = issues_since_review(preferences, watchdog)
+        events, missing = unreviewed_issue_events(preferences, issues)
+        errors, notices = issues_since_review(preferences, issues)
         signature = (
             errors,
             notices,
@@ -3981,8 +4027,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         application = self.get_application()
         if not isinstance(application, PDriveApplication) or self.demo:
             return
-        watchdog = self.current_state.get("watchdog", {})
-        error = application.mark_issues_reviewed(watchdog)
+        error = application.mark_issues_reviewed(self.current_state)
         if error:
             self.message(
                 "Could not update issue review state",
@@ -3990,8 +4035,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 Gtk.MessageType.ERROR,
             )
             return
-        self.update_issue_card(watchdog)
-        self.update_issues(watchdog, self.current_state.get("issues", {}))
+        issues = self.current_state.get("issues", {})
+        self.update_issue_card(issues)
+        self.update_issues(issues)
 
     def on_preferences(self, _button: Gtk.Button) -> None:
         application = self.get_application()
@@ -4669,17 +4715,20 @@ class PDriveApplication(Gtk.Application):
             self.window.schedule_dashboard_timer()
         return None
 
-    def mark_issues_reviewed(self, watchdog: dict[str, Any]) -> str | None:
+    def mark_issues_reviewed(self, state: dict[str, Any]) -> str | None:
         if self.demo:
             return "Preferences cannot be changed in demo mode."
         old_preferences = dict(self.preferences)
         new_preferences = dict(self.preferences)
+        issues = state.get("issues", {}) if isinstance(state.get("issues"), dict) else state
         new_preferences.update(
             {
-                "issues_reviewed_errors": max(0, int(watchdog.get("errors") or 0)),
-                "issues_reviewed_notices": max(0, int(watchdog.get("notices") or 0)),
+                # Keep the legacy counters for a lossless preference-file
+                # migration, but use the timestamp for incident review.
+                "issues_reviewed_errors": max(0, int(issues.get("errors") or 0)),
+                "issues_reviewed_notices": max(0, int(issues.get("notices") or 0)),
                 "issues_reviewed_at": str(
-                    watchdog.get("generated_at") or dt.datetime.now().astimezone().isoformat(timespec="seconds")
+                    state.get("generated_at") or dt.datetime.now().astimezone().isoformat(timespec="seconds")
                 ),
             }
         )

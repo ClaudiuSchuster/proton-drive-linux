@@ -6,6 +6,8 @@ set -euo pipefail
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." && pwd)"
 unit_dir="${project_dir}/systemd/user"
 expected_units=(
+    pdrive-draft-recovery.service
+    pdrive-draft-recovery.timer
     pdrive-watch.service
     pdrive-watch.timer
     proton-drive-update.service
@@ -28,18 +30,20 @@ for unit in "${expected_units[@]}"; do
     grep -qE '^Description=.+$' "${unit_dir}/${unit}"
 done
 
-for service in pdrive-watch.service proton-drive-update.service \
+for service in pdrive-draft-recovery.service pdrive-watch.service proton-drive-update.service \
     rclone-proton-drive.service rclone-selfupdate.service; do
     grep -qFx 'UMask=0077' "${unit_dir}/${service}"
 done
 
 declare -A expected_exec_starts=(
+    [pdrive-draft-recovery.service]='%h/.local/libexec/pdrive-draft-recovery-auto --auto'
     [pdrive-watch.service]='%h/.local/bin/pdrive-watch --record'
     [proton-drive-update.service]='%h/.local/libexec/proton-drive-update'
     [rclone-proton-drive.service]='%h/.local/libexec/rclone-proton-mount'
     [rclone-selfupdate.service]='%h/.local/libexec/rclone-selfupdate'
 )
 declare -A expected_sources=(
+    [pdrive-draft-recovery.service]='libexec/pdrive-draft-recovery-auto'
     [pdrive-watch.service]='bin/pdrive-watch'
     [proton-drive-update.service]='libexec/proton-drive-update'
     [rclone-proton-drive.service]='libexec/rclone-proton-mount'
@@ -59,7 +63,8 @@ if grep -Eq '^(NoNewPrivileges|PrivateDevices|PrivateMounts|ProtectHome)=' "${mo
     exit 1
 fi
 
-for service in pdrive-watch.service proton-drive-update.service rclone-selfupdate.service; do
+for service in pdrive-draft-recovery.service pdrive-watch.service proton-drive-update.service \
+    rclone-selfupdate.service; do
     grep -qFx 'Type=oneshot' "${unit_dir}/${service}"
     grep -qFx 'NoNewPrivileges=true' "${unit_dir}/${service}"
     grep -qFx 'PrivateTmp=true' "${unit_dir}/${service}"
@@ -83,7 +88,7 @@ if command -v systemd-analyze >/dev/null 2>&1; then
     set -e
     verify_output="$(grep -Ev \
         -e '^Failed to (bind private socket|connect to system bus): Operation not permitted$' \
-        -e '^(pdrive-watch|proton-drive-update|rclone-proton-drive|rclone-selfupdate)\.service: Command /[^ ]+/\.local/(bin|libexec)/(pdrive-watch|proton-drive-update|rclone-proton-mount|rclone-selfupdate) is not executable: No such file or directory$' \
+        -e '^(pdrive-draft-recovery|pdrive-watch|proton-drive-update|rclone-proton-drive|rclone-selfupdate)\.service: Command /[^ ]+/\.local/(bin|libexec)/(pdrive-draft-recovery-auto|pdrive-watch|proton-drive-update|rclone-proton-mount|rclone-selfupdate)( --auto)? is not executable: No such file or directory$' \
         <<< "${verify_output}" || true)"
     if (( verify_status != 0 )) && [[ -n "${verify_output}" ]]; then
         printf '%s\n' "${verify_output}" >&2

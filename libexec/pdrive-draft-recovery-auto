@@ -1,0 +1,528 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Guarded one-shot recovery for persistent Proton upload draft conflicts."""
+
+from __future__ import annotations
+
+import argparse
+import base64
+import datetime as dt
+import fcntl
+import hashlib
+import json
+import os
+import pathlib
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+import time
+from typing import Any
+
+
+HOME = pathlib.Path.home()
+STATE_DIR = pathlib.Path(os.environ.get("PDRIVE_STATE_DIR", HOME / ".local/state/rclone"))
+CONFIG_DIR = pathlib.Path(os.environ.get("PDRIVE_CONFIG_DIR", HOME / ".config"))
+CACHE_DIR = pathlib.Path(os.environ.get("PDRIVE_CACHE_DIR", HOME / ".cache/rclone"))
+RC_SOCKET = pathlib.Path(os.environ.get("PDRIVE_RC_SOCKET", STATE_DIR / "pdrive-rc.sock"))
+RCLONE_BIN = pathlib.Path(os.environ.get("PDRIVE_RCLONE_BIN", HOME / ".local/bin/rclone"))
+MOUNT_LOG = pathlib.Path(os.environ.get("PDRIVE_MOUNT_LOG", STATE_DIR / "proton-mount.log"))
+DRAFT_CONFIG = CONFIG_DIR / "pdrive-draft-recovery.conf"
+METADATA_CONFIG = CONFIG_DIR / "pdrive-recovery.conf"
+MONITOR_STATE = STATE_DIR / "pdrive-draft-recovery-state.json"
+LATEST_STATE = STATE_DIR / "pdrive-draft-recovery-latest.json"
+SERVICE_NAME = "rclone-proton-drive.service"
+CONFIRMATIONS_REQUIRED = 2
+ACTIVITY_PROBE_SECONDS = float(os.environ.get("PDRIVE_ACTIVITY_PROBE_SECONDS", "20"))
+
+
+class RecoveryError(RuntimeError):
+    """A guarded recovery precondition or operation failed."""
+
+
+def run(command: list[str], timeout: float = 15.0) -> subprocess.CompletedProcess[str]:
+    try:
+        return subprocess.run(command, check=False, capture_output=True, text=True, timeout=timeout)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise RecoveryError(f"Could not run {command[0]}: {error}") from error
+
+
+def atomic_text(path: pathlib.Path, content: str, mode: int = 0o600) -> None:
+    path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    descriptor, temporary_name = tempfile.mkstemp(prefix=f".{path.name}.", dir=path.parent)
+    temporary = pathlib.Path(temporary_name)
+    try:
+        with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
+            stream.write(content)
+            stream.flush()
+            os.fsync(stream.fileno())
+        temporary.chmod(mode)
+        os.replace(temporary, path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def atomic_json(path: pathlib.Path, payload: dict[str, Any]) -> None:
+    atomic_text(path, json.dumps(payload, indent=2, sort_keys=True) + "\n")
+
+
+def read_json(path: pathlib.Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return payload if isinstance(payload, dict) else {}
+    except (OSError, json.JSONDecodeError):
+        return {}
+
+
+def exact_config(path: pathlib.Path, key: str, default: bool = False) -> bool:
+    try:
+        entries = [
+            line.strip()
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+    except FileNotFoundError:
+        return default
+    except OSError as error:
+        raise RecoveryError(f"Configuration is unreadable: {path}: {error}") from error
+    expected = {f"{key}=true": True, f"{key}=false": False}
+    if len(entries) != 1 or entries[0] not in expected:
+        raise RecoveryError(f"Configuration contains no exact {key}=true/false value: {path}")
+    return expected[entries[0]]
+
+
+def write_draft_mode(enabled: bool) -> None:
+    value = str(enabled).lower()
+    atomic_text(
+        DRAFT_CONFIG,
+        "# Managed by pdrive-draft-recovery; never source as shell code.\n"
+        "# true is temporary and only valid in the guarded recovery namespace.\n"
+        f"replace_existing_draft={value}\n",
+    )
+
+
+def namespace_name(metadata_cache: bool, replace_draft: bool) -> str:
+    extra = f"enable_caching='{str(metadata_cache).lower()}',replace_existing_draft='{str(replace_draft).lower()}'"
+    digest = hashlib.md5(extra.encode("utf-8"), usedforsecurity=False).digest()
+    suffix = base64.urlsafe_b64encode(digest).decode("ascii").rstrip("=")[:5]
+    return f"proton{{{suffix}}}"
+
+
+def rc(endpoint: str) -> dict[str, Any]:
+    completed = run(
+        [str(RCLONE_BIN), "rc", "--unix-socket", str(RC_SOCKET), endpoint],
+        timeout=12,
+    )
+    if completed.returncode != 0:
+        raise RecoveryError(completed.stderr.strip() or f"rclone RC failed for {endpoint}")
+    try:
+        payload = json.loads(completed.stdout)
+    except json.JSONDecodeError as error:
+        raise RecoveryError(f"rclone RC returned invalid JSON for {endpoint}") from error
+    if not isinstance(payload, dict):
+        raise RecoveryError(f"rclone RC returned an invalid object for {endpoint}")
+    return payload
+
+
+def service_pid_and_args() -> tuple[int, str]:
+    completed = run(["systemctl", "--user", "show", SERVICE_NAME, "-p", "MainPID", "--value", "--no-pager"])
+    try:
+        pid = int(completed.stdout.strip())
+    except ValueError:
+        pid = 0
+    if completed.returncode != 0 or pid <= 0:
+        return 0, ""
+    args = run(["ps", "-ww", "-p", str(pid), "-o", "args="], timeout=5)
+    return pid, args.stdout.strip() if args.returncode == 0 else ""
+
+
+def queue_snapshot() -> list[dict[str, Any]]:
+    payload = rc("vfs/queue")
+    queue = payload.get("queue", [])
+    if not isinstance(queue, list):
+        raise RecoveryError("The VFS queue is not an array")
+    return [item for item in queue if isinstance(item, dict)]
+
+
+def item_fingerprint(item: dict[str, Any], metadata_cache: bool, draft_mode: bool) -> str:
+    name = str(item.get("name") or "")
+    namespace = namespace_name(metadata_cache, draft_mode)
+    meta_root = (CACHE_DIR / "vfsMeta" / namespace).resolve()
+    meta_path = (meta_root / pathlib.PurePosixPath(name)).resolve()
+    inode = 0
+    device = 0
+    if meta_path.is_relative_to(meta_root):
+        try:
+            metadata = meta_path.stat()
+            inode = metadata.st_ino
+            device = metadata.st_dev
+        except OSError:
+            pass
+    identity = json.dumps(
+        {
+            "name": name,
+            "size": int(item.get("size") or 0),
+            # The VFS metadata inode follows an atomic namespace rename but
+            # distinguishes a later, same-name/same-size cache generation.
+            "meta_device": device,
+            "meta_inode": inode,
+        },
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return hashlib.sha256(identity.encode("utf-8")).hexdigest()
+
+
+def recent_draft_conflict(name: str) -> bool:
+    try:
+        with MOUNT_LOG.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, stream.tell() - 512 * 1024))
+            payload = stream.read().decode("utf-8", errors="replace")
+    except OSError:
+        return False
+    pattern = re.compile(r"^(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2}).*a draft exist", re.IGNORECASE)
+    for line in reversed(payload.replace("\x00", "").splitlines()):
+        match = pattern.search(line)
+        if match is None or name not in line:
+            continue
+        return True
+    return False
+
+
+def tcp_sent_bytes(pid: int) -> int:
+    if pid <= 0 or shutil.which("ss") is None:
+        return 0
+    completed = run(["ss", "-Htinp", "state", "established"], timeout=5)
+    if completed.returncode != 0:
+        return 0
+    lines = completed.stdout.splitlines()
+    process_pattern = re.compile(rf"\bpid={pid}(?:,|\))")
+    counter_pattern = re.compile(r"\bbytes_sent:(\d+)\b")
+    total = 0
+    for index, line in enumerate(lines):
+        if process_pattern.search(line) is None:
+            continue
+        details = line + (" " + lines[index + 1] if index + 1 < len(lines) else "")
+        total += sum(int(value) for value in counter_pattern.findall(details))
+    return total
+
+
+def process_io(pid: int) -> tuple[int, int]:
+    values = {"rchar": 0, "read_bytes": 0}
+    try:
+        for line in pathlib.Path(f"/proc/{pid}/io").read_text(encoding="utf-8").splitlines():
+            key, separator, value = line.partition(":")
+            if separator and key in values:
+                values[key] = max(0, int(value.strip()))
+    except (OSError, ValueError):
+        pass
+    return values["rchar"], values["read_bytes"]
+
+
+def rclone_transfer_bytes() -> int:
+    try:
+        stats = rc("core/stats")
+    except RecoveryError:
+        return 0
+    active = stats.get("transferring", [])
+    active_bytes = 0
+    if isinstance(active, list):
+        active_bytes = sum(max(0, int(item.get("bytes") or 0)) for item in active if isinstance(item, dict))
+    return max(max(0, int(stats.get("bytes") or 0)), active_bytes)
+
+
+def activity_snapshot(pid: int) -> tuple[int, int, int, int]:
+    rchar, read_bytes = process_io(pid)
+    return tcp_sent_bytes(pid), rclone_transfer_bytes(), rchar, read_bytes
+
+
+def payload_is_moving(pid: int) -> bool:
+    before_tcp, before_transfer, before_rchar, before_read = activity_snapshot(pid)
+    time.sleep(max(0.0, ACTIVITY_PROBE_SECONDS))
+    current_pid, _args = service_pid_and_args()
+    if current_pid != pid:
+        return True
+    after_tcp, after_transfer, after_rchar, after_read = activity_snapshot(pid)
+    return any(
+        (
+            after_tcp > before_tcp + 256 * 1024,
+            after_transfer > before_transfer + 1024 * 1024,
+            after_rchar > before_rchar + 8 * 1024 * 1024,
+            after_read > before_read + 1024 * 1024,
+        )
+    )
+
+
+def dirty_stats(meta_root: pathlib.Path) -> tuple[int, int]:
+    count = 0
+    size = 0
+    if not meta_root.is_dir():
+        return count, size
+    for path in meta_root.rglob("*"):
+        if not path.is_file():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if isinstance(payload, dict) and payload.get("Dirty") is True:
+            count += 1
+            size += max(0, int(payload.get("Size") or 0))
+    return count, size
+
+
+def service_action(action: str) -> None:
+    completed = run(["systemctl", "--user", action, "--no-block", SERVICE_NAME], timeout=10)
+    if completed.returncode != 0:
+        raise RecoveryError(completed.stderr.strip() or f"Could not {action} {SERVICE_NAME}")
+
+
+def wait_inactive(timeout: int = 45) -> None:
+    deadline = time.monotonic() + timeout
+    while time.monotonic() < deadline:
+        pid, _args = service_pid_and_args()
+        if pid <= 0:
+            return
+        time.sleep(1)
+    raise RecoveryError("The mount service did not stop within the safety timeout")
+
+
+def wait_ready(expected_namespace: str, expected_queue: bool, timeout: int = 90) -> None:
+    deadline = time.monotonic() + timeout
+    last_error = "service not ready"
+    while time.monotonic() < deadline:
+        try:
+            pid, _args = service_pid_and_args()
+            if pid <= 0:
+                raise RecoveryError("service has no main process")
+            stats = rc("vfs/stats")
+            disk_cache = stats.get("diskCache", {})
+            if pathlib.Path(str(disk_cache.get("path") or "")).name != expected_namespace:
+                raise RecoveryError("rclone selected an unexpected VFS namespace")
+            queue = queue_snapshot()
+            if expected_queue and not queue:
+                raise RecoveryError("the preserved VFS queue has not appeared yet")
+            return
+        except RecoveryError as error:
+            last_error = str(error)
+            time.sleep(2)
+    raise RecoveryError(f"The restarted mount did not validate: {last_error}")
+
+
+def move_namespace(source_name: str, target_name: str) -> None:
+    moved: list[tuple[pathlib.Path, pathlib.Path]] = []
+    pairs = [
+        (CACHE_DIR / "vfs" / source_name, CACHE_DIR / "vfs" / target_name),
+        (CACHE_DIR / "vfsMeta" / source_name, CACHE_DIR / "vfsMeta" / target_name),
+    ]
+    for source, target in pairs:
+        if not source.is_dir():
+            raise RecoveryError(f"Expected VFS namespace is missing: {source}")
+        if target.exists():
+            raise RecoveryError(f"Refusing to merge with an existing VFS namespace: {target}")
+    try:
+        for source, target in pairs:
+            source.rename(target)
+            moved.append((source, target))
+    except OSError as error:
+        for source, target in reversed(moved):
+            if target.exists() and not source.exists():
+                target.rename(source)
+        raise RecoveryError(f"Could not atomically relocate the VFS namespace: {error}") from error
+
+
+def recover_namespace(enable: bool, queue: list[dict[str, Any]], metadata_cache: bool) -> None:
+    source_name = namespace_name(metadata_cache, not enable)
+    target_name = namespace_name(metadata_cache, enable)
+    pid, args = service_pid_and_args()
+    expected_flag = f"--protondrive-replace-existing-draft={str(not enable).lower()}"
+    if pid <= 0 or expected_flag not in args:
+        raise RecoveryError("The running mount does not match the expected draft-recovery mode")
+    stats = rc("vfs/stats")
+    disk_cache = stats.get("diskCache", {}) if isinstance(stats.get("diskCache"), dict) else {}
+    if pathlib.Path(str(disk_cache.get("path") or "")).name != source_name:
+        raise RecoveryError("The live VFS namespace does not match the calculated safe source")
+    before_count = len(queue)
+    before_bytes = sum(max(0, int(item.get("size") or 0)) for item in queue)
+
+    service_action("stop")
+    wait_inactive()
+    moved = False
+    config_changed = False
+    try:
+        source_meta = CACHE_DIR / "vfsMeta" / source_name
+        dirty_count, dirty_bytes = dirty_stats(source_meta)
+        if enable and (dirty_count < before_count or dirty_bytes < before_bytes):
+            raise RecoveryError("Dirty VFS metadata does not contain the complete queued payload")
+        if not enable and (before_count or dirty_count):
+            raise RecoveryError("Draft recovery cannot be disabled while pending writes remain")
+        move_namespace(source_name, target_name)
+        moved = True
+        write_draft_mode(enable)
+        config_changed = True
+        service_action("start")
+        wait_ready(target_name, expected_queue=enable and before_count > 0)
+    except Exception as error:
+        try:
+            service_action("stop")
+            wait_inactive()
+        except RecoveryError:
+            pass
+        if config_changed:
+            write_draft_mode(not enable)
+        if moved:
+            try:
+                move_namespace(target_name, source_name)
+            except RecoveryError as rollback_error:
+                raise RecoveryError(f"{error}; namespace rollback also failed: {rollback_error}") from error
+        try:
+            service_action("start")
+            wait_ready(source_name, expected_queue=bool(before_count))
+        except RecoveryError as rollback_error:
+            raise RecoveryError(f"{error}; original mount recovery failed: {rollback_error}") from error
+        raise RecoveryError(str(error)) from error
+
+
+def save_latest(status: str, detail: str, **extra: Any) -> None:
+    payload: dict[str, Any] = {
+        "generated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        "status": status,
+        "detail": detail,
+    }
+    payload.update(extra)
+    atomic_json(LATEST_STATE, payload)
+    print(detail)
+
+
+def automatic_recovery(force: bool = False) -> int:
+    STATE_DIR.mkdir(mode=0o700, parents=True, exist_ok=True)
+    metadata_cache = exact_config(METADATA_CONFIG, "proton_metadata_cache")
+    draft_mode = exact_config(DRAFT_CONFIG, "replace_existing_draft")
+    pid, args = service_pid_and_args()
+    if pid <= 0:
+        save_latest("deferred", "Draft recovery deferred because the mount service is not running.")
+        return 0
+    if not metadata_cache:
+        save_latest(
+            "inactive",
+            "Automatic draft recovery is inactive in parallel-client-compatible metadata mode.",
+        )
+        MONITOR_STATE.unlink(missing_ok=True)
+        return 0
+    queue = queue_snapshot()
+    if draft_mode:
+        if "--protondrive-replace-existing-draft=true" not in args:
+            raise RecoveryError("Draft recovery is configured but not active in the running mount")
+        if queue:
+            save_latest(
+                "recovering",
+                "The guarded draft-recovery upload is still pending; its VFS cache remains protected.",
+                queue_count=len(queue),
+            )
+            return 0
+        recover_namespace(False, queue, metadata_cache)
+        MONITOR_STATE.unlink(missing_ok=True)
+        save_latest("completed", "Draft recovery finished and conservative backend behavior was restored.")
+        return 0
+
+    previous = read_json(MONITOR_STATE)
+    candidates = [item for item in queue if int(item.get("tries") or 0) >= 2]
+    candidates.sort(key=lambda item: int(item.get("tries") or 0), reverse=True)
+    candidate = None
+    fingerprint = ""
+    for item in candidates:
+        item_hash = item_fingerprint(item, metadata_cache, draft_mode)
+        has_exact_log = recent_draft_conflict(str(item.get("name") or ""))
+        has_retained_evidence = previous.get("fingerprint") == item_hash and previous.get("draft_conflict") is True
+        if has_exact_log or has_retained_evidence:
+            candidate = item
+            fingerprint = item_hash
+            break
+    if candidate is None:
+        MONITOR_STATE.unlink(missing_ok=True)
+        save_latest("healthy", "No persistent Proton upload draft conflict is awaiting recovery.")
+        return 0
+    if payload_is_moving(pid):
+        atomic_json(
+            MONITOR_STATE,
+            {
+                "fingerprint": fingerprint,
+                "draft_conflict": True,
+                "confirmations": max(1, int(previous.get("confirmations") or 1)),
+                "tries": int(candidate.get("tries") or 0),
+                "updated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+            },
+        )
+        save_latest("active", "Real upload traffic is moving; automatic draft recovery did not intervene.")
+        return 0
+
+    tries = int(candidate.get("tries") or 0)
+    confirmations = 1
+    if previous.get("fingerprint") == fingerprint:
+        confirmations = max(1, int(previous.get("confirmations") or 1))
+        if tries > int(previous.get("tries") or 0):
+            confirmations += 1
+    atomic_json(
+        MONITOR_STATE,
+        {
+            "fingerprint": fingerprint,
+            "draft_conflict": True,
+            "confirmations": min(confirmations, CONFIRMATIONS_REQUIRED),
+            "tries": tries,
+            "updated_at": dt.datetime.now().astimezone().isoformat(timespec="seconds"),
+        },
+    )
+    if not force and confirmations < CONFIRMATIONS_REQUIRED:
+        save_latest(
+            "confirming",
+            "A draft conflict was observed without payload traffic; one later retry must confirm it.",
+            confirmations=confirmations,
+        )
+        return 0
+
+    recover_namespace(True, queue, metadata_cache)
+    MONITOR_STATE.unlink(missing_ok=True)
+    save_latest(
+        "recovery-started",
+        "A confirmed draft conflict entered the guarded one-shot recovery namespace.",
+        queue_count=len(queue),
+    )
+    return 0
+
+
+def parser() -> argparse.ArgumentParser:
+    result = argparse.ArgumentParser(description=__doc__)
+    mode = result.add_mutually_exclusive_group(required=True)
+    mode.add_argument("--auto", action="store_true", help="run one guarded timer observation")
+    mode.add_argument(
+        "--recover-now", action="store_true", help="apply all guards but skip the second timer observation"
+    )
+    mode.add_argument("--namespace", choices=("normal", "recovery"), help=argparse.SUPPRESS)
+    return result
+
+
+def main() -> int:
+    args = parser().parse_args()
+    if args.namespace:
+        metadata_cache = exact_config(METADATA_CONFIG, "proton_metadata_cache")
+        print(namespace_name(metadata_cache, args.namespace == "recovery"))
+        return 0
+    lock_path = STATE_DIR / "pdrive-draft-recovery.lock"
+    lock_path.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
+    with lock_path.open("w", encoding="utf-8") as lock:
+        try:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            print("Another guarded draft-recovery check is already running.")
+            return 0
+        try:
+            return automatic_recovery(force=args.recover_now)
+        except RecoveryError as error:
+            save_latest("error", str(error))
+            return 75
+
+
+if __name__ == "__main__":
+    sys.exit(main())
