@@ -115,29 +115,49 @@ assert module.load_preferences() == {
 assert module.preferences_path().stat().st_mode & 0o777 == 0o600
 
 reviewed = module.load_preferences()
-assert module.issues_since_review(reviewed, {"errors": 45, "notices": 11}) == (5, 2)
-assert module.issues_since_review(reviewed, {"errors": 3, "notices": 2}) == (3, 2)
-assert module.issues_since_review(module.DEFAULT_PREFERENCES, {"errors": 99, "notices": 8}) == (0, 0)
 issue_events = [
-    {"timestamp": "1", "level": "error", "message": "old error"},
-    {"timestamp": "2", "level": "notice", "message": "old notice"},
-    {"timestamp": "3", "level": "error", "message": "new error"},
-    {"timestamp": "4", "level": "notice", "message": "new notice"},
+    {"timestamp": "2026-08-24T11:00:00+02:00", "level": "error", "message": "old error"},
+    {"timestamp": "2026-08-24T11:30:00+02:00", "level": "notice", "message": "old notice"},
+    {"timestamp": "2026-08-24T13:00:00+02:00", "level": "error", "message": "new error"},
+    {"timestamp": "2026-08-24T13:15:00+02:00", "level": "notice", "message": "new notice"},
 ]
+issue_payload = {"available": True, "events": issue_events}
+assert module.issues_since_review(reviewed, issue_payload) == (1, 1)
+assert module.issues_since_review(module.DEFAULT_PREFERENCES, issue_payload) == (0, 0)
 selected, missing = module.unreviewed_issue_events(
     reviewed,
-    {"errors": 41, "notices": 10},
-    {"available": True, "events": issue_events},
+    issue_payload,
 )
 assert [event["message"] for event in selected] == ["new error", "new notice"]
 assert missing == 0
 selected, missing = module.unreviewed_issue_events(
     reviewed,
-    {"errors": 45, "notices": 12},
     {"available": True, "events": issue_events[-1:]},
 )
 assert [event["message"] for event in selected] == ["new notice"]
-assert missing == 7
+assert missing == 0
+
+rate, baseline = module.network_send_rate(
+    None,
+    {"available": True, "sent_bytes": 2_000_000},
+    4242,
+    10.0,
+)
+assert rate == 0
+rate, baseline = module.network_send_rate(
+    baseline,
+    {"available": True, "sent_bytes": 10_388_608},
+    4242,
+    12.0,
+)
+assert rate == 4_194_304
+rate, baseline = module.network_send_rate(
+    baseline,
+    {"available": True, "sent_bytes": 10_388_608},
+    4242,
+    14.0,
+)
+assert rate == 0
 
 rate, baseline = module.network_receive_rate(
     None,
@@ -191,14 +211,13 @@ assert updated["issues_reviewed_notices"] == 9
 assert updated["issues_reviewed_at"] == "2026-08-24T12:00:00+02:00"
 assert application.mark_issues_reviewed(
     {
-        "errors": 45,
-        "notices": 12,
         "generated_at": "2026-08-24T13:30:00+02:00",
+        "issues": {"errors": 2, "notices": 1},
     }
 ) is None
 reviewed_again = module.load_preferences()
-assert reviewed_again["issues_reviewed_errors"] == 45
-assert reviewed_again["issues_reviewed_notices"] == 12
+assert reviewed_again["issues_reviewed_errors"] == 2
+assert reviewed_again["issues_reviewed_notices"] == 1
 assert reviewed_again["issues_reviewed_at"] == "2026-08-24T13:30:00+02:00"
 
 module.PDriveApplication.sync_autostart(False)

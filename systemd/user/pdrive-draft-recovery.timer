@@ -1,0 +1,12 @@
+[Unit]
+Description=Check for confirmed Proton upload draft conflicts every five minutes
+
+[Timer]
+OnActiveSec=3m
+OnUnitActiveSec=5m
+AccuracySec=30s
+Persistent=true
+Unit=pdrive-draft-recovery.service
+
+[Install]
+WantedBy=timers.target
