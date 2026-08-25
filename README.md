@@ -56,8 +56,8 @@ Keyring and provides a native GTK control center for the details that matter.
 - Writable, owner-only `/pdrive` mount with a direct Nemo bookmark.
 - English and German GTK control center with tray support.
 - Upload and download-traffic graphs with a configurable live interval.
-- Active transfers, upload queue, service diagnostics, bounded health history
-  and reviewable issue evidence.
+- Active transfers, upload queue with a smoothed remaining-time estimate,
+  service diagnostics, bounded health history and reviewable issue evidence.
 - Clear Proton cloud used/total/free, local free-space and VFS-cache values.
 - Fine-grained bandwidth plus guarded upload-slot, cache-retention,
   metadata-refresh and restart controls.
@@ -91,9 +91,9 @@ installer is run again.
 
 ## PDrive Control Center
 
-The Overview shows health, live traffic, active work, queued uploads,
-unreviewed issues, VFS-cache use and storage capacity. The Capacity card keeps
-the two worlds explicit:
+The Overview shows health, live traffic, active work, queued uploads and their
+estimated remaining time, unreviewed issues, VFS-cache use and storage
+capacity. The Capacity card keeps the two worlds explicit:
 
 - **Proton cloud:** used, total and free account storage;
 - **Local cache disk:** local free space and current VFS-cache use.

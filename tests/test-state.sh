@@ -123,6 +123,7 @@ jq -e '
     and .transfers.active[0].name == "demo/file.iso"
     and .queue.count == 1
     and .queue.active == 1
+    and .queue.remaining_bytes == 1048576
     and .vfs.cache_bytes == 3145728
     and .vfs.cache_state == "pending"
     and .vfs.clean_files == 1

@@ -156,6 +156,9 @@ project-specific; CI remains the authority for mechanical formatting rules.
 - GitHub Actions must pass both Functional checks and Super-Linter. Do not hide
   a real warning merely to make CI green; suppress only understood environment
   noise at its source.
+- Keep the Checks workflow on pull requests plus pushes to `main`. Enabling it
+  for every branch push duplicates both required jobs for same-repository pull
+  requests without adding a distinct validation boundary.
 - Never run the state-writing watchdog against a live deployment from a sandbox
   that cannot access the user bus or owner-only RC socket. Such failures are
   tooling limitations, not evidence that the service is down.

@@ -337,6 +337,30 @@ def normalize_queue(payload: dict[str, Any] | None) -> dict[str, Any]:
     }
 
 
+def queue_remaining_bytes(queue: dict[str, Any], active: list[dict[str, Any]]) -> int:
+    """Estimate bytes still pending across the complete VFS upload queue.
+
+    vfs/queue reports each queued file's full size while core/stats reports the
+    bytes already sent for an active copy. Match each active copy to at most one
+    queue item so the UI can estimate the complete backlog without understating
+    it when filenames repeat.
+    """
+
+    remaining = max(0, integer(queue.get("bytes")))
+    unmatched = list(queue.get("items", []))
+    for transfer in active:
+        name = str(transfer.get("name") or "")
+        for index, item in enumerate(unmatched):
+            if str(item.get("name") or "") != name:
+                continue
+            size = max(0, integer(item.get("size")))
+            completed = min(size, max(0, integer(transfer.get("bytes"))))
+            remaining = max(0, remaining - completed)
+            unmatched.pop(index)
+            break
+    return remaining
+
+
 def sanitize_issue_text(value: str) -> str:
     """Remove API identifiers and credential-shaped values from a log message."""
 
@@ -772,7 +796,9 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
     active_raw = stats.get("transferring", [])
     if not isinstance(active_raw, list):
         active_raw = []
+    active = [normalize_transfer(item) for item in active_raw if isinstance(item, dict)]
     queue = normalize_queue(rc_payloads.get("vfs/queue"))
+    queue["remaining_bytes"] = queue_remaining_bytes(queue, active)
     vfs = rc_payloads.get("vfs/stats", {})
     disk_cache = vfs.get("diskCache", {}) if isinstance(vfs.get("diskCache"), dict) else {}
     vfs_options = vfs.get("opt", {}) if isinstance(vfs.get("opt"), dict) else {}
@@ -879,7 +905,7 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
             "elapsed_seconds": number(stats.get("elapsedTime")),
         },
         "transfers": {
-            "active": [normalize_transfer(item) for item in active_raw if isinstance(item, dict)],
+            "active": active,
             "recent": [
                 normalize_transfer(item, completed=True) for item in transferred[-24:] if isinstance(item, dict)
             ],
