@@ -57,7 +57,10 @@ DOCUMENTATION_URL = f"{PROJECT_URL}#readme"
 PROTON_DRIVE_URL = "https://drive.proton.me/"
 ABOUT_CREDITS = (
     ("Claudiu Schuster — creator and maintainer", "https://github.com/ClaudiuSchuster"),
-    ("OpenAI Codex — design and engineering collaborator", "https://github.com/openai/codex"),
+    (
+        "OpenAI Codex — design and engineering collaborator",
+        "https://github.com/openai/codex",
+    ),
     (
         "Fabian Schneider — comic relief, lively development chats and plenty of screenshots",
         "https://github.com/Fabian123333",
@@ -165,6 +168,8 @@ GERMAN_TRANSLATIONS = {
     "Bandwidth limit …": "Bandbreitenlimit …",
     "Upload slots …": "Uploadslots …",
     "Cache retention …": "Cache-Aufbewahrung …",
+    "Metadata cache …": "Metadaten-Cache …",
+    "Restart cooldown …": "Neustart-Cooldown …",
     "Reset restart cooldown": "Neustart-Cooldown zurücksetzen",
     "Refresh metadata …": "Metadaten neu laden …",
     "Safely restart service …": "Dienst sicher neu starten …",
@@ -305,6 +310,9 @@ GERMAN_TRANSLATIONS = {
     "Status unavailable": "Status nicht erreichbar",
     "of {slots} upload slots in use": "von {slots} Uploadslots belegt",
     "{errors} errors · {notices} notices · since reviewed": "{errors} Fehler · {notices} Hinweise · seit der letzten Prüfung",
+    "{bytes} · ETA ≈ {eta}": "{bytes} · ETA ≈ {eta}",
+    "{bytes} · ETA calculating": "{bytes} · ETA wird berechnet",
+    "Queue is empty · ETA complete": "Warteschlange leer · ETA abgeschlossen",
     "Mark issues reviewed": "Probleme als geprüft markieren",
     "Could not update issue review state": "Prüfstatus der Probleme konnte nicht gespeichert werden",
     "{files} local cache files": "{files} lokale Cachedateien",
@@ -1099,6 +1107,21 @@ def human_duration(value: Any) -> str:
     return f"{seconds // 86400}d {(seconds % 86400) // 3600}h"
 
 
+def clock_duration(value: Any) -> str:
+    """Format an estimated duration without hiding multi-day uploads."""
+
+    try:
+        seconds = max(0, int(math.ceil(float(value))))
+    except (TypeError, ValueError, OverflowError):
+        return "–"
+    hours, remainder = divmod(seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    if hours >= 24:
+        days, hours = divmod(hours, 24)
+        return f"{days}d {hours}h"
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
 def approximate_duration(value: Any) -> str:
     try:
         seconds = max(0, int(value))
@@ -1610,7 +1633,10 @@ class MarkdownView(Gtk.ScrolledWindow):
         self.text_view.set_right_margin(28)
         self.text_view.set_top_margin(22)
         self.text_view.set_bottom_margin(28)
+        self.text_view.add_events(Gdk.EventMask.POINTER_MOTION_MASK | Gdk.EventMask.LEAVE_NOTIFY_MASK)
         self.text_view.connect("button-release-event", self.on_button_release)
+        self.text_view.connect("motion-notify-event", self.on_motion_notify)
+        self.text_view.connect("leave-notify-event", self.on_pointer_leave)
         self.add(self.text_view)
         self.buffer = self.text_view.get_buffer()
         self.tags = {
@@ -1697,6 +1723,19 @@ class MarkdownView(Gtk.ScrolledWindow):
         }
         self.render(markdown)
 
+    def insert_text(self, text: str, *tags: Gtk.TextTag) -> None:
+        """Insert non-link text and stop an adjacent link tag from bleeding."""
+
+        start_offset = self.buffer.get_end_iter().get_offset()
+        if tags:
+            self.buffer.insert_with_tags(self.buffer.get_end_iter(), text, *tags)
+        else:
+            self.buffer.insert(self.buffer.get_end_iter(), text)
+        start = self.buffer.get_iter_at_offset(start_offset)
+        end = self.buffer.get_end_iter()
+        for link_tag, _target in self.link_tags:
+            self.buffer.remove_tag(link_tag, start, end)
+
     def insert_image(self, specification: str) -> None:
         try:
             image = json.loads(specification)
@@ -1735,21 +1774,12 @@ class MarkdownView(Gtk.ScrolledWindow):
         position = 0
         for match in self.INLINE_PATTERN.finditer(text):
             if match.start() > position:
-                self.buffer.insert_with_tags(
-                    self.buffer.get_end_iter(),
-                    text[position : match.start()],
-                    base_tag,
-                )
+                self.insert_text(text[position : match.start()], base_tag)
             token = match.group(0)
             if token.startswith("**"):
-                self.buffer.insert_with_tags(self.buffer.get_end_iter(), token[2:-2], base_tag, self.tags["bold"])
+                self.insert_text(token[2:-2], base_tag, self.tags["bold"])
             elif token.startswith("`"):
-                self.buffer.insert_with_tags(
-                    self.buffer.get_end_iter(),
-                    token[1:-1],
-                    base_tag,
-                    self.tags["inline-code"],
-                )
+                self.insert_text(token[1:-1], base_tag, self.tags["inline-code"])
             else:
                 link = re.match(r"^\[([^]]+)\]\(([^)]+)\)$", token)
                 if link:
@@ -1762,62 +1792,88 @@ class MarkdownView(Gtk.ScrolledWindow):
                     self.buffer.insert_with_tags(self.buffer.get_end_iter(), link.group(1), base_tag, tag)
             position = match.end()
         if position < len(text):
-            self.buffer.insert_with_tags(self.buffer.get_end_iter(), text[position:], base_tag)
+            self.insert_text(text[position:], base_tag)
 
     def render(self, markdown: str) -> None:
         for kind, text in markdown_blocks(markdown):
             if kind.startswith("heading-"):
                 self.insert_inline(text, self.tags.get(kind, self.tags["heading-3"]))
-                self.buffer.insert(self.buffer.get_end_iter(), "\n")
+                self.insert_text("\n")
             elif kind == "code":
-                self.buffer.insert_with_tags(self.buffer.get_end_iter(), f"{text}\n", self.tags["code"])
+                self.insert_text(f"{text}\n", self.tags["code"])
             elif kind == "table-row":
                 self.insert_inline(text, self.tags["table-row"])
-                self.buffer.insert(self.buffer.get_end_iter(), "\n\n")
+                self.insert_text("\n\n")
             elif kind == "quote":
-                self.buffer.insert_with_tags(self.buffer.get_end_iter(), "▌ ", self.tags["quote"])
+                self.insert_text("▌ ", self.tags["quote"])
                 self.insert_inline(text, self.tags["quote"])
-                self.buffer.insert(self.buffer.get_end_iter(), "\n")
+                self.insert_text("\n")
             elif kind.startswith("admonition-"):
                 alert_kind = kind.removeprefix("admonition-")
                 title_tag = self.tags.get(kind, self.tags["admonition-note"])
-                self.buffer.insert_with_tags(
-                    self.buffer.get_end_iter(),
+                self.insert_text(
                     f"●  {alert_kind.upper()}\n",
                     self.tags["admonition"],
                     title_tag,
                 )
                 if text:
                     self.insert_inline(text, self.tags["admonition"])
-                self.buffer.insert(self.buffer.get_end_iter(), "\n\n")
+                self.insert_text("\n\n")
             elif kind == "image":
                 self.insert_image(text)
             elif kind == "bullet":
-                self.buffer.insert_with_tags(self.buffer.get_end_iter(), "• ", self.tags["bullet"])
+                self.insert_text("• ", self.tags["bullet"])
                 self.insert_inline(text, self.tags["bullet"])
-                self.buffer.insert(self.buffer.get_end_iter(), "\n")
+                self.insert_text("\n")
             elif kind == "numbered":
                 self.insert_inline(text, self.tags["bullet"])
-                self.buffer.insert(self.buffer.get_end_iter(), "\n")
+                self.insert_text("\n")
             else:
                 self.insert_inline(text, self.tags["body"])
-                self.buffer.insert(self.buffer.get_end_iter(), "\n\n")
+                self.insert_text("\n\n")
 
-    def on_button_release(self, _widget: Gtk.Widget, event: Gdk.EventButton) -> bool:
-        if event.button != 1:
-            return False
-        x, y = self.text_view.window_to_buffer_coords(
+    def link_at(self, x: float, y: float) -> str | None:
+        buffer_x, buffer_y = self.text_view.window_to_buffer_coords(
             Gtk.TextWindowType.WIDGET,
-            int(event.x),
-            int(event.y),
+            int(x),
+            int(y),
         )
-        located = self.text_view.get_iter_at_location(x, y)
+        located = self.text_view.get_iter_at_location(buffer_x, buffer_y)
         iterator = located[-1] if isinstance(located, tuple) else located
         for active_tag in iterator.get_tags():
             for link_tag, target in self.link_tags:
                 if active_tag == link_tag:
-                    self.activate_link(target)
-                    return True
+                    return target
+        return None
+
+    def set_link_cursor(self, active: bool) -> None:
+        text_window = self.text_view.get_window(Gtk.TextWindowType.TEXT)
+        if text_window is None:
+            return
+        if not active:
+            text_window.set_cursor(None)
+            return
+        display = text_window.get_display()
+        cursor = Gdk.Cursor.new_from_name(display, "pointer")
+        if cursor is None:
+            cursor = Gdk.Cursor.new_for_display(display, Gdk.CursorType.HAND2)
+        text_window.set_cursor(cursor)
+
+    def on_motion_notify(self, _widget: Gtk.Widget, event: Gdk.EventMotion) -> bool:
+        self.set_link_cursor(self.link_at(event.x, event.y) is not None)
+        return False
+
+    def on_pointer_leave(self, _widget: Gtk.Widget, _event: Gdk.EventCrossing) -> bool:
+        self.set_link_cursor(False)
+        return False
+
+    def on_button_release(self, _widget: Gtk.Widget, event: Gdk.EventButton) -> bool:
+        if event.button != 1:
+            return False
+        target = self.link_at(event.x, event.y)
+        if target is not None:
+            self.activate_link(target)
+            return True
         return False
 
 
@@ -2347,6 +2403,10 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.download_samples: collections.deque[float] = collections.deque(maxlen=150)
         self.network_send_baseline: tuple[int, int, float] | None = None
         self.network_receive_baseline: tuple[int, int, float] | None = None
+        self.upload_eta_pid = 0
+        self.upload_eta_rate = 0.0
+        self.upload_eta_samples = 0
+        self.upload_eta_last_progress = 0.0
         self.capacity_refresh_due = 0.0
         self.remote_capacity: dict[str, Any] = {}
         self.current_state: dict[str, Any] = {}
@@ -2535,6 +2595,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
         actions = [
             ("speedometer-symbolic", "Bandwidth limit …", self.on_bandwidth),
             ("view-list-symbolic", "Upload slots …", self.on_transfers),
+            ("drive-harddisk-symbolic", "Cache retention …", self.on_cache_retention),
+            ("folder-remote-symbolic", "Metadata cache …", self.on_metadata_cache),
+            ("alarm-symbolic", "Restart cooldown …", self.on_cooldown),
             (
                 "edit-clear-all-symbolic",
                 "Reset restart cooldown",
@@ -3187,6 +3250,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
         if self.closed:
             self.content_fit_source = 0
             return GLib.SOURCE_REMOVE
+        if not self.get_visible() or not self.get_mapped():
+            self.content_fit_source = 0
+            return GLib.SOURCE_REMOVE
         self.content_fit_attempts += 1
         overflow = 0.0
         if not self.setup_required and hasattr(self, "overview_scroller"):
@@ -3211,6 +3277,53 @@ class PDriveWindow(Gtk.ApplicationWindow):
             return GLib.SOURCE_CONTINUE
         self.content_fit_source = 0
         return GLib.SOURCE_REMOVE
+
+    def queue_eta_detail(
+        self,
+        queue: dict[str, Any],
+        speed: float,
+        pid: int,
+        sample_time: float,
+    ) -> str:
+        count = max(0, int(queue.get("count") or 0))
+        remaining = max(
+            0,
+            int(queue.get("remaining_bytes", queue.get("bytes", 0)) or 0),
+        )
+        if count == 0:
+            self.upload_eta_pid = pid
+            self.upload_eta_rate = 0.0
+            self.upload_eta_samples = 0
+            self.upload_eta_last_progress = 0.0
+            return translate("Queue is empty · ETA complete")
+        if pid != self.upload_eta_pid:
+            self.upload_eta_pid = pid
+            self.upload_eta_rate = 0.0
+            self.upload_eta_samples = 0
+            self.upload_eta_last_progress = 0.0
+        if int(queue.get("active") or 0) > 0 and speed >= 1024:
+            if self.upload_eta_samples == 0:
+                self.upload_eta_rate = speed
+            else:
+                self.upload_eta_rate = (self.upload_eta_rate * 0.8) + (speed * 0.2)
+            self.upload_eta_samples += 1
+            self.upload_eta_last_progress = sample_time
+        stale_after = max(30, self.refresh_interval_seconds() * 3)
+        estimate_ready = (
+            self.upload_eta_samples >= 3
+            and self.upload_eta_rate > 0
+            and sample_time - self.upload_eta_last_progress <= stale_after
+        )
+        if not estimate_ready:
+            return translate_format(
+                "{bytes} · ETA calculating",
+                bytes=human_bytes(remaining),
+            )
+        return translate_format(
+            "{bytes} · ETA ≈ {eta}",
+            bytes=human_bytes(remaining),
+            eta=clock_duration(remaining / self.upload_eta_rate),
+        )
 
     def on_refresh_timer(self) -> bool:
         if self.closed:
@@ -3320,7 +3433,13 @@ class PDriveWindow(Gtk.ApplicationWindow):
         active = len(transfers.get("active", [])) or int(queue.get("active") or 0)
         slots = int(config.get("running_transfers") or config.get("transfers") or 0)
         self.active_card.update(str(active), translate_format("of {slots} upload slots in use", slots=slots))
-        self.queue_card.update(str(queue.get("count", 0)), human_bytes(queue.get("bytes", 0)))
+        queue_detail = self.queue_eta_detail(
+            queue,
+            speed,
+            int(service.get("pid") or 0),
+            sample_time,
+        )
+        self.queue_card.update(str(queue.get("count", 0)), queue_detail)
         issues = state.get("issues", {})
         application = self.get_application()
         if (
@@ -3491,7 +3610,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         )
         application = self.get_application()
         if isinstance(application, PDriveApplication):
-            application.update_indicator(state)
+            application.update_indicator(state, speed)
         return GLib.SOURCE_REMOVE
 
     def update_issue_card(self, issues: dict[str, Any]) -> None:
@@ -4577,8 +4696,14 @@ class PDriveApplication(Gtk.Application):
         if self.window is None:
             self.activate()
             return
+        was_hidden = not self.window.get_visible()
+        if was_hidden:
+            width, _height = self.window.get_size()
+            initial_height = SETUP_WINDOW_HEIGHT if self.window.setup_required else DEFAULT_WINDOW_HEIGHT
+            self.window.resize(max(MIN_WINDOW_WIDTH, width), initial_height)
         self.window.show_all()
         self.window.present()
+        self.window.schedule_content_fit()
         self.window.request_refresh()
 
     def on_window_delete(self, window: Gtk.Window, _event: Gdk.Event) -> bool:
@@ -4642,9 +4767,9 @@ class PDriveApplication(Gtk.Application):
     ) -> None:
         menu.popup(None, None, Gtk.StatusIcon.position_menu, icon, button, activate_time)
 
-    def update_indicator(self, state: dict[str, Any]) -> None:
+    def update_indicator(self, state: dict[str, Any], upload_speed: float = 0.0) -> None:
         health = state.get("health", {})
-        speed = float(state.get("stats", {}).get("speed") or 0)
+        speed = max(0.0, float(upload_speed))
         status = str(health.get("status", "unknown"))
         tooltip = f"{translate(STATUS_META.get(status, STATUS_META['unknown'])[1])} · {human_rate(speed)}"
         if self.indicator is not None:
@@ -4880,13 +5005,19 @@ def demo_state() -> dict[str, Any]:
             "free_bytes": 722_190_483_456,
             "error": "",
         },
-        "network_io": {"available": True, "connections": 2, "receive_speed": 1_835_008},
+        "network_io": {
+            "available": True,
+            "connections": 2,
+            "send_speed": speed,
+            "receive_speed": 1_835_008,
+        },
         "network": {"dns": "ok", "tcp": "established"},
         "stats": {"speed": speed},
         "transfers": {"active": [active], "recent": []},
         "queue": {
             "count": 3,
             "bytes": sum(item["size"] for item in queue_items),
+            "remaining_bytes": sum(item["size"] for item in queue_items) - done,
             "active": 1,
             "items": queue_items,
         },

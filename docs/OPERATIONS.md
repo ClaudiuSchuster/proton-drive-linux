@@ -1,8 +1,10 @@
 # Operations handbook
 
 This document describes the installed runtime, safe daily operation and every
-helper command. Command output is currently German because the deployment from
-which the toolkit was extracted is German-language Linux Mint.
+helper command. Public documentation and the default graphical interface use
+English; the GUI additionally provides a complete German translation. Some
+legacy terminal helpers still have German output while their English migration
+is tracked separately.
 
 ## Runtime architecture
 
@@ -207,14 +209,21 @@ Older entries are removed atomically after a new sample is recorded, so the
 history file cannot grow indefinitely.
 
 The overview keeps the upload and download-traffic graphs compact and side by
-side. Upload speed comes from rclone's `core/stats` transfer data. Because that
-endpoint does not separately expose VFS reads, the receive graph derives its
-rate from Linux TCP payload counters belonging to the exact PID reported by
-`rclone-proton-drive.service`. It cannot include browser traffic or another
-rclone mount, but it can include small Proton API and metadata replies.
+side. Both rates derive from Linux TCP payload counters belonging to the exact
+PID reported by `rclone-proton-drive.service`. That keeps a stale rclone
+transfer statistic from looking like live upload traffic after a failed
+attempt. The receive side can include small Proton API and metadata replies,
+but neither side can include browser traffic or another rclone mount.
 Both graphs label zero, half peak and peak on the Y axis. Their X-axis window is
 derived from the selected live-metrics interval and the 150 retained samples,
 so changing the interval updates both the poll note and displayed time range.
+
+The Queue card shows the complete remaining VFS backlog, subtracting bytes
+already reported for each matching active transfer. Its `HH:MM:SS` ETA uses an
+exponentially smoothed process-owned upload rate. PDrive waits for three useful
+samples and returns to **ETA calculating** after a prolonged traffic gap; it
+never turns an idle API request or a stale transfer counter into a precise
+completion promise. Multi-day and 100-GiB uploads retain their full hour count.
 
 The Capacity card separates the Proton account from the local cache filesystem.
 It shows Proton cloud used, total and free values exposed by the mounted remote beside
@@ -254,7 +263,8 @@ header button.
 This is the complete reference for every setting exposed by PDrive Control
 Center. Open the hamburger menu in the title bar for global Preferences and
 guarded actions. Click a row in the Overview **Configuration** card for its
-matching operational setting. **Cache retention** is available in **Transfers →
+matching operational setting. Every operational setting is also available in
+the hamburger menu; **Cache retention** additionally appears in **Transfers →
 Local VFS cache**.
 
 Apply and Save remain unavailable until a value actually differs from the
@@ -286,13 +296,13 @@ only its own marked autostart file. A manual menu launch remains visible.
 These dialogs delegate to the same strict `pdrive-*` helpers available in a
 terminal. The UI never edits rclone's encrypted configuration directly.
 
-| Control and location                     | Range and default                         | When it takes effect and what it changes                                                                              |
-| ---------------------------------------- | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| **Bandwidth** — Configuration or menu    | `0.02`–`100 MiB/s`; default **Unlimited** | Applies to the live process without restarting or closing the active transfer. Full right removes the limit.          |
-| **Upload slots** — Configuration or menu | **1–8**; default **4**                    | Saves parallel file-upload count for the next controlled service start; it does not restart rclone.                   |
-| **Metadata cache** — Configuration       | Disabled / Enabled; default **Disabled**  | Saves the exclusive Proton metadata mode for the next controlled service start. Enable only for one active writer.    |
-| **Cooldown** — Configuration             | **1–168 hours**; default **12 hours**     | Changes the watchdog's automatic-recovery policy immediately; it does not restart rclone or clear an active cooldown. |
-| **Cache retention** — Transfers          | **1–8760 hours**; default **24 hours**    | Saves clean read-cache age for the next controlled service start. It never expires Dirty upload data.                 |
+| Control and location                       | Range and default                         | When it takes effect and what it changes                                                                              |
+| ------------------------------------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
+| **Bandwidth** — Configuration or menu      | `0.02`–`100 MiB/s`; default **Unlimited** | Applies to the live process without restarting or closing the active transfer. Full right removes the limit.          |
+| **Upload slots** — Configuration or menu   | **1–8**; default **4**                    | Saves parallel file-upload count for the next controlled service start; it does not restart rclone.                   |
+| **Metadata cache** — Configuration or menu | Disabled / Enabled; default **Disabled**  | Saves the exclusive Proton metadata mode for the next controlled service start. Enable only for one active writer.    |
+| **Cooldown** — Configuration or menu       | **1–168 hours**; default **12 hours**     | Changes the watchdog's automatic-recovery policy immediately; it does not restart rclone or clear an active cooldown. |
+| **Cache retention** — Transfers or menu    | **1–8760 hours**; default **24 hours**    | Saves clean read-cache age for the next controlled service start. It never expires Dirty upload data.                 |
 
 Each dialog states whether a change is live or saved for the next service
 start. The Transfers cache section also shows running and saved retention when
@@ -328,7 +338,10 @@ Window geometry is deliberately not persisted. Every launch starts at a compact
 820-pixel content width and grows vertically to show the complete Overview when
 the monitor allows it. This avoids a vertical scrollbar caused by stale geometry
 or a one-pixel theme difference while remaining independent of GTK shadow and
-header-bar dimensions. Smaller screens retain normal scrolling.
+header-bar dimensions. A session-autostart window stays hidden until the user
+opens it; hidden, unmapped allocations are never used for content fitting.
+Opening it restores the compact content height before the same visible-window
+fit runs. Smaller screens retain normal scrolling.
 
 On X11 Cinnamon the tray uses GTK StatusIcon so a left click opens/focuses the
 Control Center and a right click opens the existing Open, Open `/pdrive`, and

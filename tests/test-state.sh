@@ -85,6 +85,8 @@ cat > "${state_dir}/proton-mount.log" <<'EOF'
 2026/08/24 10:03:00 NOTICE: proton drive root link ID 'private-share': 422 POST https://drive-api.proton.me/drive/shares/private-share/files?token=private: A file already exists
 2026/08/24 10:03:00 ERROR : Projects/demo.qcow2: a draft exist - usually this means a failed upload attempt
 2026/08/24 10:03:00 ERROR : Projects/demo.qcow2: vfs cache: failed to upload try #5, will retry in 5m0s
+2026/08/24 09:55:00 ERROR : unrelated backend failure
+2026/08/24 10:05:00 NOTICE: Bandwidth limit set to {235.520Ki off}
 EOF
 printf '%s\n' \
     '2026-08-24T10:00:00+02:00 status=ready reason=mounted service=active/running pid=4242 mount=ready dns=ok tcp=established progress=yes success=1 queued=1 errors=7 notices=3 vfs_queue=1 vfs_queue_bytes=2097152 vfs_uploading=1 vfs_failed=0' \
@@ -123,6 +125,7 @@ jq -e '
     and .transfers.active[0].name == "demo/file.iso"
     and .queue.count == 1
     and .queue.active == 1
+    and .queue.remaining_bytes == 1048576
     and .vfs.cache_bytes == 3145728
     and .vfs.cache_state == "pending"
     and .vfs.clean_files == 1
@@ -135,13 +138,15 @@ jq -e '
     and .watchdog.summary == "Proton Drive is mounted and ready."
     and .watchdog.hint == "Run pdrive-watch for a detailed local diagnosis."
     and .issues.available == true
-    and (.issues.events | length) == 1
+    and (.issues.events | length) == 2
     and .issues.events[0].category == "draft-conflict"
     and .issues.events[0].level == "error"
     and .issues.events[0].occurrences == 2
     and .issues.events[0].raw_events == 6
-    and .issues.raw_events == 7
-    and .issues.errors == 1
+    and .issues.events[1].message == "unrelated backend failure"
+    and .issues.events[0].last_seen > .issues.events[1].last_seen
+    and .issues.raw_events == 8
+    and .issues.errors == 2
     and .issues.notices == 0
     and (.issues.events[0].subject | contains("private-share") | not)
     and (.issues.events[0].message | contains("private-share") | not)
