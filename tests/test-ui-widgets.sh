@@ -19,6 +19,7 @@ PYTHONDONTWRITEBYTECODE=1 "${runner[@]}" \
     python3 - "${project_dir}/bin/pdrive-ui" <<'PY'
 import importlib.machinery
 import importlib.util
+import copy
 import sys
 
 loader = importlib.machinery.SourceFileLoader("pdrive_ui_widget_test", sys.argv[1])
@@ -110,7 +111,7 @@ popover_buttons = [
     for widget in descendants(popover.get_child())
     if isinstance(widget, module.Gtk.Button)
 ]
-assert len(popover_buttons) == 9
+assert len(popover_buttons) == 12
 assert all(button.get_visible() for button in popover_buttons)
 assert all(button.get_sensitive() for button in popover_buttons)
 assert all(button.get_tooltip_text() for button in popover_buttons)
@@ -126,6 +127,14 @@ popover_labels = [
 assert "Documentation …" in popover_labels
 assert "Open Proton Drive on the web" in popover_labels
 assert "About …" in popover_labels
+for configuration_action in (
+    "Bandwidth limit …",
+    "Upload slots …",
+    "Cache retention …",
+    "Metadata cache …",
+    "Restart cooldown …",
+):
+    assert configuration_action in popover_labels
 
 def button_with_label(text):
     return next(
@@ -221,17 +230,27 @@ license_window = window.documentation_window
 assert isinstance(license_window, module.DocumentationWindow)
 assert license_window.stack.get_visible_child_name() == "license"
 license_page = license_window.stack.get_child_by_name("license")
+assert license_page.text_view.get_events() & module.Gdk.EventMask.POINTER_MOTION_MASK
 license_text = license_page.buffer.get_text(
     license_page.buffer.get_start_iter(),
     license_page.buffer.get_end_iter(),
     True,
 )
 assert "GNU GENERAL PUBLIC LICENSE" in license_text
+license_end = license_page.buffer.get_end_iter()
+assert license_end.backward_char()
+assert all(
+    active_tag != link_tag
+    for active_tag in license_end.get_tags()
+    for link_tag, _target in license_page.link_tags
+)
 license_window.destroy()
 assert window.documentation_window is None
 assert window.problem_card.get_tooltip_text() == "Review issue details"
 assert window.mark_issues_reviewed_button.get_label() == "Mark issues reviewed"
 
+window.apply_state(module.demo_state())
+window.apply_state(module.demo_state())
 window.apply_state(module.demo_state())
 assert window.speed_graph.get_size_request()[1] == 112
 assert window.download_graph.get_size_request()[1] == 112
@@ -257,6 +276,34 @@ assert "used" in window.capacity_card.remote_detail.get_text()
 assert "free" in window.capacity_card.local_value.get_text()
 assert "VFS cache used" in window.capacity_card.local_detail.get_text()
 assert "pending upload" in window.cache_card.detail.get_text()
+assert "ETA " in window.queue_card.detail.get_text()
+assert "calculating" not in window.queue_card.detail.get_text()
+
+stress_state = copy.deepcopy(module.demo_state())
+stress_state["queue"].update(
+    {
+        "count": 12_345,
+        "active": 8,
+        "bytes": 12 * 1024**4,
+        "remaining_bytes": 12 * 1024**4,
+    }
+)
+stress_state["network_io"]["send_speed"] = 20 * 1024
+stress_state["configuration"]["running_transfers"] = 8
+window.apply_state(stress_state)
+window.apply_state(stress_state)
+window.apply_state(stress_state)
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
+assert window.queue_card.value.get_text() == "12345"
+assert not window.queue_card.value.get_layout().is_ellipsized()
+queue_stress_detail = window.queue_card.detail.get_text()
+assert "12.0 TiB" in queue_stress_detail, queue_stress_detail
+assert "ETA ≈" in queue_stress_detail, queue_stress_detail
+assert not window.queue_card.detail.get_layout().is_ellipsized(), (
+    queue_stress_detail,
+    window.queue_card.detail.get_allocated_width(),
+)
 assert window.retention_button.get_sensitive()
 assert window.retention_button.get_tooltip_text() == "Change cache retention"
 assert window.retention_button.get_events() & module.Gdk.EventMask.ENTER_NOTIFY_MASK
@@ -281,6 +328,8 @@ assert all(value.get_selectable() for value in window.live_detail_labels.values(
 assert window.copy_short_status_button.get_tooltip_text() == "Copy short status"
 assert "PDrive Control Center — Ready" in window.short_status_text
 assert "Configuration:" in window.short_status_text
+app.update_indicator(window.current_state, 0)
+assert app.status_icon is None or "0 B/s" in app.status_icon.get_tooltip_text()
 assert len(window.issue_list.get_children()) == 5
 assert not window.mark_issues_reviewed_button.get_sensitive()
 assert isinstance(window.problem_card, module.Gtk.EventBox)
@@ -455,6 +504,9 @@ window.demo = False
 refreshes = []
 window.request_refresh = lambda: refreshes.append(True)
 window.hide()
+window.content_fit_source = 1
+assert window.fit_content_height() == module.GLib.SOURCE_REMOVE
+assert window.content_fit_source == 0
 app.preferences["poll_in_background"] = False
 assert window.on_refresh_timer() == module.GLib.SOURCE_CONTINUE
 assert refreshes == []

@@ -188,6 +188,30 @@ rate, baseline = module.network_receive_rate(
 )
 assert rate == 0 and baseline is None
 
+
+class EtaTracker:
+    upload_eta_pid = 0
+    upload_eta_rate = 0.0
+    upload_eta_samples = 0
+    upload_eta_last_progress = 0.0
+
+    @staticmethod
+    def refresh_interval_seconds():
+        return 2
+
+
+eta_tracker = EtaTracker()
+near_pause_queue = {"count": 1, "active": 1, "remaining_bytes": 20 * 1024 * 1024}
+assert "calculating" in module.PDriveWindow.queue_eta_detail(
+    eta_tracker, near_pause_queue, 20 * 1024, 4242, 10.0
+)
+module.PDriveWindow.queue_eta_detail(eta_tracker, near_pause_queue, 20 * 1024, 4242, 12.0)
+near_pause_eta = module.PDriveWindow.queue_eta_detail(
+    eta_tracker, near_pause_queue, 20 * 1024, 4242, 14.0
+)
+assert "ETA ≈" in near_pause_eta
+assert "calculating" not in near_pause_eta
+
 assert module.bandwidth_slider_position("off") == module.BANDWIDTH_SLIDER_UNLIMITED
 assert module.bandwidth_slider_position("0") == module.BANDWIDTH_SLIDER_UNLIMITED
 assert 60 < module.bandwidth_slider_position("4.200Mi:off") < 70

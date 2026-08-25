@@ -135,7 +135,11 @@ changed and disable again when the original values are restored.
 transactional reauthentication, systemd semantics, state fixtures, version
 consistency, desktop validation and GTK checks when the display stack is
 available. GitHub Actions also runs Super-Linter for Bash, Python, Markdown,
-YAML, action security and secret scanning.
+YAML, action security and secret scanning. Pull requests receive one required
+Functional-check and Super-Linter pair; pushes are limited to `main`, where the
+resulting merge commit is checked once more. Do not broaden the push trigger to
+feature branches, because same-repository pull requests would run both jobs
+twice for the same source commit.
 
 `VERSION`, `bin/pdrive-ui::VERSION` and `bin/pdrive-state::TOOL_VERSION` must
 match exactly. Releases use immutable annotated `vX.Y.Z` tags on a commit whose
