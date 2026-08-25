@@ -51,7 +51,7 @@ printf '%s\n' \
     'if [[ "${PDRIVE_TEST_NO_VFS:-}" == 1 && "${endpoint}" == vfs/* ]]; then exit 99; fi' \
     'case "${endpoint}" in' \
     '  core/stats) printf "%s\\n" '\''{"bytes":1048576,"speed":524288,"errors":0,"transferring":[{"name":"demo/file.iso","size":2097152,"bytes":1048576,"speed":524288,"eta":2}]} '\'' ;;' \
-    '  core/transferred) printf "%s\\n" '\''{"transferred":[{"name":"done.txt","size":12,"bytes":12,"completedAt":"2026-08-24T10:00:00+02:00"},{"name":"Projects/demo.qcow2","size":1048576,"bytes":1048576,"completedAt":"2026-08-24T10:04:00+02:00"}]} '\'' ;;' \
+    '  core/transferred) printf "%s\\n" '\''{"transferred":[{"name":"done.txt","size":12,"bytes":12,"completedAt":"2026-08-24T10:00:00+00:00"},{"name":"Projects/demo.qcow2","size":1048576,"bytes":1048576,"completedAt":"2026-08-24T10:04:00+00:00"}]} '\'' ;;' \
     '  vfs/queue) printf "%s\\n" '\''{"queue":[{"name":"demo/file.iso","size":2097152,"tries":2,"uploading":true}]} '\'' ;;' \
     '  vfs/stats) printf "%s\\n" '\''{"diskCache":{"bytesUsed":3145728,"files":2,"uploadsQueued":1,"uploadsInProgress":1,"erroredFiles":0,"outOfSpace":false},"opt":{"CacheMaxAge":86400000000000}}'\'' ;;' \
     '  core/bwlimit) printf "%s\\n" '\''{"rate":"4M:off","bytesPerSecondTx":4194304}'\'' ;;' \
@@ -62,7 +62,7 @@ chmod 0755 "${fake_bin}/systemctl" "${fake_bin}/ss" \
 touch "${state_dir}/pdrive-rc.sock"
 
 cat > "${state_dir}/pdrive-watch-latest.txt" <<'EOF'
-Zeit=2026-08-24T10:08:00+02:00
+Zeit=2026-08-24T10:08:00+00:00
 Status=ready
 Grundcode=mounted
 Grund=Proton Drive ist gemountet und bereit.
@@ -93,7 +93,7 @@ cat > "${state_dir}/proton-mount.log" <<'EOF'
 2026/08/24 10:07:00 ERROR : dial tcp: lookup drive-api.proton.me: temporary failure in name resolution
 EOF
 printf '%s\n' \
-    '2026-08-24T10:00:00+02:00 status=ready reason=mounted service=active/running pid=4242 mount=ready dns=ok tcp=established progress=yes success=1 queued=1 errors=7 notices=3 vfs_queue=1 vfs_queue_bytes=2097152 vfs_uploading=1 vfs_failed=0' \
+    '2026-08-24T10:00:00+00:00 status=ready reason=mounted service=active/running pid=4242 mount=ready dns=ok tcp=established progress=yes success=1 queued=1 errors=7 notices=3 vfs_queue=1 vfs_queue_bytes=2097152 vfs_uploading=1 vfs_failed=0' \
     | tr ' ' '\t' > "${state_dir}/pdrive-watch-history.log"
 printf '%s\n' 'bwlimit=4M:off' > "${config_dir}/pdrive-bwlimit.conf"
 printf '%s\n' 'cache_max_age_hours=24' > "${config_dir}/pdrive-cache.conf"
@@ -102,6 +102,7 @@ printf '%s\n' 'proton_metadata_cache=true' > "${config_dir}/pdrive-recovery.conf
 
 state_json="${test_root}/state.json"
 HOME="${test_home}" \
+TZ=UTC \
 PATH="${fake_bin}:/usr/bin:/bin" \
 PDRIVE_STATE_DIR="${state_dir}" \
 PDRIVE_CONFIG_DIR="${config_dir}" \
@@ -156,7 +157,7 @@ jq -e '
     and .issues.events[3].level == "notice"
     and .issues.events[3].lifecycle == "resolved"
     and .issues.events[3].title == "Upload recovered automatically"
-    and .issues.events[3].resolved_at == "2026-08-24T10:04:00+02:00"
+    and .issues.events[3].resolved_at == "2026-08-24T10:04:00+00:00"
     and .issues.events[3].occurrences == 2
     and .issues.events[3].raw_events == 6
     and .issues.events[4].message == "unrelated backend failure"
