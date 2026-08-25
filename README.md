@@ -1,6 +1,8 @@
 <p align="center">
-  <img src="share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg"
-       width="112" height="112" alt="PDrive Control Center icon">
+  <picture>
+    <img src="share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg"
+         width="112" height="112" alt="PDrive Control Center icon">
+  </picture>
 </p>
 
 <h1 align="center">Proton Drive Linux Mount Toolkit</h1>
