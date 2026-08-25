@@ -90,10 +90,17 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     "start_in_tray": False,
     "poll_in_background": False,
     "refresh_interval_seconds": REFRESH_INTERVAL_SECONDS,
+    "notification_policy": "important",
     "language": "en",
     "issues_reviewed_errors": -1,
     "issues_reviewed_notices": -1,
     "issues_reviewed_at": "",
+}
+NOTIFICATION_POLICIES = {
+    "important": "Important problems and recovery actions",
+    "critical": "Critical problems only",
+    "all": "All health changes",
+    "off": "Off",
 }
 SUPPORTED_LANGUAGES = {"en": "English", "de": "Deutsch"}
 CURRENT_LANGUAGE = "en"
@@ -300,6 +307,14 @@ GERMAN_TRANSLATIONS = {
     "Review the context below; no action is required when the current service health is ready.": "Prüfe den Kontext unten; bei aktuell bereitem Dienstzustand ist keine Aktion erforderlich.",
     "rclone reported an error": "rclone hat einen Fehler gemeldet",
     "Review the current mount, queue and network health before choosing a recovery action.": "Prüfe Mount-, Queue- und Netzwerkzustand, bevor du eine Recovery-Aktion auswählst.",
+    "Upload recovered automatically": "Upload automatisch wiederhergestellt",
+    "Network resolution recovered": "Netzwerk-Namensauflösung wiederhergestellt",
+    "The affected upload completed successfully after rclone recovered.": "Der betroffene Upload wurde nach rclones Recovery erfolgreich abgeschlossen.",
+    "DNS connectivity is healthy again.": "Die DNS-Verbindung ist wieder gesund.",
+    "No action is required. Keep the recovery record for context.": "Keine Aktion erforderlich. Der Recovery-Eintrag bleibt als Kontext erhalten.",
+    "No action is required while current DNS and mount health remain ready.": "Keine Aktion erforderlich, solange DNS und Mount aktuell bereit bleiben.",
+    "Recently resolved automatically": "Kürzlich automatisch behoben",
+    "No unreviewed issues remain; {count} recent recovery record(s) are shown below.": "Keine ungeprüften Probleme verbleiben; unten werden {count} aktuelle Recovery-Einträge angezeigt.",
     "Latest 24 conservative samples from the 90-minute pdrive-watch timer": "Die letzten 24 schonenden Messpunkte des 90-Minuten-pdrive-watch-Timers",
     "No active transfers": "Keine aktiven Transfers",
     "rclone is not using the connection right now.": "rclone nutzt die Verbindung gerade nicht.",
@@ -348,6 +363,12 @@ GERMAN_TRANSLATIONS = {
     "Start hidden in the tray with the desktop session": "Mit der Sitzung versteckt im Tray starten",
     "Keep live metrics updating while hidden in the tray": "Live-Metriken auch versteckt im Tray weiter aktualisieren",
     "When disabled, live polling pauses while hidden. The independent 90-minute watchdog keeps monitoring health.": "Wenn deaktiviert, pausiert der Liveabruf im versteckten Zustand. Der unabhängige 90-Minuten-Watchdog überwacht die Gesundheit weiterhin.",
+    "Desktop notifications": "Desktop-Benachrichtigungen",
+    "Important problems and recovery actions": "Wichtige Probleme und Recovery-Aktionen",
+    "Critical problems only": "Nur kritische Probleme",
+    "All health changes": "Alle Zustandsänderungen",
+    "Off": "Aus",
+    "The independent watchdog applies this policy even while the Control Center is closed.": "Der unabhängige Watchdog wendet diese Auswahl auch bei geschlossenem Control Center an.",
     "Live metrics interval": "Intervall der Live-Metriken",
     "{seconds} seconds": "{seconds} Sekunden",
     "Language": "Sprache",
@@ -609,6 +630,8 @@ def load_preferences() -> dict[str, Any]:
                 preferences[key] = payload[key]
         if payload.get("refresh_interval_seconds") in REFRESH_INTERVAL_OPTIONS:
             preferences["refresh_interval_seconds"] = payload["refresh_interval_seconds"]
+        if payload.get("notification_policy") in NOTIFICATION_POLICIES:
+            preferences["notification_policy"] = payload["notification_policy"]
         if payload.get("language") in SUPPORTED_LANGUAGES:
             preferences["language"] = payload["language"]
         for key in ("issues_reviewed_errors", "issues_reviewed_notices"):
@@ -640,6 +663,8 @@ def unreviewed_events(preferences: dict[str, Any], issues: dict[str, Any]) -> li
     for event in raw_events:
         if not isinstance(event, dict):
             continue
+        if str(event.get("lifecycle") or "active") == "resolved":
+            continue
         try:
             event_time = dt.datetime.fromisoformat(str(event.get("last_seen") or event.get("timestamp") or ""))
             if event_time.tzinfo is None:
@@ -652,6 +677,15 @@ def unreviewed_events(preferences: dict[str, Any], issues: dict[str, Any]) -> li
         if event_time > comparison_time:
             selected.append(event)
     return selected
+
+
+def resolved_events(issues: dict[str, Any], limit: int = 5) -> list[dict[str, Any]]:
+    raw_events = issues.get("events", [])
+    if not isinstance(raw_events, list):
+        return []
+    return [
+        event for event in raw_events if isinstance(event, dict) and str(event.get("lifecycle") or "") == "resolved"
+    ][:limit]
 
 
 def issues_since_review(preferences: dict[str, Any], issues: dict[str, Any]) -> tuple[int, int]:
@@ -3633,9 +3667,18 @@ class PDriveWindow(Gtk.ApplicationWindow):
         add_css(row, "transfer-row")
         outer = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=11)
         level = str(event.get("level", "error")).lower()
-        icon_name = "dialog-warning-symbolic" if level == "notice" else "dialog-error-symbolic"
+        lifecycle = str(event.get("lifecycle") or "active")
+        if lifecycle == "resolved":
+            icon_name = "emblem-ok-symbolic"
+            icon_class = "accent"
+        elif level == "notice":
+            icon_name = "dialog-warning-symbolic"
+            icon_class = "warning"
+        else:
+            icon_name = "dialog-error-symbolic"
+            icon_class = "danger"
         icon = Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.BUTTON)
-        add_css(icon, "warning" if level == "notice" else "danger")
+        add_css(icon, icon_class)
         icon.set_valign(Gtk.Align.START)
         outer.pack_start(icon, False, False, 2)
 
@@ -3644,8 +3687,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
         title = label(str(event.get("title") or "rclone reported an error"), "transfer-name")
         title.set_line_wrap(True)
         top.pack_start(title, True, True, 0)
+        display_time = str(event.get("resolved_at") or event.get("timestamp") or "")
         top.pack_end(
-            label(local_time(str(event.get("timestamp", ""))), "pill", 1.0),
+            label(local_time(display_time), "pill", 1.0),
             False,
             False,
             0,
@@ -3678,6 +3722,11 @@ class PDriveWindow(Gtk.ApplicationWindow):
         message.set_line_wrap(True)
         message.set_selectable(True)
         content.pack_start(message, False, False, 0)
+        resolution = str(event.get("resolution") or "")
+        if resolution:
+            resolution_label = label(translate(resolution), "issue-guidance")
+            resolution_label.set_line_wrap(True)
+            content.pack_start(resolution_label, False, False, 0)
         guidance = label(
             translate_format(
                 "{label}: {guidance}",
@@ -3696,6 +3745,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         application = self.get_application()
         preferences = application.preferences if isinstance(application, PDriveApplication) else DEFAULT_PREFERENCES
         events, missing = unreviewed_issue_events(preferences, issues)
+        recoveries = resolved_events(issues)
         errors, notices = issues_since_review(preferences, issues)
         signature = (
             errors,
@@ -3711,6 +3761,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 )
                 for event in events
             ),
+            tuple((event.get("resolved_at"), event.get("category"), event.get("subject")) for event in recoveries),
         )
         if signature == self.issue_signature:
             return
@@ -3718,14 +3769,26 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.clear_list(self.issue_list)
         total = errors + notices
         if not total:
-            self.issue_summary.set_text(translate("There are no new rclone errors or notices since your last review."))
-            self.issue_list.add(
-                EmptyState(
-                    "emblem-ok-symbolic",
-                    "No unreviewed issues",
-                    "There are no new rclone errors or notices since your last review.",
+            if recoveries:
+                self.issue_summary.set_text(
+                    translate_format(
+                        "No unreviewed issues remain; {count} recent recovery record(s) are shown below.",
+                        count=len(recoveries),
+                    )
                 )
-            )
+                for event in recoveries:
+                    self.issue_list.add(self.issue_row(event))
+            else:
+                self.issue_summary.set_text(
+                    translate("There are no new rclone errors or notices since your last review.")
+                )
+                self.issue_list.add(
+                    EmptyState(
+                        "emblem-ok-symbolic",
+                        "No unreviewed issues",
+                        "There are no new rclone errors or notices since your last review.",
+                    )
+                )
         else:
             if missing:
                 self.issue_summary.set_text(
@@ -3745,7 +3808,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
                         notices=notices,
                     )
                 )
-            for event in reversed(events):
+            for event in events:
+                self.issue_list.add(self.issue_row(event))
+            for event in recoveries:
                 self.issue_list.add(self.issue_row(event))
             if not events:
                 self.issue_list.add(
@@ -4193,6 +4258,20 @@ class PDriveWindow(Gtk.ApplicationWindow):
         )
         background_poll_note.set_line_wrap(True)
         content.pack_start(background_poll_note, False, False, 0)
+        notification_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
+        notification_row.pack_start(label("Desktop notifications"), True, True, 0)
+        notification_combo = Gtk.ComboBoxText()
+        for policy_id, policy_label in NOTIFICATION_POLICIES.items():
+            notification_combo.append(policy_id, translate(policy_label))
+        notification_combo.set_active_id(str(application.preferences["notification_policy"]))
+        notification_row.pack_end(notification_combo, False, False, 0)
+        content.pack_start(notification_row, False, False, 0)
+        notification_note = label(
+            "The independent watchdog applies this policy even while the Control Center is closed.",
+            "section-subtitle",
+        )
+        notification_note.set_line_wrap(True)
+        content.pack_start(notification_note, False, False, 0)
         interval_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=10)
         interval_row.pack_start(label("Live metrics interval"), True, True, 0)
         interval_combo = Gtk.ComboBoxText()
@@ -4231,6 +4310,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             start_toggle.get_active(),
             background_poll_toggle.get_active(),
             int(interval_combo.get_active_id() or REFRESH_INTERVAL_SECONDS),
+            notification_combo.get_active_id() or "important",
             language_combo.get_active_id() or "en",
         )
         save_button = dialog.get_widget_for_response(Gtk.ResponseType.OK)
@@ -4241,6 +4321,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 start_toggle.get_active(),
                 background_poll_toggle.get_active(),
                 int(interval_combo.get_active_id() or REFRESH_INTERVAL_SECONDS),
+                notification_combo.get_active_id() or "important",
                 language_combo.get_active_id() or "en",
             )
             save_button.set_sensitive(current_preferences != initial_preferences)
@@ -4254,6 +4335,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             toggle.connect("toggled", update_save_sensitivity)
         language_combo.connect("changed", update_save_sensitivity)
         interval_combo.connect("changed", update_save_sensitivity)
+        notification_combo.connect("changed", update_save_sensitivity)
         save_button.set_sensitive(False)
         dialog.show_all()
         response = dialog.run()
@@ -4261,6 +4343,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         start_in_tray = start_toggle.get_active()
         poll_in_background = background_poll_toggle.get_active()
         refresh_interval_seconds = int(interval_combo.get_active_id() or REFRESH_INTERVAL_SECONDS)
+        notification_policy = notification_combo.get_active_id() or "important"
         selected_language = language_combo.get_active_id() or "en"
         previous_language = str(application.preferences["language"])
         dialog.destroy()
@@ -4271,6 +4354,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             start_in_tray,
             poll_in_background,
             refresh_interval_seconds,
+            notification_policy,
             selected_language,
         )
         if error:
@@ -4801,6 +4885,7 @@ class PDriveApplication(Gtk.Application):
         start_in_tray: bool,
         poll_in_background: bool,
         refresh_interval_seconds: int,
+        notification_policy: str,
         language: str,
     ) -> str | None:
         if self.demo:
@@ -4815,6 +4900,9 @@ class PDriveApplication(Gtk.Application):
                     refresh_interval_seconds
                     if refresh_interval_seconds in REFRESH_INTERVAL_OPTIONS
                     else REFRESH_INTERVAL_SECONDS
+                ),
+                "notification_policy": (
+                    notification_policy if notification_policy in NOTIFICATION_POLICIES else "important"
                 ),
                 "language": language if language in SUPPORTED_LANGUAGES else "en",
             }
@@ -4976,13 +5064,17 @@ def demo_state() -> dict[str, Any]:
         {
             "timestamp": (dt.datetime.now().astimezone() - dt.timedelta(minutes=3)).isoformat(timespec="seconds"),
             "level": "notice",
-            "category": "notice",
-            "title": "rclone reported a notice",
-            "subject": "VFS cache",
-            "message": "The queued upload remains protected for the next retry.",
-            "guidance": "Review the context below; no action is required when the current service health is ready.",
+            "category": "upload-retry",
+            "title": "Upload recovered automatically",
+            "subject": "Projects/Archive/source-image.raw",
+            "message": "The upload previously needed an automatic retry.",
+            "guidance": "No action is required. Keep the recovery record for context.",
+            "lifecycle": "resolved",
+            "resolution": "The affected upload completed successfully after rclone recovered.",
+            "resolved_at": (dt.datetime.now().astimezone() - dt.timedelta(minutes=2)).isoformat(timespec="seconds"),
         },
     ]
+    issue_events.reverse()
     return {
         "generated_at": now,
         "health": {

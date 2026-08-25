@@ -28,6 +28,7 @@ assert module.load_preferences() == {
     "start_in_tray": False,
     "poll_in_background": False,
     "refresh_interval_seconds": 2,
+    "notification_policy": "important",
     "language": "en",
     "issues_reviewed_errors": -1,
     "issues_reviewed_notices": -1,
@@ -94,6 +95,7 @@ module.atomic_write(
             "start_in_tray": True,
             "poll_in_background": True,
             "refresh_interval_seconds": 5,
+            "notification_policy": "critical",
             "language": "de",
             "issues_reviewed_errors": 40,
             "issues_reviewed_notices": 9,
@@ -107,6 +109,7 @@ assert module.load_preferences() == {
     "start_in_tray": True,
     "poll_in_background": True,
     "refresh_interval_seconds": 5,
+    "notification_policy": "critical",
     "language": "de",
     "issues_reviewed_errors": 40,
     "issues_reviewed_notices": 9,
@@ -120,6 +123,12 @@ issue_events = [
     {"timestamp": "2026-08-24T11:30:00+02:00", "level": "notice", "message": "old notice"},
     {"timestamp": "2026-08-24T13:00:00+02:00", "level": "error", "message": "new error"},
     {"timestamp": "2026-08-24T13:15:00+02:00", "level": "notice", "message": "new notice"},
+    {
+        "timestamp": "2026-08-24T13:30:00+02:00",
+        "level": "notice",
+        "lifecycle": "resolved",
+        "message": "automatic recovery",
+    },
 ]
 issue_payload = {"available": True, "events": issue_events}
 assert module.issues_since_review(reviewed, issue_payload) == (1, 1)
@@ -130,9 +139,10 @@ selected, missing = module.unreviewed_issue_events(
 )
 assert [event["message"] for event in selected] == ["new error", "new notice"]
 assert missing == 0
+assert [event["message"] for event in module.resolved_events(issue_payload)] == ["automatic recovery"]
 selected, missing = module.unreviewed_issue_events(
     reviewed,
-    {"available": True, "events": issue_events[-1:]},
+    {"available": True, "events": issue_events[3:4]},
 )
 assert [event["message"] for event in selected] == ["new notice"]
 assert missing == 0
@@ -226,10 +236,11 @@ assert "off/0" in module.bandwidth_slider_label(module.BANDWIDTH_SLIDER_UNLIMITE
 assert module.argument_parser().parse_args(["--demo", "--demo-page", "history"]).demo_page == "history"
 
 application = module.PDriveApplication()
-assert application.update_preferences(False, False, False, 10, "en") is None
+assert application.update_preferences(False, False, False, 10, "all", "en") is None
 updated = module.load_preferences()
 assert updated["poll_in_background"] is False
 assert updated["refresh_interval_seconds"] == 10
+assert updated["notification_policy"] == "all"
 assert updated["issues_reviewed_errors"] == 40
 assert updated["issues_reviewed_notices"] == 9
 assert updated["issues_reviewed_at"] == "2026-08-24T12:00:00+02:00"

@@ -51,8 +51,8 @@ printf '%s\n' \
     'if [[ "${PDRIVE_TEST_NO_VFS:-}" == 1 && "${endpoint}" == vfs/* ]]; then exit 99; fi' \
     'case "${endpoint}" in' \
     '  core/stats) printf "%s\\n" '\''{"bytes":1048576,"speed":524288,"errors":0,"transferring":[{"name":"demo/file.iso","size":2097152,"bytes":1048576,"speed":524288,"eta":2}]} '\'' ;;' \
-    '  core/transferred) printf "%s\\n" '\''{"transferred":[{"name":"done.txt","size":12,"bytes":12,"completedAt":"2026-08-24T10:00:00+02:00"}]} '\'' ;;' \
-    '  vfs/queue) printf "%s\\n" '\''{"queue":[{"name":"demo/file.iso","size":2097152,"tries":1,"uploading":true}]} '\'' ;;' \
+    '  core/transferred) printf "%s\\n" '\''{"transferred":[{"name":"done.txt","size":12,"bytes":12,"completedAt":"2026-08-24T10:00:00+02:00"},{"name":"Projects/demo.qcow2","size":1048576,"bytes":1048576,"completedAt":"2026-08-24T10:04:00+02:00"}]} '\'' ;;' \
+    '  vfs/queue) printf "%s\\n" '\''{"queue":[{"name":"demo/file.iso","size":2097152,"tries":2,"uploading":true}]} '\'' ;;' \
     '  vfs/stats) printf "%s\\n" '\''{"diskCache":{"bytesUsed":3145728,"files":2,"uploadsQueued":1,"uploadsInProgress":1,"erroredFiles":0,"outOfSpace":false},"opt":{"CacheMaxAge":86400000000000}}'\'' ;;' \
     '  core/bwlimit) printf "%s\\n" '\''{"rate":"4M:off","bytesPerSecondTx":4194304}'\'' ;;' \
     '  *) exit 2 ;;' \
@@ -62,7 +62,7 @@ chmod 0755 "${fake_bin}/systemctl" "${fake_bin}/ss" \
 touch "${state_dir}/pdrive-rc.sock"
 
 cat > "${state_dir}/pdrive-watch-latest.txt" <<'EOF'
-Zeit=2026-08-24T10:00:00+02:00
+Zeit=2026-08-24T10:08:00+02:00
 Status=ready
 Grundcode=mounted
 Grund=Proton Drive ist gemountet und bereit.
@@ -87,6 +87,10 @@ cat > "${state_dir}/proton-mount.log" <<'EOF'
 2026/08/24 10:03:00 ERROR : Projects/demo.qcow2: vfs cache: failed to upload try #5, will retry in 5m0s
 2026/08/24 09:55:00 ERROR : unrelated backend failure
 2026/08/24 10:05:00 NOTICE: Bandwidth limit set to {235.520Ki off}
+2026/08/24 10:06:00 ERROR : demo/file.iso: vfs cache: failed to upload try #2, will retry in 5m0s
+2026/08/24 10:06:10 ERROR : Another/file.bin: a draft exist - usually this means a failed upload attempt
+2026/08/24 10:06:11 ERROR : Another/file.bin: vfs cache: failed to upload try #3, will retry in 5m0s
+2026/08/24 10:07:00 ERROR : dial tcp: lookup drive-api.proton.me: temporary failure in name resolution
 EOF
 printf '%s\n' \
     '2026-08-24T10:00:00+02:00 status=ready reason=mounted service=active/running pid=4242 mount=ready dns=ok tcp=established progress=yes success=1 queued=1 errors=7 notices=3 vfs_queue=1 vfs_queue_bytes=2097152 vfs_uploading=1 vfs_failed=0' \
@@ -138,18 +142,37 @@ jq -e '
     and .watchdog.summary == "Proton Drive is mounted and ready."
     and .watchdog.hint == "Run pdrive-watch for a detailed local diagnosis."
     and .issues.available == true
-    and (.issues.events | length) == 2
-    and .issues.events[0].category == "draft-conflict"
-    and .issues.events[0].level == "error"
-    and .issues.events[0].occurrences == 2
-    and .issues.events[0].raw_events == 6
-    and .issues.events[1].message == "unrelated backend failure"
+    and (.issues.events | length) == 5
+    and .issues.events[0].category == "dns"
+    and .issues.events[0].lifecycle == "resolved"
+    and .issues.events[0].title == "Network resolution recovered"
+    and .issues.events[1].subject == "Another/file.bin"
+    and .issues.events[1].category == "draft-conflict"
+    and .issues.events[1].lifecycle == "active"
+    and .issues.events[1].raw_events == 2
+    and .issues.events[2].category == "upload-retry"
+    and .issues.events[2].lifecycle == "recovering"
+    and .issues.events[3].category == "draft-conflict"
+    and .issues.events[3].level == "notice"
+    and .issues.events[3].lifecycle == "resolved"
+    and .issues.events[3].title == "Upload recovered automatically"
+    and .issues.events[3].resolved_at == "2026-08-24T10:04:00+02:00"
+    and .issues.events[3].occurrences == 2
+    and .issues.events[3].raw_events == 6
+    and .issues.events[4].message == "unrelated backend failure"
+    and .issues.events[4].lifecycle == "active"
     and .issues.events[0].last_seen > .issues.events[1].last_seen
-    and .issues.raw_events == 8
-    and .issues.errors == 2
+    and .issues.events[1].last_seen > .issues.events[2].last_seen
+    and .issues.events[2].last_seen > .issues.events[3].last_seen
+    and .issues.events[3].last_seen > .issues.events[4].last_seen
+    and .issues.raw_events == 12
+    and .issues.errors == 3
     and .issues.notices == 0
-    and (.issues.events[0].subject | contains("private-share") | not)
-    and (.issues.events[0].message | contains("private-share") | not)
+    and .issues.active == 2
+    and .issues.recovering == 1
+    and .issues.resolved == 2
+    and (.issues.events[3].subject | contains("private-share") | not)
+    and (.issues.events[3].message | contains("private-share") | not)
     and .history[0].vfs_queue == 1
 ' "${state_json}" >/dev/null
 

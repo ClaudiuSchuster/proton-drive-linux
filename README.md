@@ -105,17 +105,19 @@ refresh button. Live polling (two seconds by default) reuses that value instead
 of repeatedly contacting Proton.
 
 Click Active, Queue or VFS-Cache to jump to the matching Transfers section.
-Click Unreviewed issues to inspect sanitized timestamp, category, affected path,
-rclone context and a suggested next step before explicitly marking anything as
-reviewed.
+Click Unreviewed issues to inspect correlated active, recovering and resolved
+incidents with sanitized timestamps, affected paths, retry counts, rclone
+context and suggested next steps before explicitly marking anything as
+reviewed. A successful automatic recovery remains one informational record
+instead of several stale errors.
 
 The folder button opens `/pdrive` in Nemo. Matching navigation, header and menu
 actions open the official [Proton Drive web client](https://drive.proton.me/)
 for account-wide settings and workflows outside the mount.
 
-Preferences control close-to-tray, start-in-tray, the live refresh interval,
-hidden-window metric polling and language. The menu also contains the locally
-rendered in-app manual. The [Control Center settings reference](docs/OPERATIONS.md#control-center-settings-reference)
+Preferences control close-to-tray, start-in-tray, desktop notification level,
+the live refresh interval, hidden-window metric polling and language. The menu
+also contains the locally rendered in-app manual. The [Control Center settings reference](docs/OPERATIONS.md#control-center-settings-reference)
 lists every choice, default, activation time and safety effect.
 
 ## Everyday use

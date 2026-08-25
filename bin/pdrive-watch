@@ -64,6 +64,7 @@ readonly monitor_state="${state_dir}/pdrive-watch-state"
 readonly cooldown_config="${HOME}/.config/pdrive-watch.conf"
 readonly recovery_config="${HOME}/.config/pdrive-recovery.conf"
 readonly transfers_config="${HOME}/.config/pdrive-transfers.conf"
+readonly ui_preferences="${HOME}/.config/pdrive-ui.json"
 readonly low_space_bytes=59055800320
 readonly stall_success_age_seconds=14400
 readonly stall_queue_age_seconds=7200
@@ -77,6 +78,28 @@ readonly activity_probe_seconds=20
 readonly activity_read_bytes=1048576
 readonly activity_rchar_bytes=8388608
 readonly activity_tcp_bytes=262144
+
+notification_policy='important'
+if [[ -r "${ui_preferences}" ]] && command -v jq >/dev/null 2>&1; then
+    configured_notification_policy="$(jq -r '.notification_policy // empty' "${ui_preferences}" 2>/dev/null)"
+    case "${configured_notification_policy}" in
+        important|critical|all|off) notification_policy="${configured_notification_policy}" ;;
+    esac
+fi
+
+notification_allowed() {
+    local current_status="${1:-unknown}"
+    local current_reason="${2:-unknown}"
+    case "${notification_policy}" in
+        off) return 1 ;;
+        all) return 0 ;;
+        critical) [[ "${current_status}" == 'critical' ]] ;;
+        important)
+            [[ "${current_status}" == 'warning' || "${current_status}" == 'critical' \
+                || "${current_reason}" == 'auto-restart-issued' ]]
+            ;;
+    esac
+}
 
 trim_watch_history() {
     local entry_count history_tmp
@@ -1153,6 +1176,7 @@ if [[ "${record_mode}" == true ]]; then
     mv -f -- "${monitor_tmp}" "${monitor_state}"
 
     if [[ "${status}" != "${previous_status}" || "${reason_code}" != "${previous_reason_code}" ]] \
+        && notification_allowed "${status}" "${reason_code}" \
         && command -v notify-send >/dev/null 2>&1; then
         case "${status}" in
             ready)
