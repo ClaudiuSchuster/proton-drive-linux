@@ -19,6 +19,7 @@ PYTHONDONTWRITEBYTECODE=1 "${runner[@]}" \
     python3 - "${project_dir}/bin/pdrive-ui" <<'PY'
 import importlib.machinery
 import importlib.util
+import copy
 import sys
 
 loader = importlib.machinery.SourceFileLoader("pdrive_ui_widget_test", sys.argv[1])
@@ -277,6 +278,32 @@ assert "VFS cache used" in window.capacity_card.local_detail.get_text()
 assert "pending upload" in window.cache_card.detail.get_text()
 assert "ETA " in window.queue_card.detail.get_text()
 assert "calculating" not in window.queue_card.detail.get_text()
+
+stress_state = copy.deepcopy(module.demo_state())
+stress_state["queue"].update(
+    {
+        "count": 12_345,
+        "active": 8,
+        "bytes": 12 * 1024**4,
+        "remaining_bytes": 12 * 1024**4,
+    }
+)
+stress_state["network_io"]["send_speed"] = 20 * 1024
+stress_state["configuration"]["running_transfers"] = 8
+window.apply_state(stress_state)
+window.apply_state(stress_state)
+window.apply_state(stress_state)
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
+assert window.queue_card.value.get_text() == "12345"
+assert not window.queue_card.value.get_layout().is_ellipsized()
+queue_stress_detail = window.queue_card.detail.get_text()
+assert "12.0 TiB" in queue_stress_detail, queue_stress_detail
+assert "ETA ≈" in queue_stress_detail, queue_stress_detail
+assert not window.queue_card.detail.get_layout().is_ellipsized(), (
+    queue_stress_detail,
+    window.queue_card.detail.get_allocated_width(),
+)
 assert window.retention_button.get_sensitive()
 assert window.retention_button.get_tooltip_text() == "Change cache retention"
 assert window.retention_button.get_events() & module.Gdk.EventMask.ENTER_NOTIFY_MASK

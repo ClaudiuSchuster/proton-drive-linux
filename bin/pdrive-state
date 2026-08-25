@@ -526,7 +526,10 @@ def consolidate_issues(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
     for attempt in attempts:
         event = merge_issue_attempt(attempt)
         subject = str(event.get("subject") or "")
-        key = (str(event.get("category") or ""), subject or str(event.get("title") or ""))
+        key = (
+            str(event.get("category") or ""),
+            subject or str(event.get("title") or ""),
+        )
         previous = incidents.get(key)
         if previous is None:
             incidents[key] = event
@@ -542,7 +545,14 @@ def consolidate_issues(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
         # observation time and stable incident identity.
         previous["message"] = event["message"]
         previous["guidance"] = event["guidance"]
-    return [incidents[key] for key in order]
+    consolidated = [incidents[key] for key in order]
+    return sorted(
+        consolidated,
+        key=lambda event: (
+            issue_timestamp(str(event.get("last_seen") or event.get("timestamp") or "")) or dt.datetime.min.astimezone()
+        ),
+        reverse=True,
+    )
 
 
 def recent_issues(limit: int = 200, maximum_bytes: int = 512 * 1024) -> dict[str, Any]:
@@ -567,6 +577,8 @@ def recent_issues(limit: int = 200, maximum_bytes: int = 512 * 1024) -> dict[str
             continue
         level = match.group(3)
         message = sanitize_issue_text(match.group(4))
+        if message.lower().startswith("bandwidth limit set to"):
+            continue
         subject = ""
         subject_match = re.match(r"^([^:]{1,240}):\s+(.+)$", message)
         if subject_match:

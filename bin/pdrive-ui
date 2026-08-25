@@ -310,7 +310,7 @@ GERMAN_TRANSLATIONS = {
     "Status unavailable": "Status nicht erreichbar",
     "of {slots} upload slots in use": "von {slots} Uploadslots belegt",
     "{errors} errors · {notices} notices · since reviewed": "{errors} Fehler · {notices} Hinweise · seit der letzten Prüfung",
-    "{bytes} · ETA {eta}": "{bytes} · ETA {eta}",
+    "{bytes} · ETA ≈ {eta}": "{bytes} · ETA ≈ {eta}",
     "{bytes} · ETA calculating": "{bytes} · ETA wird berechnet",
     "Queue is empty · ETA complete": "Warteschlange leer · ETA abgeschlossen",
     "Mark issues reviewed": "Probleme als geprüft markieren",
@@ -1116,6 +1116,9 @@ def clock_duration(value: Any) -> str:
         return "–"
     hours, remainder = divmod(seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
+    if hours >= 24:
+        days, hours = divmod(hours, 24)
+        return f"{days}d {hours}h"
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
 
 
@@ -3298,7 +3301,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             self.upload_eta_rate = 0.0
             self.upload_eta_samples = 0
             self.upload_eta_last_progress = 0.0
-        if int(queue.get("active") or 0) > 0 and speed >= 32 * 1024:
+        if int(queue.get("active") or 0) > 0 and speed >= 1024:
             if self.upload_eta_samples == 0:
                 self.upload_eta_rate = speed
             else:
@@ -3317,7 +3320,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 bytes=human_bytes(remaining),
             )
         return translate_format(
-            "{bytes} · ETA {eta}",
+            "{bytes} · ETA ≈ {eta}",
             bytes=human_bytes(remaining),
             eta=clock_duration(remaining / self.upload_eta_rate),
         )
