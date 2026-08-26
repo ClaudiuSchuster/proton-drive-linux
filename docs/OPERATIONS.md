@@ -648,6 +648,27 @@ fresh progress and error evidence; restored payload traffic, a near-pause
 throttle or DNS outage resets the stall confirmations instead of restarting
 rclone.
 
+Payload completion and Proton finalization are separate phases. A transfer at
+100% means all encrypted payload blocks were sent; it is not successful until
+Proton commits the remote revision and rclone removes the item from the VFS
+queue. The helper therefore reports `finalizing` without restarting when a
+matching queue item has reached its complete size normally.
+
+A finalization restart is a separate, single-use allowance for the exact cache
+generation. It is considered only when a 401, 404, 422 or 5xx backend error is
+bound to the completion window, the installed rclone contains the upstream
+fresh-stream retry fix, the upload limit is not near pause, DNS and the service
+are healthy, the ten-minute commit grace has elapsed, and two separated
+20-second probes still find no activity. A recent payload-recovery restart adds
+a 30-minute gap. The finalization attempt is persisted before systemd is called
+and never deletes or relocates the Dirty VFS payload.
+
+Relevant finalization states are `finalizing`, `confirming-finalization`,
+`finalization-cooldown`, `finalization-restarted`,
+`finalization-restart-limited` and `upgrade-required`. The last state means the
+queued payload is being preserved because the installed rclone does not yet
+contain the safe retry behavior.
+
 The automatic path deliberately needs two observations. `--recover-now` skips
 only that waiting period; every cache, namespace, exclusivity and rollback guard
 still applies. It is useful after a human has already verified the exact draft
@@ -694,9 +715,15 @@ systemctl --user status rclone-selfupdate.timer proton-drive-update.timer
 
 The rclone timer runs ten minutes after boot when due and every Sunday at 04:00,
 with up to two hours of randomized delay. `Persistent=true` catches up after the
-computer was off. rclone's own `selfupdate --stable` verifies the release hash
-and cryptographic signature. A newly installed binary is intentionally left for
-the next natural mount start; the updater never restarts an active transfer.
+computer was off. New installations currently bootstrap the pinned official
+`v1.76.0-beta.10204.660144d31` build because it contains the fix for the Proton
+retry corruption tracked by [rclone #9722](https://github.com/rclone/rclone/issues/9722).
+The updater checks stable releases without downgrading that beta. As soon as
+stable rclone 1.76 or newer exists, it returns the installation to the stable
+channel and follows stable releases normally. rclone self-update verifies the
+official release hash and available signature metadata. A newly installed
+binary is intentionally left for the next natural mount start; the updater
+never restarts an active transfer.
 
 The optional official Proton Drive CLI timer runs five minutes after boot when
 due and daily with up to four hours of randomized delay. Its updater accepts

@@ -50,7 +50,12 @@ printf '%s\n' \
     'endpoint="${@: -1}"' \
     'if [[ "${PDRIVE_TEST_NO_VFS:-}" == 1 && "${endpoint}" == vfs/* ]]; then exit 99; fi' \
     'case "${endpoint}" in' \
-    '  core/stats) printf "%s\\n" '\''{"bytes":1048576,"speed":524288,"errors":0,"transferring":[{"name":"demo/file.iso","size":2097152,"bytes":1048576,"speed":524288,"eta":2}]} '\'' ;;' \
+    '  core/stats)' \
+    '    if [[ "${PDRIVE_TEST_COMPLETE:-}" == 1 ]]; then' \
+    '      printf "%s\\n" '\''{"bytes":2097152,"speed":0,"errors":0,"transferring":[{"name":"demo/file.iso","size":2097152,"bytes":2097152,"speed":0,"eta":null}]} '\''' \
+    '    else' \
+    '      printf "%s\\n" '\''{"bytes":1048576,"speed":524288,"errors":0,"transferring":[{"name":"demo/file.iso","size":2097152,"bytes":1048576,"speed":524288,"eta":2}]} '\''' \
+    '    fi ;;' \
     '  core/transferred) printf "%s\\n" '\''{"transferred":[{"name":"done.txt","size":12,"bytes":12,"completedAt":"2026-08-24T10:00:00+00:00"},{"name":"Projects/demo.qcow2","size":1048576,"bytes":1048576,"completedAt":"2026-08-24T10:04:00+00:00"}]} '\'' ;;' \
     '  vfs/queue) printf "%s\\n" '\''{"queue":[{"name":"demo/file.iso","size":2097152,"tries":2,"uploading":true}]} '\'' ;;' \
     '  vfs/stats) printf "%s\\n" '\''{"diskCache":{"bytesUsed":3145728,"files":2,"uploadsQueued":1,"uploadsInProgress":1,"erroredFiles":0,"outOfSpace":false},"opt":{"CacheMaxAge":86400000000000}}'\'' ;;' \
@@ -85,6 +90,7 @@ cat > "${state_dir}/pdrive-draft-recovery-latest.json" <<'EOF'
   "phase": "recovery",
   "progress_proven": true,
   "queue_count": 1,
+  "finalization_restart_attempts": 0,
   "restart_attempts": 1,
   "stall_confirmations": 2,
   "status": "restarted"
@@ -162,6 +168,7 @@ jq -e '
     and .draft_recovery.error_category == "remote-file-removed"
     and .draft_recovery.stall_confirmations == 2
     and .draft_recovery.restart_attempts == 1
+    and .draft_recovery.finalization_restart_attempts == 0
     and .issues.available == true
     and (.issues.events | length) == 5
     and .issues.events[0].category == "dns"
@@ -196,6 +203,27 @@ jq -e '
     and (.issues.events[3].message | contains("private-share") | not)
     and .history[0].vfs_queue == 1
 ' "${state_json}" >/dev/null
+
+finalizing_json="${test_root}/state-finalizing.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_TEST_COMPLETE=1 \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+    "${project_dir}/bin/pdrive-state" --compact > "${finalizing_json}"
+
+jq -e '
+    .health.summary == "Proton is finalizing 1 fully transferred upload(s)."
+    and .queue.finalizing == 1
+    and .queue.remaining_bytes == 0
+    and .queue.items[0].stage == "finalizing"
+    and .transfers.active[0].stage == "finalizing"
+' "${finalizing_json}" >/dev/null
 
 startup_json="${test_root}/startup.json"
 HOME="${test_home}" \

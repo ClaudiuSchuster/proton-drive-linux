@@ -5,6 +5,9 @@ set -euo pipefail
 umask 077
 
 readonly target_rclone="${PDRIVE_REAL_RCLONE:-${HOME}/.local/libexec/rclone-bin}"
+readonly safe_rclone_beta='v1.76.0-beta.10204.660144d31'
+readonly minimum_safe_rclone='v1.76.0'
+readonly minimum_safe_beta_build=10204
 
 usage() {
     printf '%s\n' \
@@ -12,8 +15,9 @@ usage() {
         '' \
         'Without an option or with --help, this command only prints help.' \
         '--check           verify the user-local rclone and Proton backend' \
-        '--install-rclone  bootstrap the latest stable rclone atomically from' \
-        '                  an installed distribution rclone binary' \
+        '--install-rclone  bootstrap the pinned official upload-safe rclone beta' \
+        '                  atomically from an installed distribution rclone;' \
+        '                  the updater returns to stable when 1.76 is released' \
         '' \
         'System packages and /pdrive are intentionally prepared by trusted' \
         'system executables through Polkit, not by this user-writable helper.'
@@ -31,9 +35,26 @@ find_bootstrap_rclone() {
     return 1
 }
 
+rclone_upload_retry_safe() {
+    local candidate="$1" first_line version base beta_suffix beta_build newest
+    first_line="$("${candidate}" version 2>/dev/null | head -n 1)" || return 1
+    version="${first_line#rclone }"
+    if [[ ! "${version}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-beta\.([0-9]+)\.[^[:space:]]+)?$ ]]; then
+        return 1
+    fi
+    base="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+    beta_suffix="${BASH_REMATCH[4]:-}"
+    beta_build="${BASH_REMATCH[5]:-0}"
+    newest="$(printf '%s\n%s\n' "${minimum_safe_rclone}" "${base}" | sort -V | tail -n 1)"
+    [[ "${newest}" == "${base}" ]] || return 1
+    [[ "${base}" != "${minimum_safe_rclone}" || -z "${beta_suffix}" \
+        || "${beta_build}" -ge "${minimum_safe_beta_build}" ]]
+}
+
 check_rclone() {
     [[ -x "${target_rclone}" ]] || return 1
-    "${target_rclone}" help backend protondrive >/dev/null 2>&1
+    rclone_upload_retry_safe "${target_rclone}" \
+        && "${target_rclone}" help backend protondrive >/dev/null 2>&1
 }
 
 case "${1:-}" in
@@ -44,9 +65,10 @@ case "${1:-}" in
     --check)
         (( $# == 1 )) || { usage >&2; exit 2; }
         if check_rclone; then
-            printf 'Ready: %s provides the Proton Drive backend.\n' "${target_rclone}"
+            printf 'Ready: %s provides the upload-safe Proton Drive backend.\n' "${target_rclone}"
         else
-            printf 'Missing or incompatible user-local rclone: %s\n' "${target_rclone}" >&2
+            printf 'Missing, incompatible or upload-unsafe user-local rclone: %s\n' \
+                "${target_rclone}" >&2
             exit 69
         fi
         ;;
@@ -66,14 +88,15 @@ case "${1:-}" in
         cleanup() { rm -f -- "${temporary_rclone:-}"; }
         trap cleanup EXIT
         install -m 0755 "${bootstrap_rclone}" "${temporary_rclone}"
-        "${temporary_rclone}" selfupdate --stable
-        if ! "${temporary_rclone}" help backend protondrive >/dev/null 2>&1; then
-            printf 'The downloaded rclone does not provide the protondrive backend.\n' >&2
+        "${temporary_rclone}" selfupdate --beta --version "${safe_rclone_beta}"
+        if ! rclone_upload_retry_safe "${temporary_rclone}" \
+            || ! "${temporary_rclone}" help backend protondrive >/dev/null 2>&1; then
+            printf 'The downloaded rclone is not an upload-safe Proton Drive build.\n' >&2
             exit 70
         fi
         mv -f -- "${temporary_rclone}" "${target_rclone}"
         trap - EXIT
-        printf 'Installed the latest Proton-capable rclone at %s.\n' "${target_rclone}"
+        printf 'Installed the pinned upload-safe rclone beta at %s.\n' "${target_rclone}"
         ;;
     -h|--help)
         (( $# == 1 )) || { usage >&2; exit 2; }

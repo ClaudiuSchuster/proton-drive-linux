@@ -22,7 +22,19 @@ test_home="${test_root}/home"
 mount_dir="${test_root}/mount"
 config_file="${test_home}/.config/rclone/rclone.conf"
 fake_setup="${test_root}/pdrive-setup"
+fake_rclone="${test_root}/rclone-bin"
 mkdir -p -- "${test_home}" "${mount_dir}"
+
+# Preserve the expansions for the fake process rather than this test process.
+# shellcheck disable=SC2016
+printf '%s\n' \
+    '#!/usr/bin/env bash' \
+    'case "${1:-}" in' \
+    '  version) printf "rclone v1.76.0-beta.10204.660144d31\n" ;;' \
+    '  help) [[ "${2:-}" == backend && "${3:-}" == protondrive ]] ;;' \
+    '  *) exit 2 ;;' \
+    'esac' > "${fake_rclone}"
+chmod 0755 "${fake_rclone}"
 
 # The single-quoted fixture lines must preserve their expansions for the fake
 # setup process rather than evaluating them in this test process.
@@ -47,7 +59,7 @@ HOME="${test_home}" \
     XDG_DATA_HOME="${test_home}/.local/share" \
     PDRIVE_MOUNT_DIR="${mount_dir}" \
     PDRIVE_RCLONE_CONFIG="${config_file}" \
-    PDRIVE_REAL_RCLONE=/bin/true \
+    PDRIVE_REAL_RCLONE="${fake_rclone}" \
     PDRIVE_SETUP_BIN="${fake_setup}" \
     PDRIVE_UI_NON_UNIQUE=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -74,6 +86,35 @@ wizard = window.setup_wizard
 assert wizard is not None
 assert wizard.readiness["ready"]
 assert wizard.stack.get_visible_child_name() == "readiness"
+rclone_fixture = pathlib.Path(module.os.environ["PDRIVE_REAL_RCLONE"])
+safe_rclone = rclone_fixture.read_text(encoding="utf-8")
+rclone_fixture.write_text(
+    "#!/usr/bin/env bash\n"
+    "case \"${1:-}\" in\n"
+    "  version) printf 'rclone v1.75.0\\n' ;;\n"
+    "  help) exit 0 ;;\n"
+    "  *) exit 2 ;;\n"
+    "esac\n",
+    encoding="utf-8",
+)
+rclone_fixture.chmod(0o755)
+wizard.refresh_readiness()
+assert not wizard.readiness["ready"]
+assert wizard.readiness["rclone_present"]
+assert not wizard.readiness["rclone_ready"]
+assert wizard.prepare_button.get_label() == "Reinstall recommended rclone"
+assert wizard.prepare_button.get_tooltip_text() in {
+    module.translate(
+        "Only the user-local rclone binary is replaced; configuration, cache and mount data remain untouched."
+    ),
+    module.translate(
+        "Automatic package installation is available on Debian, Ubuntu and Linux Mint systems with Polkit."
+    ),
+}
+rclone_fixture.write_text(safe_rclone, encoding="utf-8")
+rclone_fixture.chmod(0o755)
+wizard.refresh_readiness()
+assert wizard.readiness["ready"]
 wizard.continue_button.emit("clicked")
 assert wizard.stack.get_visible_child_name() == "account"
 

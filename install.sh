@@ -2,6 +2,10 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 
 set -euo pipefail
+
+readonly safe_rclone_beta='v1.76.0-beta.10204.660144d31'
+readonly minimum_safe_rclone='v1.76.0'
+readonly minimum_safe_beta_build=10204
 umask 022
 
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
@@ -23,8 +27,8 @@ usage() {
         'Usage: ./install.sh [--with-proton-cli-updater]' \
         '' \
         'Installs or updates the user-local helpers, systemd units and docs.' \
-        'On a fresh install, bootstraps the latest signed stable rclone from an' \
-        'already installed rclone binary. Existing personal configuration,' \
+        'Bootstraps the pinned official upload-safe rclone beta when the local' \
+        'binary is missing or older than the fixed 1.76 baseline. Configuration,' \
         'cache, logs and a running mount are never overwritten or restarted.' \
         '' \
         '--with-proton-cli-updater  also enable the optional official Proton' \
@@ -51,6 +55,29 @@ case "${1:-}" in
         exit 2
         ;;
 esac
+
+rclone_upload_retry_safe() {
+    local candidate="$1" first_line version base beta_suffix beta_build newest
+    [[ -x "${candidate}" ]] || return 1
+    first_line="$("${candidate}" version 2>/dev/null | head -n 1)" || return 1
+    version="${first_line#rclone }"
+    if [[ ! "${version}" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)(-beta\.([0-9]+)\.[^[:space:]]+)?$ ]]; then
+        return 1
+    fi
+    base="v${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+    beta_suffix="${BASH_REMATCH[4]:-}"
+    beta_build="${BASH_REMATCH[5]:-0}"
+    newest="$(printf '%s\n%s\n' "${minimum_safe_rclone}" "${base}" | sort -V | tail -n 1)"
+    [[ "${newest}" == "${base}" ]] || return 1
+    [[ "${base}" != "${minimum_safe_rclone}" || -z "${beta_suffix}" \
+        || "${beta_build}" -ge "${minimum_safe_beta_build}" ]]
+}
+
+rclone_ready() {
+    local candidate="$1"
+    rclone_upload_retry_safe "${candidate}" \
+        && "${candidate}" help backend protondrive >/dev/null 2>&1
+}
 
 missing_commands=()
 for command_name in bash curl findmnt flock fusermount3 jq mountpoint openssl \
@@ -117,14 +144,14 @@ mkdir -p -- "${bin_dir}" "${libexec_dir}" "${unit_dir}" "${doc_dir}" \
     "${doc_assets_dir}" "${doc_icon_dir}" \
     "${applications_dir}" "${icons_dir}" "${config_dir}"
 
-if [[ ! -x "${real_rclone}" ]]; then
+if ! rclone_ready "${real_rclone}"; then
     temporary_rclone="$(mktemp "${libexec_dir}/.rclone-bin.XXXXXX")"
     cleanup_rclone() { rm -f -- "${temporary_rclone:-}"; }
     trap cleanup_rclone EXIT
     install -m 0755 "${bootstrap_rclone}" "${temporary_rclone}"
-    "${temporary_rclone}" selfupdate --stable
-    if ! "${temporary_rclone}" help backend protondrive >/dev/null 2>&1; then
-        printf 'The downloaded rclone does not provide the protondrive backend.\n' >&2
+    "${temporary_rclone}" selfupdate --beta --version "${safe_rclone_beta}"
+    if ! rclone_ready "${temporary_rclone}"; then
+        printf 'The downloaded rclone is not an upload-safe Proton Drive build.\n' >&2
         exit 70
     fi
     mv -f -- "${temporary_rclone}" "${real_rclone}"

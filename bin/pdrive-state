@@ -380,6 +380,30 @@ def queue_remaining_bytes(queue: dict[str, Any], active: list[dict[str, Any]]) -
     return remaining
 
 
+def mark_finalizing_transfers(queue: dict[str, Any], active: list[dict[str, Any]]) -> None:
+    """Mark exact queued transfers whose payload bytes are complete but not committed."""
+
+    unmatched = [item for item in queue.get("items", []) if isinstance(item, dict)]
+    finalizing = 0
+    for transfer in active:
+        name = str(transfer.get("name") or "")
+        size = max(0, integer(transfer.get("size")))
+        done = max(0, integer(transfer.get("bytes")))
+        if not name or size <= 0 or done < size:
+            continue
+        for index, item in enumerate(unmatched):
+            if str(item.get("name") or "") != name or not item.get("uploading"):
+                continue
+            if max(0, integer(item.get("size"))) != size:
+                continue
+            transfer["stage"] = "finalizing"
+            item["stage"] = "finalizing"
+            finalizing += 1
+            unmatched.pop(index)
+            break
+    queue["finalizing"] = finalizing
+
+
 def sanitize_issue_text(value: str) -> str:
     """Remove API identifiers and credential-shaped values from a log message."""
 
@@ -923,15 +947,22 @@ def normalize_draft_recovery(raw: dict[str, Any], now_epoch: int) -> dict[str, A
         "active",
         "completed",
         "confirming",
+        "confirming-finalization",
         "confirming-stall",
         "cooldown",
         "deferred",
         "error",
         "healthy",
         "inactive",
+        "finalization-cooldown",
+        "finalization-restart-limited",
+        "finalization-restart-requested",
+        "finalization-restarted",
+        "finalizing",
         "network-deferred",
         "observing",
         "probing",
+        "probing-finalization",
         "process-changed",
         "recovering",
         "recovery-started",
@@ -940,6 +971,7 @@ def normalize_draft_recovery(raw: dict[str, Any], now_epoch: int) -> dict[str, A
         "restart-requested",
         "restarted",
         "throttled",
+        "upgrade-required",
     }
     status = str(raw.get("status") or "unavailable")
     if status not in allowed_statuses:
@@ -950,12 +982,13 @@ def normalize_draft_recovery(raw: dict[str, Any], now_epoch: int) -> dict[str, A
         "age_seconds": max(0, now_epoch - generated_epoch) if generated_epoch else -1,
         "status": status,
         "detail": str(raw.get("detail") or "")[:500],
-        "phase": "recovery" if raw.get("phase") == "recovery" else "normal",
+        "phase": (str(raw.get("phase")) if raw.get("phase") in {"recovery", "finalization"} else "normal"),
         "queue_count": max(0, integer(raw.get("queue_count"))),
         "progress_proven": boolean(raw.get("progress_proven")),
         "error_category": str(raw.get("error_category") or "none")[:80],
         "stall_confirmations": max(0, integer(raw.get("stall_confirmations"))),
         "restart_attempts": max(0, integer(raw.get("restart_attempts"))),
+        "finalization_restart_attempts": max(0, integer(raw.get("finalization_restart_attempts"))),
     }
 
 
@@ -982,6 +1015,7 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
         active_raw = []
     active = [normalize_transfer(item) for item in active_raw if isinstance(item, dict)]
     queue = normalize_queue(rc_payloads.get("vfs/queue"))
+    mark_finalizing_transfers(queue, active)
     queue["remaining_bytes"] = queue_remaining_bytes(queue, active)
     vfs = rc_payloads.get("vfs/stats", {})
     disk_cache = vfs.get("diskCache", {}) if isinstance(vfs.get("diskCache"), dict) else {}
@@ -1017,7 +1051,9 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
         health_reason = latest["reason_code"]
     else:
         health_status = "ready"
-        if queue["active"]:
+        if queue.get("finalizing"):
+            health_summary = f"Proton is finalizing {queue['finalizing']} fully transferred upload(s)."
+        elif queue["active"]:
             health_summary = f"{queue['active']} upload(s) are running through the existing Proton Drive service."
         elif queue["count"]:
             health_summary = f"{queue['count']} file(s) are safely waiting in the VFS queue."

@@ -297,6 +297,10 @@ GERMAN_TRANSLATIONS = {
     "Draft recovery": "Draft-Recovery",
     "Monitoring": "Wird überwacht",
     "Confirming stall": "Stillstand wird bestätigt",
+    "Confirming finalization": "Finalisierung wird bestätigt",
+    "Finalizing": "Wird finalisiert",
+    "Finalization cooldown": "Finalisierungs-Cooldown",
+    "Upgrade required": "Update erforderlich",
     "Restarted safely": "Sicher neu gestartet",
     "Cooldown": "Cooldown",
     "Manual review": "Manuelle Prüfung",
@@ -305,7 +309,7 @@ GERMAN_TRANSLATIONS = {
     "Inactive": "Inaktiv",
     "Unavailable": "Nicht verfügbar",
     "Deferred": "Zurückgestellt",
-    "{status} · {confirmations}/2 stall confirmations\n{restarts}/1 guarded restart(s) · checked {time}": "{status} · {confirmations}/2 Stillstandsbestätigungen\n{restarts}/1 abgesicherte Neustarts · geprüft {time}",
+    "{status} · {confirmations}/2 stall confirmations\n{payload}/1 payload · {finalization}/1 finalization restart(s) · checked {time}": "{status} · {confirmations}/2 Stillstandsbestätigungen\n{payload}/1 Payload- · {finalization}/1 Finalisierungsneustart(s) · geprüft {time}",
     "VFS endpoint queried before mount readiness": "VFS-Endpunkt vor Mount-Bereitschaft abgefragt",
     "No action is needed when the service is active and /pdrive is writable. Refresh the view to confirm.": "Keine Aktion nötig, wenn der Dienst aktiv und /pdrive beschreibbar ist. Aktualisiere zur Bestätigung die Ansicht.",
     "Remote upload draft conflict": "Konflikt mit einem Remote-Uploadentwurf",
@@ -365,6 +369,8 @@ GERMAN_TRANSLATIONS = {
     "The retried upload is transferring again with verified process traffic.": "Der erneut versuchte Upload überträgt wieder mit verifiziertem Prozesstraffic.",
     "Unknown file": "Unbekannte Datei",
     "Uploading": "Upload läuft",
+    "Payload transferred · Proton is finalizing the file": "Payload übertragen · Proton finalisiert die Datei",
+    "Proton is finalizing {count} fully transferred upload(s).": "Proton finalisiert {count} vollständig übertragene Upload(s).",
     "Waiting": "Wartet",
     "Attempt {tries}": "Versuch {tries}",
     "{tries} attempt(s)": "{tries} Versuch(e)",
@@ -374,6 +380,7 @@ GERMAN_TRANSLATIONS = {
     "ETA calculating": "ETA wird berechnet",
     "⏸ ETA waiting": "⏸ ETA wartet",
     "No upload traffic is currently available for an estimate.": "Für eine Schätzung ist derzeit kein Uploadtraffic verfügbar.",
+    "The payload is complete; success is confirmed only after Proton commits the remote file.": "Der Payload ist vollständig; erfolgreich ist der Upload erst, nachdem Proton die Remote-Datei committed hat.",
     "Failed": "Fehler",
     "Completed": "Fertig",
     "No history yet": "Noch kein Verlauf",
@@ -451,11 +458,14 @@ GERMAN_TRANSLATIONS = {
     "This guided setup checks the local tools, prepares a private mount and connects your Proton account.": "Diese geführte Einrichtung prüft die lokalen Werkzeuge, bereitet einen privaten Mount vor und verbindet dein Proton-Konto.",
     "System readiness": "Systembereitschaft",
     "Required command-line tools": "Erforderliche Kommandozeilenwerkzeuge",
-    "Latest Proton-capable rclone": "Aktuelles Proton-fähiges rclone",
+    "Upload-safe Proton rclone": "Upload-sicheres Proton-rclone",
     "Private /pdrive mountpoint": "Privater /pdrive-Mountpunkt",
     "All prerequisites are ready.": "Alle Voraussetzungen sind bereit.",
     "Some prerequisites still need attention.": "Einige Voraussetzungen benötigen noch Aufmerksamkeit.",
     "Install and prepare automatically": "Automatisch installieren und vorbereiten",
+    "Reinstall recommended rclone": "Empfohlenes rclone neu installieren",
+    "The existing rclone is older than the upload-safe 1.76 baseline.": "Das vorhandene rclone ist älter als die upload-sichere 1.76-Basis.",
+    "Only the user-local rclone binary is replaced; configuration, cache and mount data remain untouched.": "Nur die benutzerlokale rclone-Binary wird ersetzt; Konfiguration, Cache und Mountdaten bleiben unangetastet.",
     "Check again": "Erneut prüfen",
     "Manual setup for advanced users": "Manuelle Einrichtung für erfahrene Nutzer",
     "Automatic preparation uses your system package manager through Polkit. Project code never runs as root.": "Die automatische Vorbereitung nutzt deinen System-Paketmanager über Polkit. Projektcode läuft niemals als root.",
@@ -582,12 +592,13 @@ def setup_readiness() -> dict[str, Any]:
     real_rclone = pathlib.Path(
         os.environ.get("PDRIVE_REAL_RCLONE", pathlib.Path.home() / ".local/libexec/rclone-bin")
     ).expanduser()
+    rclone_present = real_rclone.is_file() and os.access(real_rclone, os.X_OK)
     rclone_ready = False
-    if real_rclone.is_file() and os.access(real_rclone, os.X_OK):
+    if rclone_present:
         try:
             rclone_ready = (
                 subprocess.run(
-                    [str(real_rclone), "help", "backend", "protondrive"],
+                    [resolve_command("PDRIVE_PREREQUISITES_BIN", "pdrive-prerequisites"), "--check"],
                     check=False,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
@@ -605,6 +616,7 @@ def setup_readiness() -> dict[str, Any]:
     return {
         "commands_ready": not missing_commands,
         "missing_commands": missing_commands,
+        "rclone_present": rclone_present,
         "rclone_ready": rclone_ready,
         "real_rclone": str(real_rclone),
         "mount_ready": mount_ready,
@@ -1160,15 +1172,22 @@ DRAFT_RECOVERY_STATUS_LABELS = {
     "active": "Monitoring",
     "completed": "Completed",
     "confirming": "Monitoring",
+    "confirming-finalization": "Confirming finalization",
     "confirming-stall": "Confirming stall",
     "cooldown": "Cooldown",
     "deferred": "Deferred",
     "error": "Manual review",
     "healthy": "Monitoring",
     "inactive": "Inactive",
+    "finalization-cooldown": "Finalization cooldown",
+    "finalization-restart-limited": "Manual review",
+    "finalization-restart-requested": "Confirming finalization",
+    "finalization-restarted": "Restarted safely",
+    "finalizing": "Finalizing",
     "network-deferred": "Network deferred",
     "observing": "Monitoring",
     "probing": "Monitoring",
+    "probing-finalization": "Confirming finalization",
     "process-changed": "Fresh baseline",
     "recovering": "Monitoring",
     "recovery-started": "Monitoring",
@@ -1177,6 +1196,7 @@ DRAFT_RECOVERY_STATUS_LABELS = {
     "restart-requested": "Monitoring",
     "restarted": "Restarted safely",
     "throttled": "Near pause",
+    "upgrade-required": "Upgrade required",
     "unavailable": "Unavailable",
 }
 
@@ -2168,7 +2188,7 @@ class SetupWizard(Gtk.Box):
         self.readiness_rows: dict[str, tuple[Gtk.Image, Gtk.Label]] = {}
         for key, title in (
             ("commands", "Required command-line tools"),
-            ("rclone", "Latest Proton-capable rclone"),
+            ("rclone", "Upload-safe Proton rclone"),
             ("mount", "Private /pdrive mountpoint"),
         ):
             row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=11)
@@ -2349,9 +2369,26 @@ class SetupWizard(Gtk.Box):
             detail = translate("Some prerequisites still need attention.")
             if missing:
                 detail += f" {translate('Missing')}: {missing}."
+            if self.readiness["rclone_present"] and not self.readiness["rclone_ready"]:
+                detail += " " + translate("The existing rclone is older than the upload-safe 1.76 baseline.")
             self.readiness_summary.set_text(detail)
             add_css(self.readiness_summary, "setup-attention")
         self.continue_button.set_sensitive(bool(self.readiness["ready"]) and not self.preparing)
+        reinstall_only = (
+            self.readiness["commands_ready"]
+            and self.readiness["mount_ready"]
+            and self.readiness["rclone_present"]
+            and not self.readiness["rclone_ready"]
+        )
+        prepare_label = "Reinstall recommended rclone" if reinstall_only else "Install and prepare automatically"
+        self.prepare_button.set_label(translate(prepare_label))
+        self.prepare_button.set_tooltip_text(
+            translate(
+                "Only the user-local rclone binary is replaced; configuration, cache and mount data remain untouched."
+            )
+            if reinstall_only
+            else translate(prepare_label)
+        )
         self.prepare_button.set_visible(not self.readiness["ready"])
         self.prepare_button.set_sensitive(bool(self.readiness["automatic"]) and not self.preparing)
         if not self.readiness["automatic"] and not self.readiness["ready"]:
@@ -3465,6 +3502,14 @@ class PDriveWindow(Gtk.ApplicationWindow):
             self.upload_eta_signature = ()
             self.upload_eta_seconds = -1
             return translate("Queue is empty · ETA complete")
+        if int(queue.get("finalizing") or 0) > 0:
+            self.upload_eta_pid = pid
+            self.upload_eta_rate = 0.0
+            self.upload_eta_samples = 0
+            self.upload_eta_last_progress = 0.0
+            self.upload_eta_signature = signature
+            self.upload_eta_seconds = -1
+            return translate("Payload transferred · Proton is finalizing the file")
         if pid != self.upload_eta_pid or signature != self.upload_eta_signature:
             self.upload_eta_pid = pid
             self.upload_eta_rate = 0.0
@@ -3781,10 +3826,15 @@ class PDriveWindow(Gtk.ApplicationWindow):
         draft_recovery_status = str(draft_recovery.get("status") or "unavailable")
         self.service_detail_values["draft_recovery"].set_text(
             translate_format(
-                "{status} · {confirmations}/2 stall confirmations\n{restarts}/1 guarded restart(s) · checked {time}",
+                "{status} · {confirmations}/2 stall confirmations\n{payload}/1 payload · {finalization}/1 finalization restart(s) · checked {time}",
                 status=translate(DRAFT_RECOVERY_STATUS_LABELS.get(draft_recovery_status, "Unavailable")),
                 confirmations=int(draft_recovery.get("stall_confirmations") or 0),
-                restarts=int(draft_recovery.get("restart_attempts") or 0),
+                payload=max(
+                    0,
+                    int(draft_recovery.get("restart_attempts") or 0)
+                    - int(draft_recovery.get("finalization_restart_attempts") or 0),
+                ),
+                finalization=int(draft_recovery.get("finalization_restart_attempts") or 0),
                 time=local_time(str(draft_recovery.get("generated_at") or "")),
             )
         )
@@ -4026,8 +4076,14 @@ class PDriveWindow(Gtk.ApplicationWindow):
         reason = str(health.get("reason_code", "unknown"))
         if reason == "mounted":
             queue = state.get("queue", {})
+            finalizing = int(queue.get("finalizing") or 0)
             active = int(queue.get("active") or 0)
             count = int(queue.get("count") or 0)
+            if finalizing:
+                return translate_format(
+                    "Proton is finalizing {count} fully transferred upload(s).",
+                    count=finalizing,
+                )
             if active:
                 return GERMAN_HEALTH_SUMMARIES["mounted-active"].format(active=active)
             if count:
@@ -4061,15 +4117,24 @@ class PDriveWindow(Gtk.ApplicationWindow):
         name.set_tooltip_text(str(item.get("name", "")))
         top.pack_start(name, True, True, 0)
         if queue:
-            status = "Uploading" if item.get("uploading") else "Waiting"
-            if int(item.get("tries") or 0) >= 2:
+            status = (
+                "Finalizing"
+                if item.get("stage") == "finalizing"
+                else ("Uploading" if item.get("uploading") else "Waiting")
+            )
+            if item.get("stage") != "finalizing" and int(item.get("tries") or 0) >= 2:
                 status = translate_format("Attempt {tries}", tries=item.get("tries"))
             top.pack_end(label(status, "pill"), False, False, 0)
         elif recent:
             text = "Failed" if item.get("error") else "Completed"
             top.pack_end(label(text, "pill"), False, False, 0)
         else:
-            if "display_speed" in item:
+            if item.get("stage") == "finalizing":
+                speed_text = translate("Finalizing")
+                speed_source = translate(
+                    "The payload is complete; success is confirmed only after Proton commits the remote file."
+                )
+            elif "display_speed" in item:
                 display_speed = max(0.0, float(item.get("display_speed") or 0))
                 speed_text = human_rate(display_speed)
                 speed_source = translate("Verified process traffic")
@@ -4098,7 +4163,12 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 if item.get("display_eta_approximate") and int(eta_seconds or -1) >= 0
                 else human_duration(eta_seconds)
             )
-            if eta != "–":
+            if item.get("stage") == "finalizing":
+                detail = translate("Payload transferred · Proton is finalizing the file")
+                detail_tooltip = translate(
+                    "The payload is complete; success is confirmed only after Proton commits the remote file."
+                )
+            elif eta != "–":
                 prefix = "≈" if item.get("display_eta_approximate") else "ETA "
                 detail += f" · {prefix}{eta}"
                 if item.get("display_eta_approximate"):
@@ -4109,8 +4179,11 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 detail += f" · {translate('⏸ ETA waiting')}"
                 detail_tooltip = translate("No upload traffic is currently available for an estimate.")
         elif queue:
-            detail = f"{human_bytes(item.get('size', 0))} · " + translate_format(
-                "{tries} attempt(s)", tries=item.get("tries", 0)
+            detail = (
+                translate("Payload transferred · Proton is finalizing the file")
+                if item.get("stage") == "finalizing"
+                else f"{human_bytes(item.get('size', 0))} · "
+                + translate_format("{tries} attempt(s)", tries=item.get("tries", 0))
             )
         else:
             detail = f"{human_bytes(item.get('bytes') or item.get('size', 0))} · {local_time(str(item.get('completed_at', '')))}"
@@ -5414,6 +5487,7 @@ def demo_state() -> dict[str, Any]:
             "error_category": "none",
             "stall_confirmations": 0,
             "restart_attempts": 0,
+            "finalization_restart_attempts": 0,
         },
         "history": list(reversed(history)),
     }

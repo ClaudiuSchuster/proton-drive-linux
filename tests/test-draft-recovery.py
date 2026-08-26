@@ -111,6 +111,7 @@ endpoint="${{@: -1}}"
 mode="$(awk -F= '$1 == "replace_existing_draft" {{ print $2 }}' {config / "pdrive-draft-recovery.conf"})"
 if [[ "${{mode}}" == true ]]; then namespace='{recovery}'; else namespace='{normal}'; fi
 case "${{endpoint}}" in
+  version) printf 'rclone v1.76.0-beta.10204.660144d31\n' ;;
   vfs/queue) cat {queue_file} ;;
   vfs/stats) printf '{{"diskCache":{{"path":"{cache}/vfs/%s","pathMeta":"{cache}/vfsMeta/%s"}}}}\\n' "${{namespace}}" "${{namespace}}" ;;
   core/stats) printf '{{"bytes":%s,"transferring":[{{"name":"fixture/large.bin","size":8388608,"bytes":%s,"startedAt":"2026-08-26T08:00:00+02:00"}}]}}\\n' "$(cat {transfer_file})" "$(cat {transfer_file})" ;;
@@ -203,6 +204,12 @@ loader.exec_module(module)
 assert module.parse_bandwidth_component("0.020Mi") == int(0.020 * 1024**2)
 assert module.parse_bandwidth_component("4.200Mi") == int(4.2 * 1024**2)
 assert module.parse_bandwidth_component("off") is None
+assert not module.upload_retry_safe_version("v1.75.0")
+assert not module.upload_retry_safe_version("v1.76.0-beta.10203.example")
+assert module.upload_retry_safe_version("v1.76.0-beta.10204.660144d31")
+assert module.upload_retry_safe_version("v1.76.0")
+assert module.upload_retry_safe_version("v1.77.0-beta.1.example")
+assert not module.upload_retry_safe_version("unexpected")
 
 legacy_intermediate_state = {
     "state_version": 2,
@@ -224,6 +231,7 @@ def observation(**overrides: object) -> dict[str, object]:
         "tries": 8,
         "queue_count": 1,
         "queue_bytes": 100 * 1024**3,
+        "candidate_size": 100 * 1024**3,
         "transfer_bytes": 2 * 1024**3,
         "transfer_started_epoch": 8_000,
         "baseline_source": "transfer-start",
@@ -232,6 +240,7 @@ def observation(**overrides: object) -> dict[str, object]:
         "error_signature": "",
         "upload_limit": None,
         "connectivity_healthy": True,
+        "upload_retry_safe": True,
         "activity": "not-probed",
     }
     payload.update(overrides)
@@ -283,6 +292,118 @@ moving = module.post_recovery_decision(
 assert moving["status"] == "recovering"
 assert moving["state"]["zero_activity_confirmations"] == 0
 assert moving["state"]["last_error_epoch"] == 0
+
+payload_size = 100 * 1024**3
+finalizing = module.post_recovery_decision(
+    {},
+    observation(
+        now_epoch=20_000,
+        transfer_bytes=payload_size,
+        candidate_size=payload_size,
+        error_epoch=0,
+    ),
+)
+assert finalizing["status"] == "finalizing"
+assert not finalizing["probe"] and not finalizing["restart"]
+
+finalization_grace = module.post_recovery_decision(
+    {},
+    observation(
+        now_epoch=20_000,
+        transfer_bytes=payload_size,
+        candidate_size=payload_size,
+        error_epoch=19_900,
+        error_category="remote-file-removed",
+    ),
+)
+assert finalization_grace["status"] == "finalizing"
+assert finalization_grace["state"]["finalization_error_epoch"] == 19_900
+
+unsafe_retry = module.post_recovery_decision(
+    finalization_grace["state"],
+    observation(
+        now_epoch=21_000,
+        transfer_bytes=payload_size,
+        candidate_size=payload_size,
+        error_epoch=19_900,
+        error_category="remote-file-removed",
+        upload_retry_safe=False,
+        activity="idle",
+    ),
+)
+assert unsafe_retry["status"] == "upgrade-required" and not unsafe_retry["restart"]
+
+finalization_first_idle = module.post_recovery_decision(
+    finalization_grace["state"],
+    observation(
+        now_epoch=21_000,
+        transfer_bytes=payload_size,
+        candidate_size=payload_size,
+        error_epoch=19_900,
+        error_category="remote-file-removed",
+        activity="idle",
+    ),
+)
+assert finalization_first_idle["status"] == "confirming-finalization"
+assert finalization_first_idle["state"]["finalization_confirmations"] == 1
+
+finalization_confirmed = module.post_recovery_decision(
+    finalization_first_idle["state"],
+    observation(
+        now_epoch=21_300,
+        transfer_bytes=payload_size,
+        candidate_size=payload_size,
+        error_epoch=19_900,
+        error_category="remote-file-removed",
+        activity="idle",
+    ),
+)
+assert finalization_confirmed["restart"]
+assert finalization_confirmed["restart_kind"] == "finalization"
+assert finalization_confirmed["state"]["finalization_restart_attempts"] == 1
+
+finalization_limited = module.post_recovery_decision(
+    finalization_confirmed["state"],
+    observation(
+        now_epoch=23_500,
+        transfer_bytes=payload_size,
+        candidate_size=payload_size,
+        error_epoch=23_400,
+        error_category="remote-file-removed",
+        activity="idle",
+    ),
+)
+assert finalization_limited["status"] == "finalization-restart-limited"
+assert not finalization_limited["restart"]
+
+finalization_moving = module.post_recovery_decision(
+    finalization_first_idle["state"],
+    observation(
+        now_epoch=21_300,
+        transfer_bytes=payload_size,
+        candidate_size=payload_size,
+        error_epoch=19_900,
+        error_category="remote-file-removed",
+        activity="moving",
+    ),
+)
+assert finalization_moving["status"] == "finalizing"
+assert finalization_moving["state"]["finalization_confirmations"] == 0
+assert finalization_moving["state"]["finalization_error_epoch"] == 19_900
+
+stale_finalization_error = module.post_recovery_decision(
+    {},
+    observation(
+        now_epoch=20_000,
+        transfer_bytes=payload_size,
+        candidate_size=payload_size,
+        error_epoch=18_000,
+        error_category="remote-file-removed",
+        activity="idle",
+    ),
+)
+assert stale_finalization_error["status"] == "finalizing"
+assert not stale_finalization_error["probe"] and not stale_finalization_error["restart"]
 
 changed = module.post_recovery_decision(
     first_idle["state"],
