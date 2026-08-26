@@ -281,6 +281,34 @@ assert "pending upload" in window.cache_card.detail.get_text()
 assert "≈" in window.queue_card.detail.get_text()
 assert "calculating" not in window.queue_card.detail.get_text()
 
+finalizing_state = copy.deepcopy(module.demo_state())
+finalizing_active = finalizing_state["transfers"]["active"][0]
+finalizing_active.update(
+    {
+        "bytes": finalizing_active["size"],
+        "percentage": 100.0,
+        "speed": 0,
+        "eta_seconds": -1,
+        "stage": "finalizing",
+    }
+)
+finalizing_queue_item = finalizing_state["queue"]["items"][0]
+finalizing_queue_item["stage"] = "finalizing"
+finalizing_state["queue"].update({"count": 1, "active": 1, "finalizing": 1, "remaining_bytes": 0})
+finalizing_state["queue"]["items"] = [finalizing_queue_item]
+finalizing_state["health"]["summary"] = "Proton is finalizing 1 fully transferred upload(s)."
+window.apply_state(finalizing_state)
+assert "Payload transferred" in window.queue_card.detail.get_text()
+assert "ETA" not in window.queue_card.detail.get_text()
+assert "finalizing" in window.status_summary.get_text().casefold()
+finalizing_labels = [
+    widget.get_text()
+    for widget in descendants(window.active_list)
+    if isinstance(widget, module.Gtk.Label)
+]
+assert "Finalizing" in finalizing_labels
+assert "Payload transferred · Proton is finalizing the file" in finalizing_labels
+
 recovery_state = copy.deepcopy(module.demo_state())
 recovery_active = recovery_state["transfers"]["active"][0]
 recovery_active["speed"] = 897.4 * 1024
@@ -411,7 +439,7 @@ assert "stall confirmation" in watchdog_detail
 assert len(watchdog_detail.splitlines()) == 2
 draft_detail = window.service_detail_values["draft_recovery"].get_text()
 assert "0/2 stall confirmations" in draft_detail
-assert "0/1 guarded restart" in draft_detail
+assert "0/1 payload · 0/1 finalization restart" in draft_detail
 assert len(draft_detail.splitlines()) == 2
 assert "payload traffic" in window.service_detail_values["draft_recovery"].get_tooltip_text()
 assert all(value.get_xalign() == 0.5 for value in window.config_labels.values())

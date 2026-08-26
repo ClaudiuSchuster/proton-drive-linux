@@ -349,6 +349,30 @@ The post-recovery states most useful during diagnosis are:
 - `restart-limited`: this cache generation already used its single attempt;
 - `restart-failed`: the request or its strict post-restart validation failed.
 
+### 100% transferred but still queued
+
+The progress percentage covers payload blocks, not Proton's final commit. A
+file can therefore show 100% while Proton is still creating the remote revision.
+The Control Center labels this phase **Finalizing** and keeps the item in the
+queue until the backend confirms success.
+
+rclone v1.75.0 has a known Proton retry regression where a temporary 502 during
+that finalization path can be followed by 422 and 404 responses. The retry could
+reuse an already consumed stream, so blindly repeating the operation is unsafe.
+The upstream correction is tracked in
+[rclone #9722](https://github.com/rclone/rclone/issues/9722). New toolkit
+installations use a pinned official fixed beta until stable rclone 1.76 or newer
+is available; the weekly updater then returns to stable automatically.
+
+The guarded helper does not treat an ordinary 100% transfer as stalled. It
+requires a terminal backend error in the completion window, a fixed rclone,
+ten minutes for Proton to settle, healthy connectivity, a non-paused upload
+limit and two separated zero-activity probes. It then permits at most one
+finalization-specific restart for that exact cache generation. `upgrade-required`
+preserves the queue without restarting; `confirming-finalization` means a second
+observation is still required. Do not clear the cache or the recovery state to
+force another attempt.
+
 Inspect the automation before intervening:
 
 ```bash

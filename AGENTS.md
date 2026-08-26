@@ -99,6 +99,15 @@ project-specific; CI remains the authority for mechanical formatting rules.
   progress, a newer concrete path-specific error, healthy connectivity, two
   separated zero-activity probes and full post-restart PID/flag/namespace/queue
   validation. Near-pause bandwidth and a process change always suppress it.
+- Treat 100% payload progress as a finalization phase, not remote success. A
+  finalization restart requires a completion-bound terminal backend error, an
+  rclone build with the fresh-stream retry fix, a commit grace period, healthy
+  connectivity, two separated zero-activity probes and its own one-attempt
+  generation-bound allowance. Never consume the ordinary payload-recovery
+  allowance for this phase.
+- New installations are temporarily pinned to the tested official fixed rclone
+  1.76 beta. The updater must hold it rather than downgrade to an older stable
+  release, then return to stable automatically once stable 1.76 or newer exists.
 - Avoid new runtime dependencies when Python's standard library, GTK 3, and the
   installed GI stack are sufficient. Do not add WebKit merely to render local
   documentation.

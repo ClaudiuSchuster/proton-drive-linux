@@ -188,9 +188,12 @@ git pull --ff-only
 ./install.sh
 ```
 
-The weekly rclone updater verifies rclone's signed stable release channel and
-never restarts an active mount. The optional official Proton Drive CLI is a
-separate client and is not required by this project.
+New installations temporarily use a pinned official rclone 1.76 beta containing
+the upstream fix for [rclone #9722](https://github.com/rclone/rclone/issues/9722).
+The weekly updater holds that tested build until stable rclone 1.76 or newer is
+available, then follows stable releases again. It never restarts an active
+mount. The optional official Proton Drive CLI is a separate client and is not
+required by this project.
 
 ## Uninstall
 

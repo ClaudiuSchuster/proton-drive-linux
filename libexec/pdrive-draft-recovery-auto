@@ -41,6 +41,10 @@ POST_RECOVERY_NEAR_PAUSE_BYTES = 64 * 1024
 POST_RECOVERY_RESTART_LIMIT = 1
 POST_RECOVERY_RESTART_COOLDOWN_SECONDS = 12 * 60 * 60
 POST_RECOVERY_MIN_CONFIRMATION_SECONDS = int(os.environ.get("PDRIVE_POST_RECOVERY_MIN_CONFIRMATION_SECONDS", "120"))
+POST_FINALIZATION_SETTLE_SECONDS = int(os.environ.get("PDRIVE_FINALIZATION_SETTLE_SECONDS", "600"))
+POST_FINALIZATION_ERROR_LOOKBACK_SECONDS = 15 * 60
+POST_FINALIZATION_RESTART_GAP_SECONDS = 30 * 60
+POST_FINALIZATION_RESTART_LIMIT = 1
 POST_RECOVERY_STATE_VERSION = 2
 POST_RECOVERY_BASELINE_SOURCES = {
     "transition",
@@ -48,6 +52,13 @@ POST_RECOVERY_BASELINE_SOURCES = {
     "process-start",
     "observed-progress",
 }
+FINALIZATION_ERROR_CATEGORIES = {
+    "draft-conflict",
+    "remote-file-removed",
+    "remote-server",
+}
+MINIMUM_SAFE_RCLONE_VERSION = (1, 76, 0)
+MINIMUM_SAFE_RCLONE_176_BETA_BUILD = 10204
 
 
 class RecoveryError(RuntimeError):
@@ -384,6 +395,32 @@ def connectivity_healthy() -> bool:
     return completed.returncode == 0 and bool(completed.stdout.strip())
 
 
+def upload_retry_safe_version(version: str) -> bool:
+    """Accept only builds known to contain the fresh-stream Proton retry fix."""
+
+    match = re.fullmatch(r"v(\d+)\.(\d+)\.(\d+)(?:-beta\.(\d+)\.[^\s]+)?", version)
+    if match is None:
+        return False
+    base = tuple(int(part) for part in match.groups()[:3])
+    beta_build = match.group(4)
+    if base > MINIMUM_SAFE_RCLONE_VERSION:
+        return True
+    if base < MINIMUM_SAFE_RCLONE_VERSION:
+        return False
+    return beta_build is None or int(beta_build) >= MINIMUM_SAFE_RCLONE_176_BETA_BUILD
+
+
+def installed_upload_retry_safe() -> bool:
+    """Check whether the installed rclone is known to retry with a fresh stream."""
+
+    completed = run([str(RCLONE_BIN), "version"], timeout=8)
+    if completed.returncode != 0:
+        return False
+    first_line = completed.stdout.splitlines()[0].strip() if completed.stdout.splitlines() else ""
+    match = re.fullmatch(r"rclone\s+(v\S+)", first_line)
+    return bool(match and upload_retry_safe_version(match.group(1)))
+
+
 def post_recovery_error(name: str, since_epoch: int, *, allow_backend_context: bool = False) -> dict[str, Any]:
     """Return the newest concrete upload error for one path without persisting it."""
 
@@ -470,6 +507,13 @@ def post_recovery_decision(previous: dict[str, Any], observation: dict[str, Any]
             "last_zero_activity_epoch": 0,
             "restart_attempts": 0,
             "last_restart_epoch": 0,
+            "payload_complete_epoch": 0,
+            "finalization_error_epoch": 0,
+            "finalization_error_category": "none",
+            "finalization_error_signature": "",
+            "finalization_confirmations": 0,
+            "last_finalization_confirmation_epoch": 0,
+            "finalization_restart_attempts": 0,
             "last_pid": 0,
             "baseline_source": str(observation.get("baseline_source") or "observation"),
         }
@@ -509,13 +553,47 @@ def post_recovery_decision(previous: dict[str, Any], observation: dict[str, Any]
         state["last_error_signature"] = str(observation.get("error_signature") or "")
     actionable_error = max(0, int(state.get("last_error_epoch") or 0)) > last_progress_epoch
 
-    def result(status: str, detail: str, *, probe: bool = False, restart: bool = False) -> dict[str, Any]:
+    candidate_size = max(0, int(observation.get("candidate_size") or 0))
+    payload_complete = candidate_size > 0 and transfer_bytes >= candidate_size
+    if payload_complete:
+        payload_complete_epoch = max(0, int(state.get("payload_complete_epoch") or 0))
+        if not payload_complete_epoch:
+            payload_complete_epoch = last_progress_epoch if compatible and last_progress_epoch else now_epoch
+        state["payload_complete_epoch"] = payload_complete_epoch
+        error_category = str(observation.get("error_category") or "none")
+        completion_reference = max(0, int(state.get("payload_complete_epoch") or now_epoch))
+        if (
+            error_epoch
+            and error_category in FINALIZATION_ERROR_CATEGORIES
+            and error_epoch >= completion_reference - POST_FINALIZATION_ERROR_LOOKBACK_SECONDS
+        ):
+            state["finalization_error_epoch"] = error_epoch
+            state["finalization_error_category"] = error_category
+            state["finalization_error_signature"] = str(observation.get("error_signature") or "")
+    else:
+        state["payload_complete_epoch"] = 0
+        state["finalization_error_epoch"] = 0
+        state["finalization_error_category"] = "none"
+        state["finalization_error_signature"] = ""
+        state["finalization_confirmations"] = 0
+        state["last_finalization_confirmation_epoch"] = 0
+    finalization_actionable = payload_complete and max(0, int(state.get("finalization_error_epoch") or 0)) > 0
+
+    def result(
+        status: str,
+        detail: str,
+        *,
+        probe: bool = False,
+        restart: bool = False,
+        restart_kind: str = "none",
+    ) -> dict[str, Any]:
         return {
             "state": state,
             "status": status,
             "detail": detail,
             "probe": probe,
             "restart": restart,
+            "restart_kind": restart_kind,
         }
 
     if previous_pid and pid != previous_pid:
@@ -526,6 +604,12 @@ def post_recovery_decision(previous: dict[str, Any], observation: dict[str, Any]
         state["last_error_signature"] = ""
         state["zero_activity_confirmations"] = 0
         state["last_zero_activity_epoch"] = 0
+        state["payload_complete_epoch"] = 0
+        state["finalization_error_epoch"] = 0
+        state["finalization_error_category"] = "none"
+        state["finalization_error_signature"] = ""
+        state["finalization_confirmations"] = 0
+        state["last_finalization_confirmation_epoch"] = 0
         return result(
             "process-changed",
             "The recovery process changed; fresh progress and error evidence are required.",
@@ -533,6 +617,95 @@ def post_recovery_decision(previous: dict[str, Any], observation: dict[str, Any]
     if not state.get("progress_proven"):
         return result(
             "observing", "Recovery is pending; no verified payload progress exists for this cache generation yet."
+        )
+    if payload_complete:
+        if not finalization_actionable:
+            return result(
+                "finalizing",
+                "The payload is fully transferred; Proton is still finalizing the remote file.",
+            )
+        if not observation.get("upload_retry_safe", False):
+            return result(
+                "upgrade-required",
+                "The installed rclone release has an unsafe upload retry; update it before recovery restarts.",
+            )
+        upload_limit = observation.get("upload_limit")
+        if upload_limit is not None and int(upload_limit) <= POST_RECOVERY_NEAR_PAUSE_BYTES:
+            state["finalization_confirmations"] = 0
+            state["last_finalization_confirmation_epoch"] = 0
+            return result(
+                "throttled",
+                "Finalization restart checks are suspended while upload bandwidth is near pause.",
+            )
+        if not observation.get("connectivity_healthy", False):
+            state["finalization_confirmations"] = 0
+            state["last_finalization_confirmation_epoch"] = 0
+            return result(
+                "network-deferred",
+                "Finalization restart checks are deferred until DNS connectivity is healthy.",
+            )
+        payload_complete_epoch = max(0, int(state.get("payload_complete_epoch") or 0))
+        if now_epoch - payload_complete_epoch < POST_FINALIZATION_SETTLE_SECONDS:
+            return result(
+                "finalizing",
+                "The complete payload is inside the bounded Proton finalization grace period.",
+            )
+        last_restart_epoch = max(0, int(state.get("last_restart_epoch") or 0))
+        if last_restart_epoch and now_epoch - last_restart_epoch < POST_FINALIZATION_RESTART_GAP_SECONDS:
+            return result(
+                "finalization-cooldown",
+                "The separate finalization restart is waiting for its minimum recovery gap.",
+            )
+        if int(state.get("finalization_restart_attempts") or 0) >= POST_FINALIZATION_RESTART_LIMIT:
+            return result(
+                "finalization-restart-limited",
+                "The guarded finalization restart limit for this cache generation has been reached.",
+            )
+        activity = str(observation.get("activity") or "not-probed")
+        if activity == "not-probed":
+            return result(
+                "probing-finalization",
+                "A terminal finalization error is awaiting an independent payload-activity probe.",
+                probe=True,
+            )
+        if activity == "process-changed":
+            state["finalization_confirmations"] = 0
+            state["last_finalization_confirmation_epoch"] = 0
+            return result(
+                "process-changed",
+                "The process changed during the finalization probe; no restart was requested.",
+            )
+        if activity == "moving":
+            state["finalization_confirmations"] = 0
+            state["last_finalization_confirmation_epoch"] = 0
+            return result(
+                "finalizing",
+                "Proton finalization traffic resumed; the terminal error remains observed until completion.",
+            )
+        if activity != "idle":
+            return result("finalizing", "The finalization probe returned no actionable result.")
+
+        confirmations = max(0, int(state.get("finalization_confirmations") or 0))
+        last_confirmation = max(0, int(state.get("last_finalization_confirmation_epoch") or 0))
+        if not last_confirmation or now_epoch - last_confirmation >= POST_RECOVERY_MIN_CONFIRMATION_SECONDS:
+            confirmations = min(POST_RECOVERY_CONFIRMATIONS_REQUIRED, confirmations + 1)
+            state["finalization_confirmations"] = confirmations
+            state["last_finalization_confirmation_epoch"] = now_epoch
+        if confirmations < POST_RECOVERY_CONFIRMATIONS_REQUIRED:
+            return result(
+                "confirming-finalization",
+                "No finalization traffic was measured; one separated observation must confirm the stall.",
+            )
+
+        state["finalization_restart_attempts"] = max(0, int(state.get("finalization_restart_attempts") or 0)) + 1
+        state["last_restart_epoch"] = now_epoch
+        state["finalization_confirmations"] = 0
+        state["last_finalization_confirmation_epoch"] = 0
+        return result(
+            "finalization-restart-requested",
+            "A completed-payload finalization stall passed every guard; one controlled restart was requested.",
+            restart=True,
+            restart_kind="finalization",
         )
     if not actionable_error:
         return result(
@@ -593,6 +766,7 @@ def post_recovery_decision(previous: dict[str, Any], observation: dict[str, Any]
         "restart-requested",
         "A generation-bound post-recovery stall passed every guard; one controlled restart was requested.",
         restart=True,
+        restart_kind="payload",
     )
 
 
@@ -863,6 +1037,7 @@ def observe_recovery_queue(
         "queue_count": len(queue),
         "queue_bytes": sum(max(0, int(item.get("size") or 0)) for item in queue),
         "transfer_bytes": transfer_bytes,
+        "candidate_size": max(0, int(candidate.get("size") or 0)),
         "transfer_started_epoch": transfer_started_epoch,
         "baseline_source": baseline_source,
         "error_epoch": error["epoch"],
@@ -870,6 +1045,7 @@ def observe_recovery_queue(
         "error_signature": error["signature"],
         "upload_limit": effective_upload_limit(),
         "connectivity_healthy": connectivity_healthy(),
+        "upload_retry_safe": installed_upload_retry_safe(),
         "activity": "not-probed",
     }
     decision = post_recovery_decision(previous, observation)
@@ -906,6 +1082,7 @@ def automatic_recovery(force: bool = False) -> int:
             state = decision["state"]
             atomic_json(MONITOR_STATE, state)
             if decision["restart"]:
+                restart_kind = str(decision.get("restart_kind") or "payload")
                 try:
                     new_pid, restored_queue = restart_recovery_service(
                         queue,
@@ -925,28 +1102,52 @@ def automatic_recovery(force: bool = False) -> int:
                     return 75
                 state["last_pid"] = new_pid
                 state["last_transfer_bytes"] = 0
+                state["payload_complete_epoch"] = 0
+                state["finalization_confirmations"] = 0
+                state["last_finalization_confirmation_epoch"] = 0
                 state["updated_epoch"] = int(time.time())
                 atomic_json(MONITOR_STATE, state)
+                finalization_restarts = int(state.get("finalization_restart_attempts") or 0)
+                payload_restarts = int(state.get("restart_attempts") or 0)
                 save_latest(
-                    "restarted",
-                    "One guarded recovery restart validated the new process and restored the exact protected queue.",
-                    phase="recovery",
+                    "finalization-restarted" if restart_kind == "finalization" else "restarted",
+                    (
+                        "One guarded finalization restart validated the new process and restored the exact protected queue."
+                        if restart_kind == "finalization"
+                        else "One guarded recovery restart validated the new process and restored the exact protected queue."
+                    ),
+                    phase="finalization" if restart_kind == "finalization" else "recovery",
                     queue_count=len(restored_queue),
                     progress_proven=True,
-                    error_category=state.get("last_error_category", "none"),
+                    error_category=(
+                        state.get("finalization_error_category", "none")
+                        if restart_kind == "finalization"
+                        else state.get("last_error_category", "none")
+                    ),
                     stall_confirmations=POST_RECOVERY_CONFIRMATIONS_REQUIRED,
-                    restart_attempts=int(state.get("restart_attempts") or 0),
+                    restart_attempts=payload_restarts + finalization_restarts,
+                    finalization_restart_attempts=finalization_restarts,
                 )
                 return 0
             save_latest(
                 decision["status"],
                 decision["detail"],
-                phase="recovery",
+                phase="finalization" if int(state.get("payload_complete_epoch") or 0) else "recovery",
                 queue_count=len(queue),
                 progress_proven=bool(state.get("progress_proven")),
-                error_category=state.get("last_error_category", "none"),
-                stall_confirmations=int(state.get("zero_activity_confirmations") or 0),
-                restart_attempts=int(state.get("restart_attempts") or 0),
+                error_category=(
+                    state.get("finalization_error_category", "none")
+                    if int(state.get("payload_complete_epoch") or 0)
+                    else state.get("last_error_category", "none")
+                ),
+                stall_confirmations=(
+                    int(state.get("finalization_confirmations") or 0)
+                    if int(state.get("payload_complete_epoch") or 0)
+                    else int(state.get("zero_activity_confirmations") or 0)
+                ),
+                restart_attempts=int(state.get("restart_attempts") or 0)
+                + int(state.get("finalization_restart_attempts") or 0),
+                finalization_restart_attempts=int(state.get("finalization_restart_attempts") or 0),
             )
             return 0
         recover_namespace(False, queue, metadata_cache)
@@ -1028,6 +1229,13 @@ def automatic_recovery(force: bool = False) -> int:
         "last_zero_activity_epoch": 0,
         "restart_attempts": 0,
         "last_restart_epoch": 0,
+        "payload_complete_epoch": 0,
+        "finalization_error_epoch": 0,
+        "finalization_error_category": "none",
+        "finalization_error_signature": "",
+        "finalization_confirmations": 0,
+        "last_finalization_confirmation_epoch": 0,
+        "finalization_restart_attempts": 0,
         "last_pid": service_pid_and_args()[0],
         "baseline_source": "transition",
         "queue_count": len(recovery_queue),
