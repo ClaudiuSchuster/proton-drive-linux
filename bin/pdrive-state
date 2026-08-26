@@ -37,6 +37,10 @@ RCLONE_BIN = env_path("PDRIVE_RCLONE_BIN", HOME / ".local/libexec/rclone-bin")
 LATEST_FILE = env_path("PDRIVE_WATCH_LATEST", STATE_DIR / "pdrive-watch-latest.txt")
 HISTORY_FILE = env_path("PDRIVE_WATCH_HISTORY", STATE_DIR / "pdrive-watch-history.log")
 MOUNT_LOG = env_path("PDRIVE_MOUNT_LOG", STATE_DIR / "proton-mount.log")
+DRAFT_RECOVERY_LATEST = env_path(
+    "PDRIVE_DRAFT_RECOVERY_LATEST",
+    STATE_DIR / "pdrive-draft-recovery-latest.json",
+)
 
 
 def run(command: list[str], timeout: float = 3.0) -> tuple[int, str, str]:
@@ -77,6 +81,13 @@ def boolean(value: Any, default: bool = False) -> bool:
     return default
 
 
+def iso_epoch(value: Any, default: int = 0) -> int:
+    try:
+        return int(dt.datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
+    except (TypeError, ValueError):
+        return default
+
+
 def read_key_values(path: pathlib.Path) -> dict[str, str]:
     values: dict[str, str] = {}
     try:
@@ -88,6 +99,14 @@ def read_key_values(path: pathlib.Path) -> dict[str, str]:
     except OSError:
         pass
     return values
+
+
+def read_json_object(path: pathlib.Path) -> dict[str, Any]:
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8", errors="replace"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return payload if isinstance(payload, dict) else {}
 
 
 def read_config_value(path: pathlib.Path, key: str, default: str) -> str:
@@ -898,10 +917,53 @@ def normalize_latest(raw: dict[str, str], now_epoch: int) -> dict[str, Any]:
     }
 
 
+def normalize_draft_recovery(raw: dict[str, Any], now_epoch: int) -> dict[str, Any]:
+    generated_epoch = iso_epoch(raw.get("generated_at"))
+    allowed_statuses = {
+        "active",
+        "completed",
+        "confirming",
+        "confirming-stall",
+        "cooldown",
+        "deferred",
+        "error",
+        "healthy",
+        "inactive",
+        "network-deferred",
+        "observing",
+        "probing",
+        "process-changed",
+        "recovering",
+        "recovery-started",
+        "restart-failed",
+        "restart-limited",
+        "restart-requested",
+        "restarted",
+        "throttled",
+    }
+    status = str(raw.get("status") or "unavailable")
+    if status not in allowed_statuses:
+        status = "unavailable"
+    return {
+        "available": bool(raw),
+        "generated_at": str(raw.get("generated_at") or ""),
+        "age_seconds": max(0, now_epoch - generated_epoch) if generated_epoch else -1,
+        "status": status,
+        "detail": str(raw.get("detail") or "")[:500],
+        "phase": "recovery" if raw.get("phase") == "recovery" else "normal",
+        "queue_count": max(0, integer(raw.get("queue_count"))),
+        "progress_proven": boolean(raw.get("progress_proven")),
+        "error_category": str(raw.get("error_category") or "none")[:80],
+        "stall_confirmations": max(0, integer(raw.get("stall_confirmations"))),
+        "restart_attempts": max(0, integer(raw.get("restart_attempts"))),
+    }
+
+
 def build_state(include_capacity: bool = False) -> dict[str, Any]:
     now = dt.datetime.now().astimezone()
     now_epoch = int(now.timestamp())
     latest = normalize_latest(read_key_values(LATEST_FILE), now_epoch)
+    draft_recovery = normalize_draft_recovery(read_json_object(DRAFT_RECOVERY_LATEST), now_epoch)
     service = service_state()
     mount = mount_state()
     # vfs/* returns an error and writes an ERROR line to rclone's own log while
@@ -1063,6 +1125,7 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
         },
         "issues": enrich_issue_lifecycles(recent_issues(), queue, recent_transfers, latest),
         "watchdog": latest,
+        "draft_recovery": draft_recovery,
         "history": history_entries(),
     }
 

@@ -77,6 +77,19 @@ MetadatenCacheLaufend=true
 UploadslotsLaufend=4
 CooldownDauerSekunden=43200
 EOF
+cat > "${state_dir}/pdrive-draft-recovery-latest.json" <<'EOF'
+{
+  "detail": "One guarded recovery restart restored the protected queue.",
+  "error_category": "remote-file-removed",
+  "generated_at": "2026-08-24T10:08:30+00:00",
+  "phase": "recovery",
+  "progress_proven": true,
+  "queue_count": 1,
+  "restart_attempts": 1,
+  "stall_confirmations": 2,
+  "status": "restarted"
+}
+EOF
 cat > "${state_dir}/proton-mount.log" <<'EOF'
 2026/08/24 09:57:58 ERROR : rc: "vfs/queue": error: no VFS active and "fs" parameter not supplied
 2026/08/24 09:58:00 NOTICE: proton drive root link ID 'private-share': 422 POST https://drive-api.proton.me/drive/shares/private-share/files?token=private: A file already exists
@@ -142,6 +155,13 @@ jq -e '
     and .configuration.cache_max_age_valid == true
     and .watchdog.summary == "Proton Drive is mounted and ready."
     and .watchdog.hint == "Run pdrive-watch for a detailed local diagnosis."
+    and .draft_recovery.available == true
+    and .draft_recovery.status == "restarted"
+    and .draft_recovery.phase == "recovery"
+    and .draft_recovery.progress_proven == true
+    and .draft_recovery.error_category == "remote-file-removed"
+    and .draft_recovery.stall_confirmations == 2
+    and .draft_recovery.restart_attempts == 1
     and .issues.available == true
     and (.issues.events | length) == 5
     and .issues.events[0].category == "dns"

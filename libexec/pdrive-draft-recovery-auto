@@ -35,6 +35,19 @@ LATEST_STATE = STATE_DIR / "pdrive-draft-recovery-latest.json"
 SERVICE_NAME = "rclone-proton-drive.service"
 CONFIRMATIONS_REQUIRED = 2
 ACTIVITY_PROBE_SECONDS = float(os.environ.get("PDRIVE_ACTIVITY_PROBE_SECONDS", "20"))
+POST_RECOVERY_CONFIRMATIONS_REQUIRED = 2
+POST_RECOVERY_MIN_PROGRESS_BYTES = 1024 * 1024
+POST_RECOVERY_NEAR_PAUSE_BYTES = 64 * 1024
+POST_RECOVERY_RESTART_LIMIT = 1
+POST_RECOVERY_RESTART_COOLDOWN_SECONDS = 12 * 60 * 60
+POST_RECOVERY_MIN_CONFIRMATION_SECONDS = int(os.environ.get("PDRIVE_POST_RECOVERY_MIN_CONFIRMATION_SECONDS", "120"))
+POST_RECOVERY_STATE_VERSION = 2
+POST_RECOVERY_BASELINE_SOURCES = {
+    "transition",
+    "transfer-start",
+    "process-start",
+    "observed-progress",
+}
 
 
 class RecoveryError(RuntimeError):
@@ -233,25 +246,353 @@ def rclone_transfer_bytes() -> int:
     return max(max(0, int(stats.get("bytes") or 0)), active_bytes)
 
 
+def iso_epoch(value: Any, default: int = 0) -> int:
+    try:
+        return int(dt.datetime.fromisoformat(str(value).replace("Z", "+00:00")).timestamp())
+    except (TypeError, ValueError):
+        return default
+
+
+def matching_transfer(item: dict[str, Any]) -> tuple[int, int]:
+    """Return transferred bytes and start time for the exact queued object."""
+
+    try:
+        stats = rc("core/stats")
+    except RecoveryError:
+        return 0, 0
+    active = stats.get("transferring", [])
+    if not isinstance(active, list):
+        return 0, 0
+    expected_name = str(item.get("name") or "")
+    expected_size = max(0, int(item.get("size") or 0))
+    for transfer in active:
+        if not isinstance(transfer, dict):
+            continue
+        name = str(transfer.get("name") or transfer.get("path") or "")
+        size = max(0, int(transfer.get("size") or transfer.get("totalBytes") or 0))
+        if name != expected_name or (expected_size and size and size != expected_size):
+            continue
+        return max(0, int(transfer.get("bytes") or transfer.get("transferred") or 0)), iso_epoch(
+            transfer.get("startedAt")
+        )
+    return 0, 0
+
+
+def process_started_epoch(pid: int) -> int:
+    """Derive one process start epoch from procfs without invoking another client."""
+
+    if pid <= 0:
+        return 0
+    try:
+        stat = pathlib.Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
+        fields = stat.rsplit(") ", 1)[1].split()
+        start_ticks = int(fields[19])
+        uptime = float(pathlib.Path("/proc/uptime").read_text(encoding="utf-8").split()[0])
+        clock_ticks = int(os.sysconf("SC_CLK_TCK"))
+        process_age = max(0.0, uptime - (start_ticks / clock_ticks))
+        return max(0, int(time.time() - process_age))
+    except (IndexError, OSError, TypeError, ValueError):
+        return 0
+
+
 def activity_snapshot(pid: int) -> tuple[int, int, int, int]:
     rchar, read_bytes = process_io(pid)
     return tcp_sent_bytes(pid), rclone_transfer_bytes(), rchar, read_bytes
 
 
-def payload_is_moving(pid: int) -> bool:
+def probe_payload_activity(pid: int) -> dict[str, Any]:
     before_tcp, before_transfer, before_rchar, before_read = activity_snapshot(pid)
     time.sleep(max(0.0, ACTIVITY_PROBE_SECONDS))
     current_pid, _args = service_pid_and_args()
     if current_pid != pid:
-        return True
+        return {
+            "result": "process-changed",
+            "tcp_delta": 0,
+            "transfer_delta": 0,
+            "rchar_delta": 0,
+            "read_delta": 0,
+        }
     after_tcp, after_transfer, after_rchar, after_read = activity_snapshot(pid)
-    return any(
+    deltas = {
+        "tcp_delta": max(0, after_tcp - before_tcp),
+        "transfer_delta": max(0, after_transfer - before_transfer),
+        "rchar_delta": max(0, after_rchar - before_rchar),
+        "read_delta": max(0, after_read - before_read),
+    }
+    moving = any(
         (
-            after_tcp > before_tcp + 256 * 1024,
-            after_transfer > before_transfer + 1024 * 1024,
-            after_rchar > before_rchar + 8 * 1024 * 1024,
-            after_read > before_read + 1024 * 1024,
+            deltas["tcp_delta"] >= 256 * 1024,
+            deltas["transfer_delta"] >= 1024 * 1024,
+            deltas["rchar_delta"] >= 8 * 1024 * 1024,
+            deltas["read_delta"] >= 1024 * 1024,
         )
+    )
+    return {"result": "moving" if moving else "idle", **deltas}
+
+
+def payload_is_moving(pid: int) -> bool:
+    return probe_payload_activity(pid)["result"] != "idle"
+
+
+def parse_bandwidth_component(value: str) -> int | None:
+    component = value.strip()
+    if component.lower() in {"", "off", "0"}:
+        return None
+    match = re.fullmatch(r"([0-9]+(?:[.][0-9]+)?)([bBkKmMgGtTpP]?)(?:[iI]?[bB]?)?", component)
+    if match is None:
+        return None
+    multipliers = {
+        "": 1,
+        "b": 1,
+        "k": 1024,
+        "m": 1024**2,
+        "g": 1024**3,
+        "t": 1024**4,
+        "p": 1024**5,
+    }
+    return int(float(match.group(1)) * multipliers[match.group(2).lower()])
+
+
+def configured_upload_limit() -> int | None:
+    try:
+        entries = [
+            line.strip()
+            for line in (CONFIG_DIR / "pdrive-bwlimit.conf").read_text(encoding="utf-8").splitlines()
+            if line.strip() and not line.lstrip().startswith("#")
+        ]
+    except OSError:
+        return None
+    if len(entries) != 1 or not entries[0].startswith("bwlimit="):
+        return None
+    rate = entries[0].split("=", 1)[1]
+    return parse_bandwidth_component(rate.split(":", 1)[0])
+
+
+def effective_upload_limit() -> int | None:
+    try:
+        live = rc("core/bwlimit")
+        live_limit = max(0, int(live.get("bytesPerSecondTx") or 0))
+        if live_limit:
+            return live_limit
+    except (RecoveryError, TypeError, ValueError):
+        pass
+    return configured_upload_limit()
+
+
+def connectivity_healthy() -> bool:
+    completed = run(["getent", "ahostsv4", "drive-api.proton.me"], timeout=10)
+    return completed.returncode == 0 and bool(completed.stdout.strip())
+
+
+def post_recovery_error(name: str, since_epoch: int, *, allow_backend_context: bool = False) -> dict[str, Any]:
+    """Return the newest concrete upload error for one path without persisting it."""
+
+    try:
+        with MOUNT_LOG.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, stream.tell() - 2 * 1024 * 1024))
+            lines = stream.read().decode("utf-8", errors="replace").replace("\x00", "").splitlines()
+    except OSError:
+        return {"epoch": 0, "category": "none", "signature": ""}
+    timestamp_pattern = re.compile(r"^(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})")
+    categories = (
+        ("authentication", re.compile(r"(?:status(?:=|\s)401\b|\b401\s+(?:unauthorized|error))", re.I)),
+        ("remote-file-removed", re.compile(r"(?:status(?:=|\s)404\b|this file has been removed)", re.I)),
+        ("draft-conflict", re.compile(r"(?:status(?:=|\s)422\b|a draft exist)", re.I)),
+        ("remote-server", re.compile(r"(?:status(?:=|\s)5\d\d\b|\b5\d\d\s+(?:error|server))", re.I)),
+        ("upload-retry", re.compile(r"(?:failed to upload try|upload attempt.*failed|can't copy|cannot copy)", re.I)),
+    )
+    local_zone = dt.datetime.now().astimezone().tzinfo
+    for line in reversed(lines):
+        path_specific = name in line
+        backend_context = allow_backend_context and "proton drive root link id" in line.lower()
+        if not path_specific and not backend_context:
+            continue
+        timestamp = timestamp_pattern.match(line)
+        if timestamp is None:
+            continue
+        try:
+            moment = dt.datetime.strptime(" ".join(timestamp.groups()), "%Y/%m/%d %H:%M:%S").replace(tzinfo=local_zone)
+        except ValueError:
+            continue
+        epoch = int(moment.timestamp())
+        if epoch < since_epoch:
+            continue
+        for category, pattern in categories:
+            if pattern.search(line):
+                return {
+                    "epoch": epoch,
+                    "category": category,
+                    "signature": hashlib.sha256(line.encode("utf-8", errors="replace")).hexdigest(),
+                }
+    return {"epoch": 0, "category": "none", "signature": ""}
+
+
+def recovery_state_compatible(previous: dict[str, Any], fingerprint: str) -> bool:
+    return (
+        int(previous.get("state_version") or 0) == POST_RECOVERY_STATE_VERSION
+        and previous.get("phase") == "recovery"
+        and previous.get("fingerprint") == fingerprint
+        and previous.get("baseline_source") in POST_RECOVERY_BASELINE_SOURCES
+    )
+
+
+def recovery_baseline_epoch(
+    previous: dict[str, Any], fingerprint: str, transfer_started_epoch: int, now_epoch: int
+) -> int:
+    retained = (
+        int(previous.get("recovery_started_epoch") or 0) if recovery_state_compatible(previous, fingerprint) else 0
+    )
+    return max(0, retained or transfer_started_epoch or now_epoch)
+
+
+def post_recovery_decision(previous: dict[str, Any], observation: dict[str, Any]) -> dict[str, Any]:
+    """Evaluate one secret-free, generation-bound recovery observation."""
+
+    now_epoch = max(0, int(observation.get("now_epoch") or 0))
+    fingerprint = str(observation.get("fingerprint") or "")
+    compatible = recovery_state_compatible(previous, fingerprint)
+    if compatible:
+        state = dict(previous)
+    else:
+        state = {
+            "state_version": POST_RECOVERY_STATE_VERSION,
+            "phase": "recovery",
+            "fingerprint": fingerprint,
+            "recovery_started_epoch": max(0, int(observation.get("transfer_started_epoch") or now_epoch)),
+            "progress_proven": False,
+            "last_transfer_bytes": 0,
+            "last_progress_epoch": 0,
+            "last_error_epoch": 0,
+            "last_error_category": "none",
+            "last_error_signature": "",
+            "zero_activity_confirmations": 0,
+            "last_zero_activity_epoch": 0,
+            "restart_attempts": 0,
+            "last_restart_epoch": 0,
+            "last_pid": 0,
+            "baseline_source": str(observation.get("baseline_source") or "observation"),
+        }
+
+    pid = max(0, int(observation.get("pid") or 0))
+    previous_pid = max(0, int(state.get("last_pid") or 0))
+    transfer_bytes = max(0, int(observation.get("transfer_bytes") or 0))
+    previous_bytes = max(0, int(state.get("last_transfer_bytes") or 0))
+    transfer_started_epoch = max(0, int(observation.get("transfer_started_epoch") or 0))
+    progress_now = False
+    if not compatible and transfer_bytes >= POST_RECOVERY_MIN_PROGRESS_BYTES:
+        progress_now = True
+        state["last_progress_epoch"] = transfer_started_epoch or now_epoch
+    elif pid == previous_pid and transfer_bytes >= previous_bytes + POST_RECOVERY_MIN_PROGRESS_BYTES:
+        progress_now = True
+        state["last_progress_epoch"] = now_epoch
+    if progress_now:
+        state["progress_proven"] = True
+        state["baseline_source"] = (
+            str(observation.get("baseline_source") or "observed-progress") if not compatible else "observed-progress"
+        )
+        state["zero_activity_confirmations"] = 0
+        state["last_zero_activity_epoch"] = 0
+
+    state["last_pid"] = pid
+    state["last_transfer_bytes"] = transfer_bytes
+    state["queue_count"] = max(0, int(observation.get("queue_count") or 0))
+    state["queue_bytes"] = max(0, int(observation.get("queue_bytes") or 0))
+    state["tries"] = max(0, int(observation.get("tries") or 0))
+    state["updated_epoch"] = now_epoch
+
+    error_epoch = max(0, int(observation.get("error_epoch") or 0))
+    last_progress_epoch = max(0, int(state.get("last_progress_epoch") or 0))
+    if error_epoch > last_progress_epoch:
+        state["last_error_epoch"] = error_epoch
+        state["last_error_category"] = str(observation.get("error_category") or "upload-error")
+        state["last_error_signature"] = str(observation.get("error_signature") or "")
+    actionable_error = max(0, int(state.get("last_error_epoch") or 0)) > last_progress_epoch
+
+    def result(status: str, detail: str, *, probe: bool = False, restart: bool = False) -> dict[str, Any]:
+        return {
+            "state": state,
+            "status": status,
+            "detail": detail,
+            "probe": probe,
+            "restart": restart,
+        }
+
+    if previous_pid and pid != previous_pid:
+        state["progress_proven"] = False
+        state["last_progress_epoch"] = 0
+        state["last_error_epoch"] = 0
+        state["last_error_category"] = "none"
+        state["last_error_signature"] = ""
+        state["zero_activity_confirmations"] = 0
+        state["last_zero_activity_epoch"] = 0
+        return result(
+            "process-changed",
+            "The recovery process changed; fresh progress and error evidence are required.",
+        )
+    if not state.get("progress_proven"):
+        return result(
+            "observing", "Recovery is pending; no verified payload progress exists for this cache generation yet."
+        )
+    if not actionable_error:
+        return result(
+            "recovering", "The guarded recovery upload remains protected; no unresolved post-progress error exists."
+        )
+    upload_limit = observation.get("upload_limit")
+    if upload_limit is not None and int(upload_limit) <= POST_RECOVERY_NEAR_PAUSE_BYTES:
+        state["zero_activity_confirmations"] = 0
+        state["last_zero_activity_epoch"] = 0
+        return result("throttled", "Recovery restart checks are suspended while upload bandwidth is near pause.")
+    if not observation.get("connectivity_healthy", False):
+        state["zero_activity_confirmations"] = 0
+        state["last_zero_activity_epoch"] = 0
+        return result("network-deferred", "Recovery restart checks are deferred until DNS connectivity is healthy.")
+    last_restart_epoch = max(0, int(state.get("last_restart_epoch") or 0))
+    if last_restart_epoch and now_epoch - last_restart_epoch < POST_RECOVERY_RESTART_COOLDOWN_SECONDS:
+        return result("cooldown", "The guarded recovery restart is still cooling down.")
+    if int(state.get("restart_attempts") or 0) >= POST_RECOVERY_RESTART_LIMIT:
+        return result("restart-limited", "The guarded restart limit for this cache generation has been reached.")
+
+    activity = str(observation.get("activity") or "not-probed")
+    if activity == "not-probed":
+        return result("probing", "A post-recovery error is awaiting an independent payload-activity probe.", probe=True)
+    if activity == "process-changed":
+        state["zero_activity_confirmations"] = 0
+        state["last_zero_activity_epoch"] = 0
+        return result("process-changed", "The process changed during the activity probe; no restart was requested.")
+    if activity == "moving":
+        state["progress_proven"] = True
+        state["baseline_source"] = "observed-progress"
+        state["last_progress_epoch"] = now_epoch
+        state["last_error_epoch"] = 0
+        state["last_error_category"] = "none"
+        state["last_error_signature"] = ""
+        state["zero_activity_confirmations"] = 0
+        state["last_zero_activity_epoch"] = 0
+        return result("recovering", "Verified payload traffic resumed; no restart was requested.")
+    if activity != "idle":
+        return result("observing", "The payload-activity probe returned no actionable result.")
+
+    confirmations = max(0, int(state.get("zero_activity_confirmations") or 0))
+    last_confirmation = max(0, int(state.get("last_zero_activity_epoch") or 0))
+    if not last_confirmation or now_epoch - last_confirmation >= POST_RECOVERY_MIN_CONFIRMATION_SECONDS:
+        confirmations = min(POST_RECOVERY_CONFIRMATIONS_REQUIRED, confirmations + 1)
+        state["zero_activity_confirmations"] = confirmations
+        state["last_zero_activity_epoch"] = now_epoch
+    if confirmations < POST_RECOVERY_CONFIRMATIONS_REQUIRED:
+        return result(
+            "confirming-stall",
+            "No payload traffic was measured; one separated observation must confirm the recovery stall.",
+        )
+
+    state["restart_attempts"] = max(0, int(state.get("restart_attempts") or 0)) + 1
+    state["last_restart_epoch"] = now_epoch
+    state["zero_activity_confirmations"] = 0
+    state["last_zero_activity_epoch"] = 0
+    return result(
+        "restart-requested",
+        "A generation-bound post-recovery stall passed every guard; one controlled restart was requested.",
+        restart=True,
     )
 
 
@@ -289,14 +630,28 @@ def wait_inactive(timeout: int = 45) -> None:
     raise RecoveryError("The mount service did not stop within the safety timeout")
 
 
-def wait_ready(expected_namespace: str, expected_queue: bool, timeout: int = 90) -> None:
+def wait_ready(
+    expected_namespace: str,
+    expected_queue: bool,
+    timeout: int = 90,
+    *,
+    previous_pid: int = 0,
+    expected_flag: str = "",
+    expected_fingerprint: str = "",
+    metadata_cache: bool = False,
+    draft_mode: bool = False,
+) -> tuple[int, list[dict[str, Any]]]:
     deadline = time.monotonic() + timeout
     last_error = "service not ready"
     while time.monotonic() < deadline:
         try:
-            pid, _args = service_pid_and_args()
+            pid, args = service_pid_and_args()
             if pid <= 0:
                 raise RecoveryError("service has no main process")
+            if previous_pid and pid == previous_pid:
+                raise RecoveryError("service still exposes the previous main process")
+            if expected_flag and expected_flag not in args:
+                raise RecoveryError("rclone is missing the expected recovery runtime flag")
             stats = rc("vfs/stats")
             disk_cache = stats.get("diskCache", {})
             if pathlib.Path(str(disk_cache.get("path") or "")).name != expected_namespace:
@@ -304,11 +659,60 @@ def wait_ready(expected_namespace: str, expected_queue: bool, timeout: int = 90)
             queue = queue_snapshot()
             if expected_queue and not queue:
                 raise RecoveryError("the preserved VFS queue has not appeared yet")
-            return
+            if expected_fingerprint and not any(
+                item_fingerprint(item, metadata_cache, draft_mode) == expected_fingerprint for item in queue
+            ):
+                raise RecoveryError("the exact protected cache generation has not returned to the VFS queue")
+            return pid, queue
         except RecoveryError as error:
             last_error = str(error)
             time.sleep(2)
     raise RecoveryError(f"The restarted mount did not validate: {last_error}")
+
+
+def restart_recovery_service(
+    queue: list[dict[str, Any]],
+    metadata_cache: bool,
+    fingerprint: str,
+) -> tuple[int, list[dict[str, Any]]]:
+    """Restart only the current recovery namespace and validate its exact queue generation."""
+
+    expected_namespace = namespace_name(metadata_cache, True)
+    pid, args = service_pid_and_args()
+    if pid <= 0 or "--protondrive-replace-existing-draft=true" not in args:
+        raise RecoveryError("The running mount is not the expected guarded recovery process")
+    stats = rc("vfs/stats")
+    disk_cache = stats.get("diskCache", {}) if isinstance(stats.get("diskCache"), dict) else {}
+    if pathlib.Path(str(disk_cache.get("path") or "")).name != expected_namespace:
+        raise RecoveryError("The live VFS namespace changed before the guarded restart")
+    before_count = len(queue)
+    before_bytes = sum(max(0, int(item.get("size") or 0)) for item in queue)
+    dirty_count, dirty_bytes = dirty_stats(CACHE_DIR / "vfsMeta" / expected_namespace)
+    if dirty_count < before_count or dirty_bytes < before_bytes:
+        raise RecoveryError("Dirty VFS metadata no longer contains the complete protected queue")
+    if not any(item_fingerprint(item, metadata_cache, True) == fingerprint for item in queue):
+        raise RecoveryError("The guarded restart candidate no longer matches the protected cache generation")
+
+    service_action("restart")
+    new_pid, restored_queue = wait_ready(
+        expected_namespace,
+        expected_queue=True,
+        previous_pid=pid,
+        expected_flag="--protondrive-replace-existing-draft=true",
+        expected_fingerprint=fingerprint,
+        metadata_cache=metadata_cache,
+        draft_mode=True,
+    )
+    restored_bytes = sum(max(0, int(item.get("size") or 0)) for item in restored_queue)
+    restored_dirty_count, restored_dirty_bytes = dirty_stats(CACHE_DIR / "vfsMeta" / expected_namespace)
+    if (
+        len(restored_queue) < before_count
+        or restored_bytes < before_bytes
+        or restored_dirty_count < before_count
+        or restored_dirty_bytes < before_bytes
+    ):
+        raise RecoveryError("The complete protected VFS queue was not restored after restart")
+    return new_pid, restored_queue
 
 
 def move_namespace(source_name: str, target_name: str) -> None:
@@ -363,7 +767,11 @@ def recover_namespace(enable: bool, queue: list[dict[str, Any]], metadata_cache:
         write_draft_mode(enable)
         config_changed = True
         service_action("start")
-        wait_ready(target_name, expected_queue=enable and before_count > 0)
+        wait_ready(
+            target_name,
+            expected_queue=enable and before_count > 0,
+            expected_flag=f"--protondrive-replace-existing-draft={str(enable).lower()}",
+        )
     except Exception as error:
         try:
             service_action("stop")
@@ -379,7 +787,11 @@ def recover_namespace(enable: bool, queue: list[dict[str, Any]], metadata_cache:
                 raise RecoveryError(f"{error}; namespace rollback also failed: {rollback_error}") from error
         try:
             service_action("start")
-            wait_ready(source_name, expected_queue=bool(before_count))
+            wait_ready(
+                source_name,
+                expected_queue=bool(before_count),
+                expected_flag=f"--protondrive-replace-existing-draft={str(not enable).lower()}",
+            )
         except RecoveryError as rollback_error:
             raise RecoveryError(f"{error}; original mount recovery failed: {rollback_error}") from error
         raise RecoveryError(str(error)) from error
@@ -394,6 +806,80 @@ def save_latest(status: str, detail: str, **extra: Any) -> None:
     payload.update(extra)
     atomic_json(LATEST_STATE, payload)
     print(detail)
+
+
+def recovery_candidate(
+    queue: list[dict[str, Any]], previous: dict[str, Any], metadata_cache: bool
+) -> tuple[dict[str, Any] | None, str]:
+    previous_fingerprint = str(previous.get("fingerprint") or "")
+    candidates: list[tuple[dict[str, Any], str]] = []
+    for item in queue:
+        if not str(item.get("name") or "") or int(item.get("size") or 0) <= 0:
+            continue
+        fingerprint = item_fingerprint(item, metadata_cache, True)
+        if fingerprint == previous_fingerprint:
+            return item, fingerprint
+        candidates.append((item, fingerprint))
+    if not candidates:
+        return None, ""
+    candidates.sort(key=lambda candidate: int(candidate[0].get("tries") or 0), reverse=True)
+    return candidates[0]
+
+
+def observe_recovery_queue(
+    queue: list[dict[str, Any]], metadata_cache: bool, pid: int
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    previous = read_json(MONITOR_STATE)
+    candidate, fingerprint = recovery_candidate(queue, previous, metadata_cache)
+    if candidate is None:
+        return previous, {
+            "status": "recovering",
+            "detail": "The recovery queue is protected, but no exact candidate is currently observable.",
+            "probe": False,
+            "restart": False,
+            "state": previous,
+        }
+    transfer_bytes, transfer_started_epoch = matching_transfer(candidate)
+    baseline_source = "transfer-start"
+    if not transfer_started_epoch:
+        transfer_started_epoch = process_started_epoch(pid)
+        baseline_source = "process-start" if transfer_started_epoch else "observation"
+    recovery_started_epoch = recovery_baseline_epoch(
+        previous,
+        fingerprint,
+        transfer_started_epoch,
+        int(time.time()),
+    )
+    error = post_recovery_error(
+        str(candidate.get("name") or ""),
+        recovery_started_epoch,
+        allow_backend_context=len(queue) == 1,
+    )
+    observation = {
+        "now_epoch": int(time.time()),
+        "fingerprint": fingerprint,
+        "pid": pid,
+        "tries": int(candidate.get("tries") or 0),
+        "queue_count": len(queue),
+        "queue_bytes": sum(max(0, int(item.get("size") or 0)) for item in queue),
+        "transfer_bytes": transfer_bytes,
+        "transfer_started_epoch": transfer_started_epoch,
+        "baseline_source": baseline_source,
+        "error_epoch": error["epoch"],
+        "error_category": error["category"],
+        "error_signature": error["signature"],
+        "upload_limit": effective_upload_limit(),
+        "connectivity_healthy": connectivity_healthy(),
+        "activity": "not-probed",
+    }
+    decision = post_recovery_decision(previous, observation)
+    if decision["probe"]:
+        activity = probe_payload_activity(pid)
+        observation["activity"] = activity["result"]
+        observation["now_epoch"] = int(time.time())
+        decision = post_recovery_decision(decision["state"], observation)
+        decision["activity"] = activity
+    return observation, decision
 
 
 def automatic_recovery(force: bool = False) -> int:
@@ -416,10 +902,51 @@ def automatic_recovery(force: bool = False) -> int:
         if "--protondrive-replace-existing-draft=true" not in args:
             raise RecoveryError("Draft recovery is configured but not active in the running mount")
         if queue:
+            _observation, decision = observe_recovery_queue(queue, metadata_cache, pid)
+            state = decision["state"]
+            atomic_json(MONITOR_STATE, state)
+            if decision["restart"]:
+                try:
+                    new_pid, restored_queue = restart_recovery_service(
+                        queue,
+                        metadata_cache,
+                        str(state.get("fingerprint") or ""),
+                    )
+                except RecoveryError:
+                    save_latest(
+                        "restart-failed",
+                        "The guarded recovery restart failed validation; inspect the user-service journal before intervening.",
+                        phase="recovery",
+                        progress_proven=bool(state.get("progress_proven")),
+                        error_category=state.get("last_error_category", "none"),
+                        stall_confirmations=POST_RECOVERY_CONFIRMATIONS_REQUIRED,
+                        restart_attempts=int(state.get("restart_attempts") or 0),
+                    )
+                    return 75
+                state["last_pid"] = new_pid
+                state["last_transfer_bytes"] = 0
+                state["updated_epoch"] = int(time.time())
+                atomic_json(MONITOR_STATE, state)
+                save_latest(
+                    "restarted",
+                    "One guarded recovery restart validated the new process and restored the exact protected queue.",
+                    phase="recovery",
+                    queue_count=len(restored_queue),
+                    progress_proven=True,
+                    error_category=state.get("last_error_category", "none"),
+                    stall_confirmations=POST_RECOVERY_CONFIRMATIONS_REQUIRED,
+                    restart_attempts=int(state.get("restart_attempts") or 0),
+                )
+                return 0
             save_latest(
-                "recovering",
-                "The guarded draft-recovery upload is still pending; its VFS cache remains protected.",
+                decision["status"],
+                decision["detail"],
+                phase="recovery",
                 queue_count=len(queue),
+                progress_proven=bool(state.get("progress_proven")),
+                error_category=state.get("last_error_category", "none"),
+                stall_confirmations=int(state.get("zero_activity_confirmations") or 0),
+                restart_attempts=int(state.get("restart_attempts") or 0),
             )
             return 0
         recover_namespace(False, queue, metadata_cache)
@@ -483,11 +1010,41 @@ def automatic_recovery(force: bool = False) -> int:
         return 0
 
     recover_namespace(True, queue, metadata_cache)
-    MONITOR_STATE.unlink(missing_ok=True)
+    recovery_queue = queue_snapshot()
+    recovery_item, recovery_fingerprint = recovery_candidate(recovery_queue, {}, metadata_cache)
+    now_epoch = int(time.time())
+    recovery_state = {
+        "state_version": POST_RECOVERY_STATE_VERSION,
+        "phase": "recovery",
+        "fingerprint": recovery_fingerprint,
+        "recovery_started_epoch": now_epoch,
+        "progress_proven": False,
+        "last_transfer_bytes": 0,
+        "last_progress_epoch": 0,
+        "last_error_epoch": 0,
+        "last_error_category": "none",
+        "last_error_signature": "",
+        "zero_activity_confirmations": 0,
+        "last_zero_activity_epoch": 0,
+        "restart_attempts": 0,
+        "last_restart_epoch": 0,
+        "last_pid": service_pid_and_args()[0],
+        "baseline_source": "transition",
+        "queue_count": len(recovery_queue),
+        "queue_bytes": sum(max(0, int(item.get("size") or 0)) for item in recovery_queue),
+        "tries": int(recovery_item.get("tries") or 0) if recovery_item else 0,
+        "updated_epoch": now_epoch,
+    }
+    atomic_json(MONITOR_STATE, recovery_state)
     save_latest(
         "recovery-started",
         "A confirmed draft conflict entered the guarded one-shot recovery namespace.",
+        phase="recovery",
         queue_count=len(queue),
+        progress_proven=False,
+        error_category="none",
+        stall_confirmations=0,
+        restart_attempts=0,
     )
     return 0
 
