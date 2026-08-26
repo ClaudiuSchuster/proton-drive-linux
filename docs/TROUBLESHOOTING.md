@@ -328,6 +328,27 @@ used by rclone v1.75.0. It then atomically renames both `vfs` and `vfsMeta`,
 validates the preserved queue after restart and returns to the conservative
 namespace only after the queue is clean.
 
+If an upload later stalls inside that recovery namespace, the same timer can
+perform one generation-bound restart without moving the cache again. This is
+not a generic inactivity timeout. It first requires verified per-file progress,
+a newer concrete upload error, healthy DNS and two separated 20-second probes
+with no payload movement. Near-pause upload limits at or below 64 KiB/s, a PID
+change, renewed progress, missing Dirty bytes, an unexpected namespace or an
+already-used restart allowance all block the action. A changed PID must first
+produce fresh progress and a later error. Files of any age and size remain
+protected while they are merely slow.
+
+The post-recovery states most useful during diagnosis are:
+
+- `recovering`: progress is healthy or no unresolved post-progress error exists;
+- `throttled` / `network-deferred`: a deliberate rate or network condition
+  suppresses restart checks;
+- `confirming-stall`: one zero-activity observation exists and a later one is
+  still required;
+- `restarted`: a new PID and the exact protected queue were validated;
+- `restart-limited`: this cache generation already used its single attempt;
+- `restart-failed`: the request or its strict post-restart validation failed.
+
 Inspect the automation before intervening:
 
 ```bash
@@ -335,6 +356,12 @@ systemctl --user status pdrive-draft-recovery.timer
 journalctl --user -u pdrive-draft-recovery.service -n 100 --no-pager
 jq . ~/.local/state/rclone/pdrive-draft-recovery-latest.json
 ```
+
+The same summary is visible in **PDrive Control Center → History → Service
+diagnostics → Draft recovery**. The detail tooltip explains the current gate.
+Do not clear `pdrive-draft-recovery-state.json` to force another attempt: its
+generation fingerprint and restart counter are safety evidence. Review the
+queue, Dirty metadata, live namespace and journal before any manual restart.
 
 If the exact conflict is already independently confirmed, the supported
 accelerated path is `pdrive-draft-recovery --recover-now`. It skips the second

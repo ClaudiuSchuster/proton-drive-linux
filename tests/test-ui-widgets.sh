@@ -406,7 +406,14 @@ assert window.service_detail_values["process"].get_text() == "PID 4242 · result
 assert window.service_detail_values["uptime"].get_text() == "1d 3h"
 assert window.service_detail_values["restarts"].get_text() == "0"
 assert "ready" in window.service_detail_values["mount"].get_text()
-assert "stall confirmation" in window.service_detail_values["watchdog"].get_text()
+watchdog_detail = window.service_detail_values["watchdog"].get_text()
+assert "stall confirmation" in watchdog_detail
+assert len(watchdog_detail.splitlines()) == 2
+draft_detail = window.service_detail_values["draft_recovery"].get_text()
+assert "0/2 stall confirmations" in draft_detail
+assert "0/1 guarded restart" in draft_detail
+assert len(draft_detail.splitlines()) == 2
+assert "payload traffic" in window.service_detail_values["draft_recovery"].get_tooltip_text()
 assert all(value.get_xalign() == 0.5 for value in window.config_labels.values())
 assert window.live_summary.get_selectable()
 assert window.live_summary_icon.get_icon_name()[0] == "emblem-synchronizing-symbolic"

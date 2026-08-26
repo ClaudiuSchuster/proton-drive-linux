@@ -111,6 +111,10 @@ context and suggested next steps before explicitly marking anything as
 reviewed. A successful automatic recovery remains one informational record
 instead of several stale errors.
 
+History keeps the latest systemd, mount, watchdog and guarded draft-recovery
+state together with a bounded health timeline, so background decisions remain
+inspectable without reading several logs first.
+
 The folder button opens `/pdrive` in Nemo. Matching navigation, header and menu
 actions open the official [Proton Drive web client](https://drive.proton.me/)
 for account-wide settings and workflows outside the mount.

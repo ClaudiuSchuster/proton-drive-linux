@@ -293,7 +293,19 @@ GERMAN_TRANSLATIONS = {
     "Watchdog": "Watchdog",
     "PID {pid} · result {result} · exit {exit_status}": "PID {pid} · Ergebnis {result} · Exit {exit_status}",
     "{state} · {filesystem}": "{state} · {filesystem}",
-    "{status} · {confirmations} stall confirmation(s) · checked {time}": "{status} · {confirmations} Stillstandsbestätigung(en) · geprüft {time}",
+    "{status} · {confirmations} stall confirmation(s)\nchecked {time}": "{status} · {confirmations} Stillstandsbestätigung(en)\ngeprüft {time}",
+    "Draft recovery": "Draft-Recovery",
+    "Monitoring": "Wird überwacht",
+    "Confirming stall": "Stillstand wird bestätigt",
+    "Restarted safely": "Sicher neu gestartet",
+    "Cooldown": "Cooldown",
+    "Manual review": "Manuelle Prüfung",
+    "Network deferred": "Wegen Netzwerk zurückgestellt",
+    "Fresh baseline": "Neue Vergleichsbasis",
+    "Inactive": "Inaktiv",
+    "Unavailable": "Nicht verfügbar",
+    "Deferred": "Zurückgestellt",
+    "{status} · {confirmations}/2 stall confirmations\n{restarts}/1 guarded restart(s) · checked {time}": "{status} · {confirmations}/2 Stillstandsbestätigungen\n{restarts}/1 abgesicherte Neustarts · geprüft {time}",
     "VFS endpoint queried before mount readiness": "VFS-Endpunkt vor Mount-Bereitschaft abgefragt",
     "No action is needed when the service is active and /pdrive is writable. Refresh the view to confirm.": "Keine Aktion nötig, wenn der Dienst aktiv und /pdrive beschreibbar ist. Aktualisiere zur Bestätigung die Ansicht.",
     "Remote upload draft conflict": "Konflikt mit einem Remote-Uploadentwurf",
@@ -1142,6 +1154,30 @@ STATUS_META = {
     "warning": ("dialog-warning-symbolic", "Attention", "warning"),
     "critical": ("dialog-error-symbolic", "Problem", "danger"),
     "unknown": ("dialog-question-symbolic", "Unknown", "muted"),
+}
+
+DRAFT_RECOVERY_STATUS_LABELS = {
+    "active": "Monitoring",
+    "completed": "Completed",
+    "confirming": "Monitoring",
+    "confirming-stall": "Confirming stall",
+    "cooldown": "Cooldown",
+    "deferred": "Deferred",
+    "error": "Manual review",
+    "healthy": "Monitoring",
+    "inactive": "Inactive",
+    "network-deferred": "Network deferred",
+    "observing": "Monitoring",
+    "probing": "Monitoring",
+    "process-changed": "Fresh baseline",
+    "recovering": "Monitoring",
+    "recovery-started": "Monitoring",
+    "restart-failed": "Manual review",
+    "restart-limited": "Manual review",
+    "restart-requested": "Monitoring",
+    "restarted": "Restarted safely",
+    "throttled": "Near pause",
+    "unavailable": "Unavailable",
 }
 
 REASON_LABELS = {
@@ -3239,6 +3275,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 ("restarts", "Restarts"),
                 ("mount", "Mount"),
                 ("watchdog", "Watchdog"),
+                ("draft_recovery", "Draft recovery"),
             )
         ):
             item = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
@@ -3734,11 +3771,25 @@ class PDriveWindow(Gtk.ApplicationWindow):
         )
         self.service_detail_values["watchdog"].set_text(
             translate_format(
-                "{status} · {confirmations} stall confirmation(s) · checked {time}",
+                "{status} · {confirmations} stall confirmation(s)\nchecked {time}",
                 status=watchdog.get("status", "–"),
                 confirmations=int(watchdog.get("stall_confirmations") or 0),
                 time=local_time(str(watchdog.get("generated_at") or "")),
             )
+        )
+        draft_recovery = state.get("draft_recovery", {})
+        draft_recovery_status = str(draft_recovery.get("status") or "unavailable")
+        self.service_detail_values["draft_recovery"].set_text(
+            translate_format(
+                "{status} · {confirmations}/2 stall confirmations\n{restarts}/1 guarded restart(s) · checked {time}",
+                status=translate(DRAFT_RECOVERY_STATUS_LABELS.get(draft_recovery_status, "Unavailable")),
+                confirmations=int(draft_recovery.get("stall_confirmations") or 0),
+                restarts=int(draft_recovery.get("restart_attempts") or 0),
+                time=local_time(str(draft_recovery.get("generated_at") or "")),
+            )
+        )
+        self.service_detail_values["draft_recovery"].set_tooltip_text(
+            str(draft_recovery.get("detail") or translate("No details available."))
         )
         self.config_labels["bandwidth"].set_text(str(bandwidth.get("live", "–")))
         self.config_labels["slots"].set_text(f"{slots} parallel")
@@ -5351,6 +5402,18 @@ def demo_state() -> dict[str, Any]:
             "delta_errors": "+0",
             "delta_notices": "+0",
             "stall_confirmations": 0,
+        },
+        "draft_recovery": {
+            "available": True,
+            "generated_at": now,
+            "status": "recovering",
+            "detail": "Verified payload traffic is moving; no guarded restart is needed.",
+            "phase": "recovery",
+            "queue_count": 3,
+            "progress_proven": True,
+            "error_category": "none",
+            "stall_confirmations": 0,
+            "restart_attempts": 0,
         },
         "history": list(reversed(history)),
     }

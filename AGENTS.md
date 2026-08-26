@@ -94,6 +94,11 @@ project-specific; CI remains the authority for mechanical formatting rules.
 - Health reporting must distinguish no work from failed work. Automatic recovery
   requires corroborating queue/error evidence, repeated confirmations, and the
   configured cooldown; it must not restart a healthy idle mount.
+- A stall inside the guarded draft-recovery namespace may receive at most one
+  automatic restart per exact cache generation. Require prior matching transfer
+  progress, a newer concrete path-specific error, healthy connectivity, two
+  separated zero-activity probes and full post-restart PID/flag/namespace/queue
+  validation. Near-pause bandwidth and a process change always suppress it.
 - Avoid new runtime dependencies when Python's standard library, GTK 3, and the
   installed GI stack are sufficient. Do not add WebKit merely to render local
   documentation.

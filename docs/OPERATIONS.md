@@ -622,6 +622,32 @@ fails, it restores the original configuration and namespace before restarting
 the conservative mount. When the queue and all Dirty metadata become empty, a
 later timer run performs the same guarded round trip back to normal behavior.
 
+The recovery namespace has its own stricter second-stage stall guard. A queued
+file, old age, low traffic or long ETA never qualifies by itself. One controlled
+restart is possible only when all of these conditions apply to the same
+name/size/metadata-inode cache generation:
+
+- at least 1 MiB of matching per-file transfer progress was already observed;
+- a later path-specific 401, 404, 422, 5xx or upload-retry error exists;
+- no still-newer transfer progress has made that error obsolete;
+- upload bandwidth is above the 64 KiB/s near-pause safety threshold;
+- the service, owner-only RC endpoint and DNS resolution are healthy;
+- two 20-second probes at least two minutes apart measure no meaningful TCP,
+  rclone-transfer, process-read or filesystem-read delta;
+- the recovery flag, calculated live namespace, complete Dirty byte count and
+  exact fingerprint still match immediately before the restart;
+- this cache generation has never received its one allowed guarded restart.
+
+The restart stays inside `replace_existing_draft=true`; it does not rename,
+copy, truncate or delete cache data. Before systemd is called, the attempt is
+persisted atomically so an interrupted helper cannot repeat it. Success requires
+a new PID, the recovery runtime flag, the same VFS namespace and the exact
+protected queue generation to reappear. A validation failure consumes the
+single attempt and remains visible for manual review. A PID change requires
+fresh progress and error evidence; restored payload traffic, a near-pause
+throttle or DNS outage resets the stall confirmations instead of restarting
+rclone.
+
 The automatic path deliberately needs two observations. `--recover-now` skips
 only that waiting period; every cache, namespace, exclusivity and rollback guard
 still applies. It is useful after a human has already verified the exact draft
@@ -632,6 +658,11 @@ systemctl --user status pdrive-draft-recovery.timer
 journalctl --user -u pdrive-draft-recovery.service -n 100 --no-pager
 jq . ~/.local/state/rclone/pdrive-draft-recovery-latest.json
 ```
+
+The Control Center mirrors that latest secret-free state under **History →
+Service diagnostics → Draft recovery**. The persistent internal file
+`pdrive-draft-recovery-state.json` contains only hashes, counters, categories
+and timestamps—never a path, credential, API URL or Proton identifier.
 
 The older `--enable`/`--disable` controls remain available for audited manual
 recovery. They intentionally do not restart rclone or relocate cache data.

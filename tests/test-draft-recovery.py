@@ -5,6 +5,8 @@
 from __future__ import annotations
 
 import datetime as dt
+import importlib.machinery
+import importlib.util
 import json
 import os
 import pathlib
@@ -33,15 +35,21 @@ with tempfile.TemporaryDirectory(prefix="proton-drive-linux-draft-") as temporar
         path.mkdir(parents=True, exist_ok=True)
 
     service_state = runtime / "service"
+    service_pid = runtime / "pid"
     queue_file = runtime / "queue.json"
+    transfer_file = runtime / "transfer-bytes"
+    restart_count = runtime / "restart-count"
     service_state.write_text("active\n", encoding="utf-8")
+    service_pid.write_text("4242\n", encoding="utf-8")
+    transfer_file.write_text("0\n", encoding="utf-8")
+    restart_count.write_text("0\n", encoding="utf-8")
     queue_file.write_text(
         json.dumps(
             {
                 "queue": [
                     {
                         "name": "fixture/large.bin",
-                        "size": 4096,
+                        "size": 8 * 1024 * 1024,
                         "tries": 8,
                         "uploading": True,
                     }
@@ -60,7 +68,7 @@ with tempfile.TemporaryDirectory(prefix="proton-drive-linux-draft-") as temporar
     normal_data.mkdir(parents=True)
     normal_meta.mkdir(parents=True)
     (normal_data / "large.bin").write_bytes(b"fixture payload")
-    (normal_meta / "large.bin").write_text(json.dumps({"Dirty": True, "Size": 4096}), encoding="utf-8")
+    (normal_meta / "large.bin").write_text(json.dumps({"Dirty": True, "Size": 8 * 1024 * 1024}), encoding="utf-8")
     now = dt.datetime.now().astimezone().strftime("%Y/%m/%d %H:%M:%S")
     (state / "proton-mount.log").write_text(
         f"{now} ERROR : fixture/large.bin: a draft exist - failed upload attempt\n",
@@ -72,9 +80,14 @@ with tempfile.TemporaryDirectory(prefix="proton-drive-linux-draft-") as temporar
         f"""#!/usr/bin/env bash
 set -euo pipefail
 case "${{2:-}}" in
-  show) [[ "$(cat {service_state})" == active ]] && printf '4242\\n' || printf '0\\n' ;;
+  show) [[ "$(cat {service_state})" == active ]] && cat {service_pid} || printf '0\\n' ;;
   stop) printf 'inactive\\n' > {service_state} ;;
   start) printf 'active\\n' > {service_state} ;;
+  restart)
+    printf 'active\\n' > {service_state}
+    printf '%s\\n' "$(( $(cat {service_pid}) + 1 ))" > {service_pid}
+    printf '%s\\n' "$(( $(cat {restart_count}) + 1 ))" > {restart_count}
+    ;;
   *) exit 2 ;;
 esac
 """,
@@ -88,6 +101,7 @@ printf 'rclone mount --protondrive-enable-caching=true --protondrive-replace-exi
 """,
     )
     executable(fake_bin / "ss", "#!/usr/bin/env bash\nexit 0\n")
+    executable(fake_bin / "getent", "#!/usr/bin/env bash\nprintf '192.0.2.1 STREAM drive-api.proton.me\\n'\n")
     fake_rclone = fake_bin / "rclone"
     executable(
         fake_rclone,
@@ -99,6 +113,7 @@ if [[ "${{mode}}" == true ]]; then namespace='{recovery}'; else namespace='{norm
 case "${{endpoint}}" in
   vfs/queue) cat {queue_file} ;;
   vfs/stats) printf '{{"diskCache":{{"path":"{cache}/vfs/%s","pathMeta":"{cache}/vfsMeta/%s"}}}}\\n' "${{namespace}}" "${{namespace}}" ;;
+  core/stats) printf '{{"bytes":%s,"transferring":[{{"name":"fixture/large.bin","size":8388608,"bytes":%s,"startedAt":"2026-08-26T08:00:00+02:00"}}]}}\\n' "$(cat {transfer_file})" "$(cat {transfer_file})" ;;
   *) exit 2 ;;
 esac
 """,
@@ -116,6 +131,7 @@ esac
             "PDRIVE_RCLONE_BIN": str(fake_rclone),
             "PDRIVE_MOUNT_LOG": str(state / "proton-mount.log"),
             "PDRIVE_ACTIVITY_PROBE_SECONDS": "0",
+            "PDRIVE_POST_RECOVERY_MIN_CONFIRMATION_SECONDS": "0",
             "PYTHONDONTWRITEBYTECODE": "1",
         }
     )
@@ -135,9 +151,33 @@ esac
     assert (cache / "vfsMeta" / recovery / "fixture/large.bin").is_file()
     assert service_state.read_text(encoding="utf-8").strip() == "active"
 
+    transfer_file.write_text(f"{2 * 1024 * 1024}\n", encoding="utf-8")
+    error_time = (dt.datetime.now().astimezone() + dt.timedelta(seconds=2)).strftime("%Y/%m/%d %H:%M:%S")
+    with (state / "proton-mount.log").open("a", encoding="utf-8") as stream:
+        stream.write(f"{error_time} ERROR : fixture/large.bin: vfs cache: failed to upload try #9, will retry\n")
+    for expected_confirmation in (1, 2):
+        completed = subprocess.run(
+            [str(HELPER), "--auto"],
+            check=False,
+            capture_output=True,
+            text=True,
+            env=environment,
+            timeout=20,
+        )
+        assert completed.returncode == 0, completed.stderr or completed.stdout
+        latest = json.loads((state / "pdrive-draft-recovery-latest.json").read_text(encoding="utf-8"))
+        if expected_confirmation == 1:
+            assert latest["status"] == "confirming-stall", latest
+            assert latest["stall_confirmations"] == 1, latest
+        else:
+            assert latest["status"] == "restarted", latest
+            assert latest["restart_attempts"] == 1, latest
+    assert restart_count.read_text(encoding="utf-8").strip() == "1"
+    assert service_pid.read_text(encoding="utf-8").strip() == "4243"
+
     queue_file.write_text('{"queue": []}\n', encoding="utf-8")
     (cache / "vfsMeta" / recovery / "fixture/large.bin").write_text(
-        json.dumps({"Dirty": False, "Size": 4096}), encoding="utf-8"
+        json.dumps({"Dirty": False, "Size": 8 * 1024 * 1024}), encoding="utf-8"
     )
     completed = subprocess.run(
         [str(HELPER), "--auto"],
@@ -152,5 +192,153 @@ esac
     assert not (cache / "vfs" / recovery).exists()
     assert (cache / "vfs" / normal / "fixture/large.bin").read_bytes() == b"fixture payload"
     assert service_state.read_text(encoding="utf-8").strip() == "active"
+
+
+loader = importlib.machinery.SourceFileLoader("pdrive_draft_recovery_auto", str(HELPER))
+spec = importlib.util.spec_from_loader(loader.name, loader)
+assert spec is not None
+module = importlib.util.module_from_spec(spec)
+loader.exec_module(module)
+
+assert module.parse_bandwidth_component("0.020Mi") == int(0.020 * 1024**2)
+assert module.parse_bandwidth_component("4.200Mi") == int(4.2 * 1024**2)
+assert module.parse_bandwidth_component("off") is None
+
+legacy_intermediate_state = {
+    "state_version": 2,
+    "phase": "recovery",
+    "fingerprint": "a" * 64,
+    "recovery_started_epoch": 10_000,
+    "progress_proven": True,
+}
+assert module.recovery_baseline_epoch(legacy_intermediate_state, "a" * 64, 8_000, 12_000) == 8_000
+valid_transition_state = {**legacy_intermediate_state, "baseline_source": "transition"}
+assert module.recovery_baseline_epoch(valid_transition_state, "a" * 64, 8_000, 12_000) == 10_000
+
+
+def observation(**overrides: object) -> dict[str, object]:
+    payload: dict[str, object] = {
+        "now_epoch": 10_000,
+        "fingerprint": "a" * 64,
+        "pid": 4242,
+        "tries": 8,
+        "queue_count": 1,
+        "queue_bytes": 100 * 1024**3,
+        "transfer_bytes": 2 * 1024**3,
+        "transfer_started_epoch": 8_000,
+        "baseline_source": "transfer-start",
+        "error_epoch": 0,
+        "error_category": "none",
+        "error_signature": "",
+        "upload_limit": None,
+        "connectivity_healthy": True,
+        "activity": "not-probed",
+    }
+    payload.update(overrides)
+    return payload
+
+
+healthy = module.post_recovery_decision({}, observation())
+assert healthy["status"] == "recovering" and not healthy["probe"] and not healthy["restart"]
+
+near_pause = module.post_recovery_decision(
+    {}, observation(error_epoch=9_000, error_category="remote-server", upload_limit=20 * 1024)
+)
+assert near_pause["status"] == "throttled" and not near_pause["restart"]
+
+first_idle = module.post_recovery_decision(
+    {}, observation(error_epoch=9_000, error_category="remote-file-removed", activity="idle")
+)
+assert first_idle["status"] == "confirming-stall"
+assert first_idle["state"]["zero_activity_confirmations"] == 1
+
+too_soon = module.post_recovery_decision(
+    first_idle["state"],
+    observation(now_epoch=10_030, error_epoch=9_000, activity="idle"),
+)
+assert too_soon["state"]["zero_activity_confirmations"] == 1 and not too_soon["restart"]
+
+confirmed = module.post_recovery_decision(
+    first_idle["state"],
+    observation(now_epoch=10_300, error_epoch=9_000, activity="idle"),
+)
+assert confirmed["restart"] and confirmed["state"]["restart_attempts"] == 1
+
+cooldown = module.post_recovery_decision(
+    confirmed["state"],
+    observation(now_epoch=11_000, error_epoch=10_500, activity="idle"),
+)
+assert cooldown["status"] == "cooldown" and not cooldown["restart"]
+
+limited = module.post_recovery_decision(
+    confirmed["state"],
+    observation(now_epoch=60_000, error_epoch=59_000, activity="idle"),
+)
+assert limited["status"] == "restart-limited" and not limited["restart"]
+
+moving = module.post_recovery_decision(
+    first_idle["state"],
+    observation(now_epoch=10_300, error_epoch=9_000, activity="moving"),
+)
+assert moving["status"] == "recovering"
+assert moving["state"]["zero_activity_confirmations"] == 0
+assert moving["state"]["last_error_epoch"] == 0
+
+changed = module.post_recovery_decision(
+    first_idle["state"],
+    observation(now_epoch=10_300, pid=5151, error_epoch=9_000, activity="idle"),
+)
+assert changed["status"] == "process-changed"
+assert changed["state"]["zero_activity_confirmations"] == 0
+assert changed["state"]["progress_proven"] is False
+assert changed["state"]["last_error_epoch"] == 0
+
+offline = module.post_recovery_decision({}, observation(error_epoch=9_000, connectivity_healthy=False, activity="idle"))
+assert offline["status"] == "network-deferred" and not offline["restart"]
+
+with tempfile.TemporaryDirectory(prefix="proton-drive-linux-context-") as context_name:
+    context_log = pathlib.Path(context_name) / "mount.log"
+    context_log.write_text(
+        "2026/08/26 02:39:09 ERROR : proton drive root link ID '': "
+        "404 POST https://storage.invalid/blocks: This file has been removed. (Status=404)\n",
+        encoding="utf-8",
+    )
+    module.MOUNT_LOG = context_log
+    context_epoch = int(dt.datetime(2026, 8, 26, 2, 0, tzinfo=dt.datetime.now().astimezone().tzinfo).timestamp())
+    assert module.post_recovery_error("fixture.bin", context_epoch)["epoch"] == 0
+    contextual_error = module.post_recovery_error("fixture.bin", context_epoch, allow_backend_context=True)
+    assert contextual_error["category"] == "remote-file-removed"
+
+probe_changed = module.post_recovery_decision(
+    first_idle["state"],
+    observation(now_epoch=10_300, error_epoch=9_000, activity="process-changed"),
+)
+assert probe_changed["status"] == "process-changed"
+assert probe_changed["state"]["zero_activity_confirmations"] == 0
+
+validation_queue = [{"name": "fixture.bin", "size": 4096, "tries": 4}]
+validation_actions: list[str] = []
+module.service_pid_and_args = lambda: (
+    4242,
+    "rclone mount --protondrive-replace-existing-draft=true",
+)
+module.rc = lambda endpoint: {"diskCache": {"path": str(module.CACHE_DIR / "vfs" / module.namespace_name(True, True))}}
+module.dirty_stats = lambda _root: (1, 4096)
+module.item_fingerprint = lambda _item, _metadata, _draft: "b" * 64
+module.service_action = validation_actions.append
+
+
+def fail_validation(*_args: object, **_kwargs: object) -> object:
+    raise module.RecoveryError("fixture validation failure")
+
+
+module.wait_ready = fail_validation
+try:
+    module.restart_recovery_service(validation_queue, True, "b" * 64)
+except module.RecoveryError as error:
+    assert "fixture validation failure" in str(error)
+else:
+    raise AssertionError("A failed post-restart validation must abort recovery")
+assert validation_actions == ["restart"]
 
 print("Guarded draft-recovery namespace checks passed.")
