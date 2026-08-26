@@ -18,7 +18,7 @@ security backports while the project is in its pre-1.0 phase.
 
 ## Reporting a vulnerability
 
-Use [GitHub private vulnerability reporting](https://github.com/ClaudiuSchuster/proton-drive-linux/security/advisories/new)
+Use [GitHub private vulnerability reporting](https://github.com/oss-singularity/proton-drive-linux/security/advisories/new)
 when possible. If that channel is unavailable, contact the repository owner
 privately through the address published on the owner's GitHub profile.
 

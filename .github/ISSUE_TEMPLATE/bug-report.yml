@@ -6,7 +6,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        Thanks for helping improve PDrive. For credentials, tokens, private paths or a security boundary bypass, stop here and use [private vulnerability reporting](https://github.com/ClaudiuSchuster/proton-drive-linux/security/advisories/new).
+        Thanks for helping improve PDrive. For credentials, tokens, private paths or a security boundary bypass, stop here and use [private vulnerability reporting](https://github.com/oss-singularity/proton-drive-linux/security/advisories/new).
   - type: input
     id: version
     attributes:

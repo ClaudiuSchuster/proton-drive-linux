@@ -14,8 +14,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/ClaudiuSchuster/proton-drive-linux/actions/workflows/check.yml"><img alt="Checks" src="https://github.com/ClaudiuSchuster/proton-drive-linux/actions/workflows/check.yml/badge.svg"></a>
-  <a href="https://github.com/ClaudiuSchuster/proton-drive-linux/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/ClaudiuSchuster/proton-drive-linux?display_name=tag&amp;sort=semver"></a>
+  <a href="https://github.com/oss-singularity/proton-drive-linux/actions/workflows/check.yml"><img alt="Checks" src="https://github.com/oss-singularity/proton-drive-linux/actions/workflows/check.yml/badge.svg"></a>
+  <a href="https://github.com/oss-singularity/proton-drive-linux/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/oss-singularity/proton-drive-linux?display_name=tag&amp;sort=semver"></a>
   <a href="LICENSE"><img alt="License GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-6f5bd5"></a>
   <img alt="Linux Mint Cinnamon" src="https://img.shields.io/badge/Linux%20Mint-Cinnamon-75c46b">
   <img alt="rclone Proton Drive backend" src="https://img.shields.io/badge/rclone-Proton%20Drive-4f7ee8">
@@ -26,7 +26,7 @@
        alt="PDrive Control Center showing service health, transfer activity and storage capacity">
 </p>
 
-<p align="center"><sub>Proton Drive at a glance, framed by <a href="https://github.com/ClaudiuSchuster/cinnamon-active-window-highlight">Active Window Highlight</a>.</sub></p>
+<p align="center"><sub>Proton Drive at a glance, framed by <a href="https://github.com/oss-singularity/cinnamon-active-window-highlight">Active Window Highlight</a>.</sub></p>
 
 <table>
   <tr>
@@ -76,7 +76,7 @@ graphical login. Other Debian/Ubuntu desktops may work but are not the primary
 test environment.
 
 ```bash
-git clone https://github.com/ClaudiuSchuster/proton-drive-linux.git
+git clone https://github.com/oss-singularity/proton-drive-linux.git
 cd proton-drive-linux
 ./install.sh
 pdrive-ui

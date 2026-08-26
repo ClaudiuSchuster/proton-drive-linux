@@ -22,6 +22,18 @@ for shell_file in "${shell_files[@]}"; do
     bash -n "${shell_file}"
 done
 
+mapfile -t yaml_files < <(
+    find "${project_dir}" -path "${project_dir}/.git" -prune -o \
+        -type f \( -name '*.yml' -o -name '*.yaml' \) -print | sort
+)
+for yaml_file in "${yaml_files[@]}"; do
+    IFS= read -r first_line < "${yaml_file}" || true
+    if [[ "${first_line:-}" != '---' ]]; then
+        printf 'YAML document start is missing: %s\n' "${yaml_file}" >&2
+        exit 1
+    fi
+done
+
 for python_file in "${project_dir}/bin/pdrive-state" "${project_dir}/bin/pdrive-ui" \
     "${project_dir}/libexec/pdrive-draft-recovery-auto" \
     "${project_dir}/tests/test-draft-recovery.py"; do
@@ -59,6 +71,25 @@ if grep -RInE --exclude-dir=.git --exclude=check.sh \
     printf 'Deployment-specific or sensitive material found.\n' >&2
     exit 1
 fi
+
+canonical_repository='https://github.com/oss-singularity/proton-drive-linux'
+for canonical_file in README.md SECURITY.md bin/pdrive-ui; do
+    if ! grep -qF -- "${canonical_repository}" "${project_dir}/${canonical_file}"; then
+        printf 'Canonical repository URL is missing from %s.\n' "${canonical_file}" >&2
+        exit 1
+    fi
+done
+legacy_project_routes=(
+    'github.com/ClaudiuSchuster/proton-drive-linux'
+    'github.com/ClaudiuSchuster/cinnamon-active-window-highlight'
+    'img.shields.io/github/v/release/ClaudiuSchuster/proton-drive-linux'
+)
+for legacy_route in "${legacy_project_routes[@]}"; do
+    if grep -RInF --exclude-dir=.git --exclude=check.sh -- "${legacy_route}" "${project_dir}"; then
+        printf 'Legacy pre-organization project route found: %s\n' "${legacy_route}" >&2
+        exit 1
+    fi
+done
 
 required_documentation=(
     'mode-0700 Unix'

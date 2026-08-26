@@ -173,6 +173,7 @@ assert about_dialog.get_license_type() == module.Gtk.License.GPL_3_0
 assert about_dialog.get_style_context().has_class("pdrive-about")
 assert b".pdrive-about *:link" in module.CSS
 assert about_dialog.get_authors() == [
+    "OSS Singularity — open-source home of the project\nhttps://github.com/oss-singularity",
     "Claudiu Schuster — creator and maintainer\nhttps://github.com/ClaudiuSchuster",
     "OpenAI Codex — design and engineering collaborator\nhttps://github.com/openai/codex",
     "Fabian Schneider — comic relief, lively development chats and plenty of screenshots\n"
@@ -200,7 +201,7 @@ credit_buttons = [
     if isinstance(widget, module.Gtk.Button)
     and widget.get_style_context().has_class("pdrive-about-credit")
 ]
-assert len(credit_buttons) == 3
+assert len(credit_buttons) == 4
 assert {button.get_tooltip_text() for button in credit_buttons} == {
     url for _description, url in module.ABOUT_CREDITS
 }
