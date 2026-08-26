@@ -332,13 +332,14 @@ stalled_state["network_io"]["send_speed"] = 0
 window.upload_eta_last_progress = time.monotonic() - 31
 window.apply_state(stalled_state)
 assert window.status_title.get_text() == "Attention"
+assert "⏸ ETA waiting" in window.queue_card.detail.get_text()
 stalled_labels = [
     widget.get_text()
     for widget in descendants(window.active_list)
     if isinstance(widget, module.Gtk.Label)
 ]
 assert "0 B/s" in stalled_labels
-assert any("ETA calculating" in text for text in stalled_labels)
+assert any("⏸ ETA waiting" in text for text in stalled_labels)
 
 window.upload_eta_pid = 0
 window.upload_eta_signature = ()

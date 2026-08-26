@@ -229,6 +229,12 @@ assert module.upload_eta_ready(3, 20 * 1024, 14.0, 14.0, 2)
 assert not module.upload_eta_ready(2, 20 * 1024, 14.0, 14.0, 2)
 assert not module.upload_eta_ready(3, 20 * 1024, 14.0, 45.0, 2)
 
+waiting_tracker = EtaTracker()
+waiting_eta = module.PDriveWindow.queue_eta_detail(
+    waiting_tracker, near_pause_queue, 0, 4242, 10.0
+)
+assert "⏸ ETA waiting" in waiting_eta
+
 single_name = "demo/large.img"
 single_queue = {
     "count": 1,

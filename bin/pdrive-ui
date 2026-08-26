@@ -328,6 +328,7 @@ GERMAN_TRANSLATIONS = {
     "{bytes} · ≈{eta}": "{bytes} · ≈{eta}",
     "{bytes} remaining · ETA ≈ {eta}": "{bytes} verbleibend · ETA ≈ {eta}",
     "{bytes} · ETA calculating": "{bytes} · ETA wird berechnet",
+    "{bytes} · ⏸ ETA waiting": "{bytes} · ⏸ ETA wartet",
     "Queue is empty · ETA complete": "Warteschlange leer · ETA abgeschlossen",
     "Mark issues reviewed": "Probleme als geprüft markieren",
     "Could not update issue review state": "Prüfstatus der Probleme konnte nicht gespeichert werden",
@@ -354,6 +355,8 @@ GERMAN_TRANSLATIONS = {
     "Verified process traffic": "Verifizierter Prozesstraffic",
     "rclone estimate": "rclone-Schätzung",
     "ETA calculating": "ETA wird berechnet",
+    "⏸ ETA waiting": "⏸ ETA wartet",
+    "No upload traffic is currently available for an estimate.": "Für eine Schätzung ist derzeit kein Uploadtraffic verfügbar.",
     "Failed": "Fehler",
     "Completed": "Fertig",
     "No history yet": "Noch kein Verlauf",
@@ -3443,6 +3446,11 @@ class PDriveWindow(Gtk.ApplicationWindow):
         )
         if not estimate_ready:
             self.upload_eta_seconds = -1
+            if speed < 1024:
+                return translate_format(
+                    "{bytes} · ⏸ ETA waiting",
+                    bytes=human_bytes(remaining),
+                )
             return translate_format(
                 "{bytes} · ETA calculating",
                 bytes=human_bytes(remaining),
@@ -4041,6 +4049,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
                     detail_tooltip = f"{human_bytes(done)} / {human_bytes(size)} · ETA ≈ {clock_duration(eta_seconds)}"
             elif item.get("display_eta_calculating"):
                 detail += f" · {translate('ETA calculating')}"
+            elif item.get("display_eta_waiting"):
+                detail += f" · {translate('⏸ ETA waiting')}"
+                detail_tooltip = translate("No upload traffic is currently available for an estimate.")
         elif queue:
             detail = f"{human_bytes(item.get('size', 0))} · " + translate_format(
                 "{tries} attempt(s)", tries=item.get("tries", 0)
@@ -4089,7 +4100,12 @@ class PDriveWindow(Gtk.ApplicationWindow):
                         "display_speed": verified_metrics["speed"],
                         "display_eta_seconds": verified_metrics["eta_seconds"],
                         "display_eta_approximate": verified_metrics["estimate_ready"],
-                        "display_eta_calculating": not verified_metrics["estimate_ready"],
+                        "display_eta_calculating": (
+                            not verified_metrics["estimate_ready"] and verified_metrics["speed"] >= 1024
+                        ),
+                        "display_eta_waiting": (
+                            not verified_metrics["estimate_ready"] and verified_metrics["speed"] < 1024
+                        ),
                     }
                 self.active_list.add(self.transfer_row(display_item))
         else:

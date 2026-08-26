@@ -238,9 +238,10 @@ already reported for each matching active transfer. Its ETA uses an
 exponentially smoothed process-owned upload rate. When exactly one queued file
 matches one active transfer, both views share that estimator, so they cannot
 show contradictory speeds or completion times. PDrive waits for three useful
-samples and returns to **ETA calculating** after a prolonged traffic gap; it
-never turns an idle API request or a stale rclone transfer counter into a
-precise completion promise. Normal estimates use `HH:MM:SS`, multi-day uploads
+samples before showing a number. While useful bytes are flowing but the sample
+window is still young it shows **ETA calculating**; without current traffic it
+shows **⏸ ETA waiting**. It never turns an idle API request or a stale rclone
+transfer counter into a precise completion promise. Normal estimates use `HH:MM:SS`, multi-day uploads
 show days and hours, and extreme near-pause estimates above 100 days use a
 rounded day count in compact cards. Hovering the value reveals the fuller
 estimate.
