@@ -106,7 +106,9 @@ display is unavailable:
 ```
 
 Exercise both languages, minimum width, zero and active transfer fixtures,
-Preferences dirty-state behavior, issue review and content-height fitting.
+Preferences dirty-state behavior, issue review and content-height fitting. Use
+an implausible stale rclone speed/ETA pair beside zero process-owned TCP traffic
+as a regression fixture; the active row must not present it as live activity.
 Never run the state-writing watchdog against a live deployment from a sandbox
 that cannot access its user bus, FUSE mount or RC socket.
 

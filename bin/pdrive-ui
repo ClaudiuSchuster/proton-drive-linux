@@ -239,7 +239,7 @@ GERMAN_TRANSLATIONS = {
     "Cache retention": "Cache-Aufbewahrung",
     "Change cache retention": "Cache-Aufbewahrung ändern",
     "Active transfers": "Aktive Transfers",
-    "Progress, speed and ETA directly from rclone’s local RC socket": "Fortschritt, Geschwindigkeit und ETA direkt aus rclones lokalem RC-Socket",
+    "Progress from rclone; single-file speed and ETA use verified process traffic": "Fortschritt von rclone; Geschwindigkeit und ETA einer Einzeldatei nutzen verifizierten Prozesstraffic",
     "VFS queue": "VFS-Warteschlange",
     "Pending uploads remain safe in the existing VFS cache across restarts": "Ausstehende Uploads bleiben auch bei Neustarts sicher im vorhandenen VFS-Cache",
     "Recently completed": "Kürzlich abgeschlossen",
@@ -325,8 +325,10 @@ GERMAN_TRANSLATIONS = {
     "Status unavailable": "Status nicht erreichbar",
     "of {slots} upload slots in use": "von {slots} Uploadslots belegt",
     "{errors} errors · {notices} notices · since reviewed": "{errors} Fehler · {notices} Hinweise · seit der letzten Prüfung",
-    "{bytes} · ETA ≈ {eta}": "{bytes} · ETA ≈ {eta}",
+    "{bytes} · ≈{eta}": "{bytes} · ≈{eta}",
+    "{bytes} remaining · ETA ≈ {eta}": "{bytes} verbleibend · ETA ≈ {eta}",
     "{bytes} · ETA calculating": "{bytes} · ETA wird berechnet",
+    "{bytes} · ⏸ ETA waiting": "{bytes} · ⏸ ETA wartet",
     "Queue is empty · ETA complete": "Warteschlange leer · ETA abgeschlossen",
     "Mark issues reviewed": "Probleme als geprüft markieren",
     "Could not update issue review state": "Prüfstatus der Probleme konnte nicht gespeichert werden",
@@ -342,11 +344,19 @@ GERMAN_TRANSLATIONS = {
     "disabled": "aus",
     "Service {active}/{sub} · PID {pid}": "Dienst {active}/{sub} · PID {pid}",
     "No details available.": "Keine Detailmeldung verfügbar.",
+    "Recovering": "Wiederherstellung läuft",
+    "The retried upload is transferring again with verified process traffic.": "Der erneut versuchte Upload überträgt wieder mit verifiziertem Prozesstraffic.",
     "Unknown file": "Unbekannte Datei",
     "Uploading": "Upload läuft",
     "Waiting": "Wartet",
     "Attempt {tries}": "Versuch {tries}",
     "{tries} attempt(s)": "{tries} Versuch(e)",
+    "Rate unavailable": "Rate nicht verfügbar",
+    "Verified process traffic": "Verifizierter Prozesstraffic",
+    "rclone estimate": "rclone-Schätzung",
+    "ETA calculating": "ETA wird berechnet",
+    "⏸ ETA waiting": "⏸ ETA wartet",
+    "No upload traffic is currently available for an estimate.": "Für eine Schätzung ist derzeit kein Uploadtraffic verfügbar.",
     "Failed": "Fehler",
     "Completed": "Fertig",
     "No history yet": "Noch kein Verlauf",
@@ -751,6 +761,62 @@ def network_receive_rate(
     return network_counter_rate(previous, network_io, pid, now, "received_bytes", "receive_speed")
 
 
+def upload_eta_ready(
+    samples: int,
+    rate: float,
+    last_progress: float,
+    sample_time: float,
+    refresh_interval: int,
+) -> bool:
+    stale_after = max(30, refresh_interval * 3)
+    return samples >= 3 and rate > 0 and sample_time - last_progress <= stale_after
+
+
+def backend_transfer_metrics(item: dict[str, Any]) -> tuple[float, int]:
+    """Return rclone's estimate only when its speed and ETA agree."""
+
+    size = max(0, int(item.get("size") or 0))
+    done = min(size, max(0, int(item.get("bytes") or 0)))
+    remaining = max(0, size - done)
+    speed = max(0.0, float(item.get("speed") or 0))
+    eta = int(item.get("eta_seconds") or -1)
+    if remaining <= 0 or speed < 1024 or eta <= 0:
+        return 0.0, -1
+    calculated = remaining / speed
+    if calculated <= 0 or max(calculated, eta) / min(calculated, eta) > 4:
+        return 0.0, -1
+    return speed, eta
+
+
+def verified_single_transfer_metrics(
+    transfers: dict[str, Any],
+    queue: dict[str, Any],
+    current_speed: float,
+    smoothed_rate: float,
+    estimate_ready: bool,
+) -> dict[str, Any] | None:
+    """Share one validated estimator when exactly one queued transfer matches."""
+
+    active_items = transfers.get("active", [])
+    queue_items = queue.get("items", [])
+    if not isinstance(active_items, list) or not isinstance(queue_items, list):
+        return None
+    if int(queue.get("count") or 0) != 1 or len(active_items) != 1 or len(queue_items) != 1:
+        return None
+    active = active_items[0]
+    queued = queue_items[0]
+    if not isinstance(active, dict) or not isinstance(queued, dict) or not queued.get("uploading"):
+        return None
+    if str(active.get("name") or "") != str(queued.get("name") or ""):
+        return None
+    remaining = max(0, int(queue.get("remaining_bytes", queue.get("bytes", 0)) or 0))
+    return {
+        "speed": max(0.0, current_speed),
+        "eta_seconds": int(remaining / smoothed_rate) if estimate_ready and smoothed_rate > 0 else -1,
+        "estimate_ready": estimate_ready,
+    }
+
+
 def bandwidth_slider_position(rate: str) -> float:
     component = rate.split(":", 1)[0].strip()
     if component.lower() in {"", "off", "0"}:
@@ -918,6 +984,7 @@ window.pdrive-window {
 .status-card { border-radius: 16px; padding: 13px 20px; }
 .page.overview-page { padding-top: 18px; }
 .status-ready { background: #12382f; border: 1px solid #23876e; }
+.status-working { background: #153746; border: 1px solid #2e91b5; }
 .status-warning { background: #463617; border: 1px solid #b78324; }
 .status-critical { background: #4a2028; border: 1px solid #bd4559; }
 .status-unknown { background: #26303e; border: 1px solid #52647c; }
@@ -1066,6 +1133,7 @@ button.setup-primary:hover { background-image: linear-gradient(to bottom, #4994b
 
 STATUS_META = {
     "ready": ("emblem-ok-symbolic", "Ready", "good"),
+    "working": ("emblem-synchronizing-symbolic", "Recovering", "accent"),
     "warning": ("dialog-warning-symbolic", "Attention", "warning"),
     "critical": ("dialog-error-symbolic", "Problem", "danger"),
     "unknown": ("dialog-question-symbolic", "Unknown", "muted"),
@@ -1154,6 +1222,18 @@ def clock_duration(value: Any) -> str:
         days, hours = divmod(hours, 24)
         return f"{days}d {hours}h"
     return f"{hours:02d}:{minutes:02d}:{seconds:02d}"
+
+
+def compact_eta_duration(value: Any) -> str:
+    """Keep extreme near-pause estimates readable in compact overview cards."""
+
+    try:
+        seconds = max(0, int(math.ceil(float(value))))
+    except (TypeError, ValueError, OverflowError):
+        return "–"
+    if seconds >= 100 * 86400:
+        return f"{math.ceil(seconds / 86400)}d"
+    return clock_duration(seconds)
 
 
 def approximate_duration(value: Any) -> str:
@@ -1349,9 +1429,10 @@ class StatCard(Gtk.EventBox):
             return self.activate_navigation()
         return False
 
-    def update(self, value: str, detail: str = "") -> None:
+    def update(self, value: str, detail: str = "", detail_tooltip: str | None = None) -> None:
         self.value.set_text(value)
         self.detail.set_text(detail)
+        self.detail.set_tooltip_text(detail_tooltip)
 
     def make_compact(self) -> None:
         add_css(self.frame, "compact-card")
@@ -2427,7 +2508,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.refreshing = False
         self.closed = False
         self.content_fit_source = 0
-        self.content_fit_attempts = 0
+        self.content_fit_completed = False
         self.documentation_window: DocumentationWindow | None = None
         self.about_dialog: Gtk.AboutDialog | None = None
         self.setup_wizard: SetupWizard | None = None
@@ -2441,6 +2522,8 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.upload_eta_rate = 0.0
         self.upload_eta_samples = 0
         self.upload_eta_last_progress = 0.0
+        self.upload_eta_signature: tuple[tuple[str, int], ...] = ()
+        self.upload_eta_seconds = -1
         self.capacity_refresh_due = 0.0
         self.remote_capacity: dict[str, Any] = {}
         self.current_state: dict[str, Any] = {}
@@ -2496,6 +2579,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             current_child.destroy()
         self.setup_required = False
         self.setup_wizard = None
+        self.content_fit_completed = False
         self.build_ui()
         self.set_empty_lists()
         self.show_all()
@@ -3047,7 +3131,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         add_css(self.transfers_page, "page")
         self.active_transfer_section, self.active_list = self.build_list_section(
             "Active transfers",
-            "Progress, speed and ETA directly from rclone’s local RC socket",
+            "Progress from rclone; single-file speed and ETA use verified process traffic",
         )
         self.queue_transfer_section, self.queue_list = self.build_list_section(
             "VFS queue",
@@ -3277,7 +3361,6 @@ class PDriveWindow(Gtk.ApplicationWindow):
     def schedule_content_fit(self) -> None:
         if self.closed or self.content_fit_source:
             return
-        self.content_fit_attempts = 0
         self.content_fit_source = GLib.timeout_add(80, self.fit_content_height)
 
     def fit_content_height(self) -> bool:
@@ -3287,7 +3370,12 @@ class PDriveWindow(Gtk.ApplicationWindow):
         if not self.get_visible() or not self.get_mapped():
             self.content_fit_source = 0
             return GLib.SOURCE_REMOVE
-        self.content_fit_attempts += 1
+        if self.content_fit_completed:
+            self.content_fit_source = 0
+            return GLib.SOURCE_REMOVE
+        if not self.setup_required and not self.current_state:
+            self.content_fit_source = 0
+            return GLib.SOURCE_REMOVE
         overflow = 0.0
         if not self.setup_required and hasattr(self, "overview_scroller"):
             adjustment = self.overview_scroller.get_vadjustment()
@@ -3307,8 +3395,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             target_height = min(maximum_height, height + math.ceil(overflow) + 4)
             if target_height > height:
                 self.resize(width, target_height)
-        if self.content_fit_attempts < 4 and overflow > 0.5:
-            return GLib.SOURCE_CONTINUE
+        self.content_fit_completed = True
         self.content_fit_source = 0
         return GLib.SOURCE_REMOVE
 
@@ -3324,17 +3411,25 @@ class PDriveWindow(Gtk.ApplicationWindow):
             0,
             int(queue.get("remaining_bytes", queue.get("bytes", 0)) or 0),
         )
+        queue_items = queue.get("items", [])
+        signature = tuple(
+            (str(item.get("name") or ""), int(item.get("size") or 0)) for item in queue_items if isinstance(item, dict)
+        )
         if count == 0:
             self.upload_eta_pid = pid
             self.upload_eta_rate = 0.0
             self.upload_eta_samples = 0
             self.upload_eta_last_progress = 0.0
+            self.upload_eta_signature = ()
+            self.upload_eta_seconds = -1
             return translate("Queue is empty · ETA complete")
-        if pid != self.upload_eta_pid:
+        if pid != self.upload_eta_pid or signature != self.upload_eta_signature:
             self.upload_eta_pid = pid
             self.upload_eta_rate = 0.0
             self.upload_eta_samples = 0
             self.upload_eta_last_progress = 0.0
+            self.upload_eta_signature = signature
+            self.upload_eta_seconds = -1
         if int(queue.get("active") or 0) > 0 and speed >= 1024:
             if self.upload_eta_samples == 0:
                 self.upload_eta_rate = speed
@@ -3342,21 +3437,29 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 self.upload_eta_rate = (self.upload_eta_rate * 0.8) + (speed * 0.2)
             self.upload_eta_samples += 1
             self.upload_eta_last_progress = sample_time
-        stale_after = max(30, self.refresh_interval_seconds() * 3)
-        estimate_ready = (
-            self.upload_eta_samples >= 3
-            and self.upload_eta_rate > 0
-            and sample_time - self.upload_eta_last_progress <= stale_after
+        estimate_ready = upload_eta_ready(
+            self.upload_eta_samples,
+            self.upload_eta_rate,
+            self.upload_eta_last_progress,
+            sample_time,
+            self.refresh_interval_seconds(),
         )
         if not estimate_ready:
+            self.upload_eta_seconds = -1
+            if speed < 1024:
+                return translate_format(
+                    "{bytes} · ⏸ ETA waiting",
+                    bytes=human_bytes(remaining),
+                )
             return translate_format(
                 "{bytes} · ETA calculating",
                 bytes=human_bytes(remaining),
             )
+        self.upload_eta_seconds = int(remaining / self.upload_eta_rate)
         return translate_format(
-            "{bytes} · ETA ≈ {eta}",
+            "{bytes} · ≈{eta}",
             bytes=human_bytes(remaining),
-            eta=clock_duration(remaining / self.upload_eta_rate),
+            eta=compact_eta_duration(self.upload_eta_seconds),
         )
 
     def on_refresh_timer(self) -> bool:
@@ -3433,11 +3536,6 @@ class PDriveWindow(Gtk.ApplicationWindow):
             self.remote_capacity = remote_capacity
 
         status = str(health.get("status", "unknown"))
-        self.update_status(
-            status,
-            translate(STATUS_META.get(status, STATUS_META["unknown"])[1]),
-            self.localized_health_summary(state),
-        )
         self.updated_label.set_text(dt.datetime.now().strftime("%H:%M:%S"))
 
         sample_time = time.monotonic()
@@ -3473,7 +3571,36 @@ class PDriveWindow(Gtk.ApplicationWindow):
             int(service.get("pid") or 0),
             sample_time,
         )
-        self.queue_card.update(str(queue.get("count", 0)), queue_detail)
+        queue_tooltip = queue_detail
+        if self.upload_eta_seconds >= 0:
+            queue_tooltip = translate_format(
+                "{bytes} remaining · ETA ≈ {eta}",
+                bytes=human_bytes(queue.get("remaining_bytes", queue.get("bytes", 0))),
+                eta=clock_duration(self.upload_eta_seconds),
+            )
+        self.queue_card.update(str(queue.get("count", 0)), queue_detail, queue_tooltip)
+        live_status = status
+        live_summary = self.localized_health_summary(state)
+        if (
+            status == "warning"
+            and str(health.get("reason_code") or "") == "persistent-upload-failure"
+            and int(queue.get("active") or 0) > 0
+            and int(queue.get("max_tries") or 0) >= 2
+            and upload_eta_ready(
+                self.upload_eta_samples,
+                self.upload_eta_rate,
+                self.upload_eta_last_progress,
+                sample_time,
+                self.refresh_interval_seconds(),
+            )
+        ):
+            live_status = "working"
+            live_summary = translate("The retried upload is transferring again with verified process traffic.")
+        self.update_status(
+            live_status,
+            translate(STATUS_META.get(live_status, STATUS_META["unknown"])[1]),
+            live_summary,
+        )
         issues = state.get("issues", {})
         application = self.get_application()
         if (
@@ -3519,8 +3646,8 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 "Everything is in sync. The service keeps its fast metadata cache warm and waits for changes."
             )
         self.live_summary.set_text(summary)
-        if status in {"warning", "critical"}:
-            summary_icon, _summary_title, summary_color = STATUS_META[status]
+        if live_status in {"warning", "critical", "working"}:
+            summary_icon, _summary_title, summary_color = STATUS_META[live_status]
         elif active or queue.get("count", 0):
             summary_icon, summary_color = "emblem-synchronizing-symbolic", "accent"
         else:
@@ -3631,7 +3758,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             )
         )
 
-        self.update_transfers(transfers, queue)
+        self.update_transfers(transfers, queue, speed, sample_time)
         self.update_cache_details(vfs, config)
         self.update_history(state.get("history", []))
         self.status_title.set_tooltip_text(
@@ -3644,7 +3771,19 @@ class PDriveWindow(Gtk.ApplicationWindow):
         )
         application = self.get_application()
         if isinstance(application, PDriveApplication):
-            application.update_indicator(state, speed)
+            indicator_state = state
+            if live_status != status:
+                indicator_state = {
+                    **state,
+                    "health": {
+                        **health,
+                        "status": live_status,
+                        "summary": live_summary,
+                    },
+                }
+            application.update_indicator(indicator_state, speed)
+        if not self.content_fit_completed:
+            self.schedule_content_fit()
         return GLib.SOURCE_REMOVE
 
     def update_issue_card(self, issues: dict[str, Any]) -> None:
@@ -3843,6 +3982,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
     def update_status(self, status: str, title_text: str, summary: str) -> None:
         for css_class in (
             "status-ready",
+            "status-working",
             "status-warning",
             "status-critical",
             "status-unknown",
@@ -3873,9 +4013,20 @@ class PDriveWindow(Gtk.ApplicationWindow):
             text = "Failed" if item.get("error") else "Completed"
             top.pack_end(label(text, "pill"), False, False, 0)
         else:
-            top.pack_end(label(human_rate(item.get("speed", 0)), "pill"), False, False, 0)
+            if "display_speed" in item:
+                display_speed = max(0.0, float(item.get("display_speed") or 0))
+                speed_text = human_rate(display_speed)
+                speed_source = translate("Verified process traffic")
+            else:
+                display_speed, _backend_eta = backend_transfer_metrics(item)
+                speed_text = human_rate(display_speed) if display_speed > 0 else translate("Rate unavailable")
+                speed_source = translate("rclone estimate")
+            speed_pill = label(speed_text, "pill")
+            speed_pill.set_tooltip_text(speed_source)
+            top.pack_end(speed_pill, False, False, 0)
         box.pack_start(top, False, False, 0)
 
+        detail_tooltip: str | None = None
         if not queue and not recent:
             size = int(item.get("size") or 0)
             done = int(item.get("bytes") or 0)
@@ -3883,29 +4034,80 @@ class PDriveWindow(Gtk.ApplicationWindow):
             progress = Gtk.ProgressBar(fraction=fraction)
             box.pack_start(progress, False, False, 0)
             detail = f"{human_bytes(done)} / {human_bytes(size)}"
-            eta = human_duration(item.get("eta_seconds", -1))
+            eta_seconds = item.get("display_eta_seconds", item.get("eta_seconds", -1))
+            if "display_eta_seconds" not in item:
+                _backend_speed, eta_seconds = backend_transfer_metrics(item)
+            eta = (
+                compact_eta_duration(eta_seconds)
+                if item.get("display_eta_approximate") and int(eta_seconds or -1) >= 0
+                else human_duration(eta_seconds)
+            )
             if eta != "–":
-                detail += f" · ETA {eta}"
+                prefix = "≈" if item.get("display_eta_approximate") else "ETA "
+                detail += f" · {prefix}{eta}"
+                if item.get("display_eta_approximate"):
+                    detail_tooltip = f"{human_bytes(done)} / {human_bytes(size)} · ETA ≈ {clock_duration(eta_seconds)}"
+            elif item.get("display_eta_calculating"):
+                detail += f" · {translate('ETA calculating')}"
+            elif item.get("display_eta_waiting"):
+                detail += f" · {translate('⏸ ETA waiting')}"
+                detail_tooltip = translate("No upload traffic is currently available for an estimate.")
         elif queue:
             detail = f"{human_bytes(item.get('size', 0))} · " + translate_format(
                 "{tries} attempt(s)", tries=item.get("tries", 0)
             )
         else:
             detail = f"{human_bytes(item.get('bytes') or item.get('size', 0))} · {local_time(str(item.get('completed_at', '')))}"
-        box.pack_start(label(detail, "transfer-meta"), False, False, 0)
+        detail_label = label(detail, "transfer-meta")
+        detail_label.set_tooltip_text(detail_tooltip)
+        box.pack_start(detail_label, False, False, 0)
         row.add(box)
         return row
 
-    def update_transfers(self, transfers: dict[str, Any], queue: dict[str, Any]) -> None:
+    def update_transfers(
+        self,
+        transfers: dict[str, Any],
+        queue: dict[str, Any],
+        current_speed: float = 0.0,
+        sample_time: float | None = None,
+    ) -> None:
         self.clear_list(self.active_list)
         self.clear_list(self.queue_list)
         self.clear_list(self.recent_list)
         active_items = transfers.get("active", [])
         queue_items = queue.get("items", [])
         recent_items = transfers.get("recent", [])
+        estimate_ready = upload_eta_ready(
+            self.upload_eta_samples,
+            self.upload_eta_rate,
+            self.upload_eta_last_progress,
+            sample_time if sample_time is not None else time.monotonic(),
+            self.refresh_interval_seconds(),
+        )
+        verified_metrics = verified_single_transfer_metrics(
+            transfers,
+            queue,
+            current_speed,
+            self.upload_eta_rate,
+            estimate_ready,
+        )
         if active_items:
             for item in active_items:
-                self.active_list.add(self.transfer_row(item))
+                display_item = item
+                if verified_metrics is not None:
+                    display_item = {
+                        **item,
+                        "display_speed": verified_metrics["speed"],
+                        "display_eta_seconds": verified_metrics["eta_seconds"],
+                        "display_eta_approximate": verified_metrics["estimate_ready"],
+                        "display_eta_calculating": (
+                            not verified_metrics["estimate_ready"] and verified_metrics["speed"] >= 1024
+                        ),
+                        "display_eta_waiting": (
+                            not verified_metrics["estimate_ready"] and verified_metrics["speed"] < 1024
+                        ),
+                    }
+                self.active_list.add(self.transfer_row(display_item))
         else:
             uploading = [item for item in queue_items if item.get("uploading")]
             if uploading:
@@ -4785,6 +4987,7 @@ class PDriveApplication(Gtk.Application):
             width, _height = self.window.get_size()
             initial_height = SETUP_WINDOW_HEIGHT if self.window.setup_required else DEFAULT_WINDOW_HEIGHT
             self.window.resize(max(MIN_WINDOW_WIDTH, width), initial_height)
+            self.window.content_fit_completed = False
         self.window.show_all()
         self.window.present()
         self.window.schedule_content_fit()

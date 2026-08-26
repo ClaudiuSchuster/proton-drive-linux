@@ -21,6 +21,7 @@ import importlib.machinery
 import importlib.util
 import copy
 import sys
+import time
 
 loader = importlib.machinery.SourceFileLoader("pdrive_ui_widget_test", sys.argv[1])
 spec = importlib.util.spec_from_loader(loader.name, loader)
@@ -276,8 +277,90 @@ assert "used" in window.capacity_card.remote_detail.get_text()
 assert "free" in window.capacity_card.local_value.get_text()
 assert "VFS cache used" in window.capacity_card.local_detail.get_text()
 assert "pending upload" in window.cache_card.detail.get_text()
-assert "ETA " in window.queue_card.detail.get_text()
+assert "≈" in window.queue_card.detail.get_text()
 assert "calculating" not in window.queue_card.detail.get_text()
+
+recovery_state = copy.deepcopy(module.demo_state())
+recovery_active = recovery_state["transfers"]["active"][0]
+recovery_active["speed"] = 897.4 * 1024
+recovery_active["eta_seconds"] = 9_223_372_036
+recovery_state["queue"].update(
+    {
+        "count": 1,
+        "active": 1,
+        "failed": 1,
+        "max_tries": 2,
+        "bytes": recovery_active["size"],
+        "remaining_bytes": recovery_active["size"] - recovery_active["bytes"],
+        "items": [
+            {
+                "name": recovery_active["name"],
+                "size": recovery_active["size"],
+                "tries": 2,
+                "uploading": True,
+            }
+        ],
+    }
+)
+recovery_state["health"].update(
+    {
+        "status": "warning",
+        "reason_code": "persistent-upload-failure",
+        "summary": "At least one file remains queued after multiple upload attempts.",
+    }
+)
+recovery_state["network_io"]["send_speed"] = 4 * 1024 * 1024
+for _sample in range(3):
+    window.apply_state(recovery_state)
+assert window.status_title.get_text() == "Recovering"
+assert window.status_frame.get_style_context().has_class("status-working")
+assert "verified process traffic" in window.status_summary.get_text()
+queue_eta = window.queue_card.detail.get_text().split("≈", 1)[1]
+active_labels = [
+    widget.get_text()
+    for widget in descendants(window.active_list)
+    if isinstance(widget, module.Gtk.Label)
+]
+assert "4.0 MiB/s" in active_labels
+active_detail = next(text for text in active_labels if "· ≈" in text)
+assert active_detail.endswith(queue_eta), (active_detail, queue_eta)
+assert not any("897.4 KiB/s" in text for text in active_labels)
+assert "ETA ≈" in window.queue_card.detail.get_tooltip_text()
+
+stalled_state = copy.deepcopy(recovery_state)
+stalled_state["network_io"]["send_speed"] = 0
+window.upload_eta_last_progress = time.monotonic() - 31
+window.apply_state(stalled_state)
+assert window.status_title.get_text() == "Attention"
+assert "⏸ ETA waiting" in window.queue_card.detail.get_text()
+stalled_labels = [
+    widget.get_text()
+    for widget in descendants(window.active_list)
+    if isinstance(widget, module.Gtk.Label)
+]
+assert "0 B/s" in stalled_labels
+assert any("⏸ ETA waiting" in text for text in stalled_labels)
+
+window.upload_eta_pid = 0
+window.upload_eta_signature = ()
+window.upload_eta_samples = 0
+window.upload_eta_rate = 0
+window.upload_eta_last_progress = 0
+window.apply_state(recovery_state)
+assert window.status_title.get_text() == "Attention"
+
+critical_state = copy.deepcopy(recovery_state)
+critical_state["health"].update(
+    {
+        "status": "critical",
+        "reason_code": "service-inactive",
+        "summary": "The Proton Drive service is inactive.",
+    }
+)
+window.apply_state(critical_state)
+window.apply_state(critical_state)
+window.apply_state(critical_state)
+assert window.status_title.get_text() == "Problem"
 
 stress_state = copy.deepcopy(module.demo_state())
 stress_state["queue"].update(
@@ -299,11 +382,13 @@ assert window.queue_card.value.get_text() == "12345"
 assert not window.queue_card.value.get_layout().is_ellipsized()
 queue_stress_detail = window.queue_card.detail.get_text()
 assert "12.0 TiB" in queue_stress_detail, queue_stress_detail
-assert "ETA ≈" in queue_stress_detail, queue_stress_detail
+assert "≈" in queue_stress_detail, queue_stress_detail
 assert not window.queue_card.detail.get_layout().is_ellipsized(), (
     queue_stress_detail,
     window.queue_card.detail.get_allocated_width(),
 )
+assert queue_stress_detail.endswith("d"), queue_stress_detail
+assert "ETA ≈" in window.queue_card.detail.get_tooltip_text()
 assert window.retention_button.get_sensitive()
 assert window.retention_button.get_tooltip_text() == "Change cache retention"
 assert window.retention_button.get_events() & module.Gdk.EventMask.ENTER_NOTIFY_MASK
@@ -504,6 +589,65 @@ assert opened_configuration_dialogs == [
 ]
 
 assert module.tray_supports_distinct_clicks()
+
+
+class FixedAdjustment:
+    @staticmethod
+    def get_upper():
+        return 820
+
+    @staticmethod
+    def get_page_size():
+        return 720
+
+
+class FixedScroller:
+    @staticmethod
+    def get_vadjustment():
+        return FixedAdjustment()
+
+
+class ContentFitTracker:
+    closed = False
+    setup_required = False
+    current_state = {"health": {"status": "ready"}}
+    content_fit_source = 1
+    content_fit_completed = False
+    overview_scroller = FixedScroller()
+    root = None
+
+    def __init__(self):
+        self.resizes = []
+
+    @staticmethod
+    def get_visible():
+        return True
+
+    @staticmethod
+    def get_mapped():
+        return True
+
+    @staticmethod
+    def get_size():
+        return (820, 720)
+
+    @staticmethod
+    def get_window():
+        return None
+
+    def resize(self, width, height):
+        self.resizes.append((width, height))
+
+
+fit_tracker = ContentFitTracker()
+assert module.PDriveWindow.fit_content_height(fit_tracker) == module.GLib.SOURCE_REMOVE
+assert fit_tracker.resizes == [(820, 824)]
+assert fit_tracker.content_fit_completed
+# Reusing the stale adjustment cannot compound the first resize.
+fit_tracker.content_fit_source = 1
+assert module.PDriveWindow.fit_content_height(fit_tracker) == module.GLib.SOURCE_REMOVE
+assert fit_tracker.resizes == [(820, 824)]
+
 app.demo = False
 window.demo = False
 refreshes = []

@@ -206,6 +206,8 @@ project-specific; CI remains the authority for mechanical formatting rules.
 - Keep commits focused and use short imperative English subjects. Preserve
   unrelated working-tree changes and never commit private operating notes from
   outside this repository.
+- The repository accepts squash merges only. Keep pull-request commits focused,
+  then merge through GitHub's squash path rather than creating a merge commit.
 - Update this file when verified packaging, migration, rollback, or store-review
   behavior establishes a new repository-wide invariant. Do not encode an
   untested publishing assumption as policy.

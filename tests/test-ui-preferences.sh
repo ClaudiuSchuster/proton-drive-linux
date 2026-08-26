@@ -204,6 +204,8 @@ class EtaTracker:
     upload_eta_rate = 0.0
     upload_eta_samples = 0
     upload_eta_last_progress = 0.0
+    upload_eta_signature = ()
+    upload_eta_seconds = -1
 
     @staticmethod
     def refresh_interval_seconds():
@@ -219,8 +221,68 @@ module.PDriveWindow.queue_eta_detail(eta_tracker, near_pause_queue, 20 * 1024, 4
 near_pause_eta = module.PDriveWindow.queue_eta_detail(
     eta_tracker, near_pause_queue, 20 * 1024, 4242, 14.0
 )
-assert "ETA ≈" in near_pause_eta
+assert "≈" in near_pause_eta
 assert "calculating" not in near_pause_eta
+assert module.compact_eta_duration(99 * 86400) == "99d 0h"
+assert module.compact_eta_duration((100 * 86400) + 1) == "101d"
+assert module.upload_eta_ready(3, 20 * 1024, 14.0, 14.0, 2)
+assert not module.upload_eta_ready(2, 20 * 1024, 14.0, 14.0, 2)
+assert not module.upload_eta_ready(3, 20 * 1024, 14.0, 45.0, 2)
+
+waiting_tracker = EtaTracker()
+waiting_eta = module.PDriveWindow.queue_eta_detail(
+    waiting_tracker, near_pause_queue, 0, 4242, 10.0
+)
+assert "⏸ ETA waiting" in waiting_eta
+
+single_name = "demo/large.img"
+single_queue = {
+    "count": 1,
+    "active": 1,
+    "bytes": 20 * 1024 * 1024,
+    "remaining_bytes": 10 * 1024 * 1024,
+    "items": [{"name": single_name, "size": 20 * 1024 * 1024, "uploading": True}],
+}
+single_transfers = {
+    "active": [
+        {
+            "name": single_name,
+            "size": 20 * 1024 * 1024,
+            "bytes": 10 * 1024 * 1024,
+            "speed": 900 * 1024,
+            "eta_seconds": 999999,
+        }
+    ]
+}
+single_metrics = module.verified_single_transfer_metrics(
+    single_transfers,
+    single_queue,
+    20 * 1024,
+    20 * 1024,
+    True,
+)
+assert single_metrics == {"speed": 20 * 1024, "eta_seconds": 512, "estimate_ready": True}
+assert module.backend_transfer_metrics(single_transfers["active"][0]) == (0.0, -1)
+assert module.backend_transfer_metrics({**single_transfers["active"][0], "eta_seconds": 0}) == (0.0, -1)
+assert module.verified_single_transfer_metrics(
+    {"active": single_transfers["active"] * 2},
+    {**single_queue, "count": 2},
+    20 * 1024,
+    20 * 1024,
+    True,
+) is None
+
+identity_tracker = EtaTracker()
+for sample_time in (10.0, 12.0, 14.0):
+    module.PDriveWindow.queue_eta_detail(identity_tracker, single_queue, 20 * 1024, 4242, sample_time)
+assert identity_tracker.upload_eta_samples == 3
+changed_queue = {
+    **single_queue,
+    "items": [{"name": "demo/replacement.img", "size": 20 * 1024 * 1024, "uploading": True}],
+}
+changed_detail = module.PDriveWindow.queue_eta_detail(identity_tracker, changed_queue, 20 * 1024, 4242, 16.0)
+assert "calculating" in changed_detail
+assert identity_tracker.upload_eta_samples == 1
 
 assert module.bandwidth_slider_position("off") == module.BANDWIDTH_SLIDER_UNLIMITED
 assert module.bandwidth_slider_position("0") == module.BANDWIDTH_SLIDER_UNLIMITED
