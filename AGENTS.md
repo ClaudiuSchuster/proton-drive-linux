@@ -156,6 +156,8 @@ project-specific; CI remains the authority for mechanical formatting rules.
 - GitHub Actions must pass both Functional checks and Super-Linter. Do not hide
   a real warning merely to make CI green; suppress only understood environment
   noise at its source.
+- Begin every versioned YAML file with the explicit `---` document marker. The
+  portable repository suite enforces this so yamllint output remains warning-free.
 - Keep the Checks workflow on pull requests plus pushes to `main`. Enabling it
   for every branch push duplicates both required jobs for same-repository pull
   requests without adding a distinct validation boundary.
@@ -179,6 +181,16 @@ project-specific; CI remains the authority for mechanical formatting rules.
 
 ## Versioning and Git
 
+- The canonical public repository is
+  `https://github.com/oss-singularity/proton-drive-linux`. Keep project badges,
+  clone commands, security-reporting routes, issue templates, release links,
+  documentation fallbacks and sibling-project links on the `oss-singularity`
+  organization. Personal author, credit, Code Owner and sponsorship links may
+  continue to target their individual GitHub profiles.
+- Preserve the installed application ID `io.github.claudiuschuster.PDriveControl`
+  across the repository transfer. It is a stable desktop, D-Bus, autostart and
+  preference identity, not a repository URL; changing it requires a separately
+  designed end-user migration.
 - `VERSION` is the project SemVer source. It must exactly match `VERSION` in
   `bin/pdrive-ui` and `TOOL_VERSION` in `bin/pdrive-state`.
 - The desktop file's `Version=1.0` is the Desktop Entry specification version,

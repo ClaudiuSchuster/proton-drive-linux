@@ -52,10 +52,14 @@ BANDWIDTH_SLIDER_UNLIMITED = 110.0
 BANDWIDTH_NEAR_PAUSE_MIB = 0.02
 SETUP_TIMEOUT_SECONDS = 180
 AUTOSTART_MARKER = "X-PDrive-Control-Center=true"
-PROJECT_URL = "https://github.com/ClaudiuSchuster/proton-drive-linux"
+PROJECT_URL = "https://github.com/oss-singularity/proton-drive-linux"
 DOCUMENTATION_URL = f"{PROJECT_URL}#readme"
 PROTON_DRIVE_URL = "https://drive.proton.me/"
 ABOUT_CREDITS = (
+    (
+        "OSS Singularity — open-source home of the project",
+        "https://github.com/oss-singularity",
+    ),
     ("Claudiu Schuster — creator and maintainer", "https://github.com/ClaudiuSchuster"),
     (
         "OpenAI Codex — design and engineering collaborator",
@@ -194,6 +198,7 @@ GERMAN_TRANSLATIONS = {
     "About …": "Über …",
     "About PDrive Control Center": "Über PDrive Control Center",
     "GitHub project": "GitHub-Projekt",
+    "OSS Singularity — open-source home of the project": "OSS Singularity — Open-Source-Heimat des Projekts",
     "Claudiu Schuster — creator and maintainer": "Claudiu Schuster — Schöpfer und Maintainer",
     "OpenAI Codex — design and engineering collaborator": "OpenAI Codex — Design- und Engineering-Partner",
     "Fabian Schneider — comic relief, lively development chats and plenty of screenshots": "Fabian Schneider — Quatschkomödie, lebhafte Entwicklungschats und jede Menge Screenshots",
@@ -2065,7 +2070,7 @@ class DocumentationWindow(Gtk.Window):
         if page_name:
             self.stack.set_visible_child_name(page_name)
             return
-        online = f"https://github.com/ClaudiuSchuster/proton-drive-linux/blob/main/{normalized}"
+        online = f"https://github.com/oss-singularity/proton-drive-linux/blob/main/{normalized}"
         self.open_external_uri(online)
 
     def open_external_uri(self, uri: str) -> None:
