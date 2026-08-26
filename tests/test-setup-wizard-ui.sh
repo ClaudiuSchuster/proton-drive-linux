@@ -103,7 +103,14 @@ assert not wizard.readiness["ready"]
 assert wizard.readiness["rclone_present"]
 assert not wizard.readiness["rclone_ready"]
 assert wizard.prepare_button.get_label() == "Reinstall recommended rclone"
-assert "configuration, cache and mount data remain untouched" in wizard.prepare_button.get_tooltip_text()
+assert wizard.prepare_button.get_tooltip_text() in {
+    module.translate(
+        "Only the user-local rclone binary is replaced; configuration, cache and mount data remain untouched."
+    ),
+    module.translate(
+        "Automatic package installation is available on Debian, Ubuntu and Linux Mint systems with Polkit."
+    ),
+}
 rclone_fixture.write_text(safe_rclone, encoding="utf-8")
 rclone_fixture.chmod(0o755)
 wizard.refresh_readiness()
