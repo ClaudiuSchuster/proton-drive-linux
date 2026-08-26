@@ -234,11 +234,22 @@ derived from the selected live-metrics interval and the 150 retained samples,
 so changing the interval updates both the poll note and displayed time range.
 
 The Queue card shows the complete remaining VFS backlog, subtracting bytes
-already reported for each matching active transfer. Its `HH:MM:SS` ETA uses an
-exponentially smoothed process-owned upload rate. PDrive waits for three useful
+already reported for each matching active transfer. Its ETA uses an
+exponentially smoothed process-owned upload rate. When exactly one queued file
+matches one active transfer, both views share that estimator, so they cannot
+show contradictory speeds or completion times. PDrive waits for three useful
 samples and returns to **ETA calculating** after a prolonged traffic gap; it
-never turns an idle API request or a stale transfer counter into a precise
-completion promise. Multi-day and 100-GiB uploads retain their full hour count.
+never turns an idle API request or a stale rclone transfer counter into a
+precise completion promise. Normal estimates use `HH:MM:SS`, multi-day uploads
+show days and hours, and extreme near-pause estimates above 100 days use a
+rounded day count in compact cards. Hovering the value reveals the fuller
+estimate.
+
+A previous upload failure remains available in History and issue review while
+the retry is being observed. After three fresh process-owned traffic samples,
+the live banner changes from **Attention** to **Recovering**. It falls back to
+the conservative warning when traffic becomes stale and never overrides an
+unrelated critical condition.
 
 The Capacity card separates the Proton account from the local cache filesystem.
 It shows Proton cloud used, total and free values exposed by the mounted remote beside
@@ -358,7 +369,9 @@ or a one-pixel theme difference while remaining independent of GTK shadow and
 header-bar dimensions. A session-autostart window stays hidden until the user
 opens it; hidden, unmapped allocations are never used for content fitting.
 Opening it restores the compact content height before the same visible-window
-fit runs. Smaller screens retain normal scrolling.
+fit runs. Each opening can request at most one growth resize after the first
+dashboard state arrives, so an allocation that has not caught up cannot add the
+same overflow repeatedly. Smaller screens retain normal scrolling.
 
 On X11 Cinnamon the tray uses GTK StatusIcon so a left click opens/focuses the
 Control Center and a right click opens the existing Open, Open `/pdrive`, and
