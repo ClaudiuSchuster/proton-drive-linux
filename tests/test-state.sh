@@ -90,10 +90,21 @@ cat > "${state_dir}/pdrive-draft-recovery-latest.json" <<'EOF'
   "phase": "recovery",
   "progress_proven": true,
   "queue_count": 1,
+  "bridge_failure_cycles": 3,
+  "bridge_unwedge_restart_attempts": 1,
   "finalization_restart_attempts": 0,
-  "restart_attempts": 1,
+  "restart_attempts": 2,
   "stall_confirmations": 2,
   "status": "restarted"
+}
+EOF
+cat > "${state_dir}/pdrive-auth-state.json" <<'EOF'
+{
+  "generated_at": "2026-08-24T10:08:45+00:00",
+  "reason": "authenticated",
+  "restart_suppressed": false,
+  "schema_version": 1,
+  "status": "ready"
 }
 EOF
 cat > "${state_dir}/proton-mount.log" <<'EOF'
@@ -134,6 +145,10 @@ PDRIVE_RC_TRANSPORT=cli \
 jq -e '
     .schema_version == 1
     and .health.status == "ready"
+    and .authentication.available == true
+    and .authentication.status == "ready"
+    and .authentication.reason == "authenticated"
+    and .authentication.restart_suppressed == false
     and .service.pid == 4242
     and .service.uptime_seconds >= 0
     and .network_io.available == true
@@ -167,8 +182,10 @@ jq -e '
     and .draft_recovery.progress_proven == true
     and .draft_recovery.error_category == "remote-file-removed"
     and .draft_recovery.stall_confirmations == 2
-    and .draft_recovery.restart_attempts == 1
+    and .draft_recovery.restart_attempts == 2
     and .draft_recovery.finalization_restart_attempts == 0
+    and .draft_recovery.bridge_unwedge_restart_attempts == 1
+    and .draft_recovery.bridge_failure_cycles == 3
     and .issues.available == true
     and (.issues.events | length) == 5
     and .issues.events[0].category == "dns"
@@ -203,6 +220,34 @@ jq -e '
     and (.issues.events[3].message | contains("private-share") | not)
     and .history[0].vfs_queue == 1
 ' "${state_json}" >/dev/null
+
+cp -- "${state_dir}/pdrive-watch-latest.txt" "${state_dir}/pdrive-watch-latest.ready"
+sed -i \
+    -e "s|^Zeit=.*|Zeit=$(date --iso-8601=seconds)|" \
+    -e 's/^Status=ready$/Status=critical/' \
+    -e 's/^Grundcode=mounted$/Grundcode=service-down/' \
+    "${state_dir}/pdrive-watch-latest.txt"
+stale_watchdog_json="${test_root}/stale-watchdog.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+    "${project_dir}/bin/pdrive-state" --compact > "${stale_watchdog_json}"
+jq -e '
+    .service.active == true
+    and .mount.ready == true
+    and .watchdog.status == "critical"
+    and .watchdog.reason_code == "service-down"
+    and .health.status == "ready"
+    and .health.reason_code == "mounted"
+' "${stale_watchdog_json}" >/dev/null
+mv -f -- "${state_dir}/pdrive-watch-latest.ready" \
+    "${state_dir}/pdrive-watch-latest.txt"
 
 finalizing_json="${test_root}/state-finalizing.json"
 HOME="${test_home}" \
@@ -245,5 +290,111 @@ jq -e '
     and .vfs.available == false
     and ([.health.components[].component | select(startswith("vfs/"))] | length) == 0
 ' "${startup_json}" >/dev/null
+
+cat > "${state_dir}/pdrive-auth-state.json" <<'EOF'
+{
+  "generated_at": "2026-08-24T10:09:00+00:00",
+  "reason": "two-factor-required",
+  "restart_suppressed": true,
+  "schema_version": 1,
+  "status": "reauthorization-required"
+}
+EOF
+auth_json="${test_root}/auth-required.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+    "${project_dir}/bin/pdrive-state" --compact > "${auth_json}"
+
+jq -e '
+    .health.status == "critical"
+    and .health.reason_code == "reauthorization-required"
+    and (.health.summary | contains("Automatic login retries were stopped"))
+    and .authentication.status == "reauthorization-required"
+    and .authentication.reason == "two-factor-required"
+    and .authentication.restart_suppressed == true
+' "${auth_json}" >/dev/null
+
+cat > "${state_dir}/pdrive-auth-state.json" <<'EOF'
+{
+  "generated_at": "2026-08-24T10:10:00+00:00",
+  "reason": "login-rate-limited",
+  "restart_suppressed": true,
+  "retry_after": "2099-08-24T11:10:00+00:00",
+  "schema_version": 1,
+  "status": "rate-limited"
+}
+EOF
+rate_limited_json="${test_root}/auth-rate-limited.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+    "${project_dir}/bin/pdrive-state" --compact > "${rate_limited_json}"
+
+jq -e '
+    .health.status == "critical"
+    and .health.reason_code == "reauthorization-rate-limited"
+    and (.health.summary | contains("cooldown expires"))
+    and .authentication.status == "rate-limited"
+    and .authentication.reason == "login-rate-limited"
+    and .authentication.retry_remaining_seconds > 0
+    and .authentication.restart_suppressed == true
+' "${rate_limited_json}" >/dev/null
+
+jq 'del(.retry_after)' "${state_dir}/pdrive-auth-state.json" \
+    > "${state_dir}/pdrive-auth-state.malformed.json"
+mv -f -- "${state_dir}/pdrive-auth-state.malformed.json" \
+    "${state_dir}/pdrive-auth-state.json"
+malformed_rate_limit_json="${test_root}/auth-rate-limit-malformed.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+    "${project_dir}/bin/pdrive-state" --compact > "${malformed_rate_limit_json}"
+
+jq -e '
+    .health.reason_code == "reauthorization-rate-limited"
+    and .authentication.status == "rate-limited"
+    and .authentication.retry_remaining_seconds == -1
+' "${malformed_rate_limit_json}" >/dev/null
+
+jq '.retry_after = "2020-08-24T11:10:00+00:00"' \
+    "${state_dir}/pdrive-auth-state.json" > "${state_dir}/pdrive-auth-state.expired.json"
+mv -f -- "${state_dir}/pdrive-auth-state.expired.json" \
+    "${state_dir}/pdrive-auth-state.json"
+expired_rate_limit_json="${test_root}/auth-rate-limit-expired.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+    "${project_dir}/bin/pdrive-state" --compact > "${expired_rate_limit_json}"
+
+jq -e '
+    .health.reason_code == "reauthorization-required"
+    and .authentication.status == "reauthorization-required"
+    and .authentication.retry_remaining_seconds == 0
+' "${expired_rate_limit_json}" >/dev/null
 
 printf 'pdrive-state fixture checks passed.\n'

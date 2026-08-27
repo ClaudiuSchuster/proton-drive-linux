@@ -49,6 +49,11 @@ The project narrows accidental control and disclosure surfaces:
   pipes, never through process arguments or environment variables;
 - reauthentication verifies an isolated replacement configuration before it
   stops the working mount or replaces the current encrypted configuration;
+- terminal 2FA failures are correlated only with the current service attempt,
+  recorded without account data and stop further automatic login retries until
+  one isolated reauthorization succeeds;
+- only concrete HTTP 429 evidence can persist the owner-only authentication
+  cooldown; UI actions and direct service starts cannot shorten it;
 - the rclone RC endpoint is a mode-0700 owner-only Unix socket and is never a
   TCP listener;
 - `/pdrive`, helper settings, logs, state and temporary credential files use

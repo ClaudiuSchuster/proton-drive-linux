@@ -58,6 +58,11 @@ mount_unit="${unit_dir}/rclone-proton-drive.service"
 grep -qFx 'Type=notify' "${mount_unit}"
 grep -qFx 'TimeoutStartSec=infinity' "${mount_unit}"
 grep -qFx 'RestartSec=1h' "${mount_unit}"
+grep -qFx 'ExecCondition=%h/.local/libexec/pdrive-auth-failure-guard --start-allowed' "${mount_unit}"
+grep -qFx 'ExecStartPre=%h/.local/libexec/pdrive-auth-failure-guard --begin-start' "${mount_unit}"
+grep -qFx 'ExecStartPost=%h/.local/libexec/pdrive-auth-failure-guard --mark-healthy' "${mount_unit}"
+grep -qFx 'ExecStopPost=%h/.local/libexec/pdrive-auth-failure-guard --after-service-exit' "${mount_unit}"
+[[ -x "${project_dir}/libexec/pdrive-auth-failure-guard" ]]
 if grep -Eq '^(NoNewPrivileges|PrivateDevices|PrivateMounts|ProtectHome)=' "${mount_unit}"; then
     printf 'The FUSE/Keyring mount unit gained incompatible generic sandboxing.\n' >&2
     exit 1
@@ -88,7 +93,7 @@ if command -v systemd-analyze >/dev/null 2>&1; then
     set -e
     verify_output="$(grep -Ev \
         -e '^Failed to (bind private socket|connect to system bus): Operation not permitted$' \
-        -e '^(pdrive-draft-recovery|pdrive-watch|proton-drive-update|rclone-proton-drive|rclone-selfupdate)\.service: Command /[^ ]+/\.local/(bin|libexec)/(pdrive-draft-recovery-auto|pdrive-watch|proton-drive-update|rclone-proton-mount|rclone-selfupdate)( --auto)? is not executable: No such file or directory$' \
+        -e '^(pdrive-draft-recovery|pdrive-watch|proton-drive-update|rclone-proton-drive|rclone-selfupdate)\.service: Command /[^ ]+/\.local/(bin|libexec)/(pdrive-auth-failure-guard|pdrive-draft-recovery-auto|pdrive-watch|proton-drive-update|rclone-proton-mount|rclone-selfupdate)( --auto| --after-service-exit| --begin-start| --mark-healthy| --start-allowed)? is not executable: No such file or directory$' \
         <<< "${verify_output}" || true)"
     if (( verify_status != 0 )) && [[ -n "${verify_output}" ]]; then
         printf '%s\n' "${verify_output}" >&2

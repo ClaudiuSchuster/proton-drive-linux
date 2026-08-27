@@ -275,8 +275,16 @@ have been independently verified. Prefer a controlled systemd stop; avoid
 
 ## HTTP 401 or expired session
 
-Use local diagnostics first. If the stored session truly cannot refresh or the
-account password changed:
+When Proton explicitly requires fresh 2FA, PDrive records a terminal
+authentication state, cancels the pending systemd restart and sends one desktop
+notification. Open PDrive Control Center and select **Reauthorize** in the
+Overview banner or **hamburger menu → Reauthorize Proton account**. The native
+dialog reuses the configured account name and requests only the current account
+password plus an optional fresh six-digit code.
+
+Use local diagnostics first for a generic 401. If the stored session truly
+cannot refresh, the account password changed or the graphical Control Center is
+unavailable, use the terminal fallback:
 
 ```bash
 pdrive-reauth --reauth
@@ -290,6 +298,11 @@ the tested replacement atomically, removes the one-time code and validates the
 new mount. Credentials travel only through anonymous stdin, never argv or the
 environment.
 
+Do not manually restart the mount before completing reauthorization. The
+terminal guard exists specifically to avoid creating a new rejected Proton
+login session every hour. A temporary 5xx outage, DNS failure or offline system
+does not activate this guard.
+
 Proton accounts using a two-password model distinguish the account login
 password from the mailbox password. If that account mode is enabled, configure
 the backend's `mailbox_password` through rclone's interactive configuration;
@@ -301,6 +314,12 @@ Stop trying. Leave the mount service stopped, wait for Proton's complete stated
 backoff plus a few minutes, then make exactly one reauthentication attempt.
 Rapid service retries, online doctor calls and repeated password tests can
 extend the restriction or trigger additional abuse protection.
+
+PDrive marks this state only when the isolated private login log contains a
+concrete HTTP 429 status. The Overview shows the locally persisted retry time
+and suppresses both the banner action and hamburger-menu bypass until then. A
+manual service start cannot shorten or erase that cooldown. HTTP 422 and generic
+credential rejection remain distinct and do not manufacture a rate limit.
 
 The mount unit's one-hour restart delay and unlimited start timeout exist to
 avoid such login hammering.
@@ -407,10 +426,19 @@ Proton or its storage layer may transiently return 500, 502 or similar errors.
 The mount uses five low-level attempts and two high-level attempts to recover
 without endless loops. If aggregate bytes continue to move, leave it alone.
 
-If all upload slots become silent after a 5xx and the watchdog confirms no
-process or network payload across repeated checks, one controlled restart is
-reasonable. Preserve the cache and do not reauthenticate unless the error is
-actually authentication-related.
+Three separated, same-process HTTP 502 block-upload failures after proven
+payload progress activate a dedicated bridge-stall guard. It still requires
+healthy DNS, bandwidth above near pause and two separated idle probes before a
+controlled restart. The restart stays inside the existing recovery namespace,
+preserves the exact Dirty cache generation and validates that the same queue
+returns under a new PID.
+
+This guard has an independent maximum of six restarts with a 30-minute minimum
+gap. `confirming-bridge-stall` means the second idle observation is still
+missing; `bridge-cooldown` means the prior bridge recovery is too recent; and
+`bridge-restart-limited` deliberately stops automation for manual review. Do
+not delete its state file to reset the budget, and do not reauthenticate unless
+the actual error is authentication-related.
 
 ## One versus four upload slots
 
@@ -555,10 +583,18 @@ copy of a file. When uncertain, keep it.
 ~/.local/state/rclone/proton-mount.log
 ~/.local/state/rclone/proton-mount.log.*
 ~/.local/state/rclone/proton-reauth.log
+~/.local/state/rclone/pdrive-auth-state.json
+~/.local/state/rclone/pdrive-auth-attempt
 ~/.local/state/rclone/pdrive-watch-latest.txt
 ~/.local/state/rclone/pdrive-watch-history.log
 ~/.local/state/rclone/pdrive-watch-state
 ```
+
+`pdrive-auth-state.json` is the credential-free authentication status consumed
+by the Control Center. `pdrive-auth-attempt` stores only the mount-log byte
+offset at which the current service start began; it lets the guard distinguish
+the current failure from an old log line. Both files are owner-only and safe to
+inspect, but neither should be edited to bypass reauthorization.
 
 The mount log rotates at 10 MiB, retains three compressed backups and expires
 old rotations after 30 days. Logs can contain personal file paths. Redact them

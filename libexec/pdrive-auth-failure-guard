@@ -1,0 +1,212 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+umask 077
+
+readonly state_dir="${PDRIVE_STATE_DIR:-${HOME}/.local/state/rclone}"
+readonly mount_log="${PDRIVE_MOUNT_LOG:-${state_dir}/proton-mount.log}"
+readonly attempt_file="${PDRIVE_AUTH_ATTEMPT:-${state_dir}/pdrive-auth-attempt}"
+readonly auth_state_file="${PDRIVE_AUTH_STATE:-${state_dir}/pdrive-auth-state.json}"
+readonly ui_preferences="${PDRIVE_UI_PREFERENCES:-${HOME}/.config/pdrive-ui.json}"
+readonly service_name="${PDRIVE_SERVICE_NAME:-rclone-proton-drive.service}"
+readonly rate_limit_cooldown_seconds="${PDRIVE_AUTH_RATE_LIMIT_SECONDS:-3600}"
+
+usage() {
+    printf '%s\n' \
+        'Usage: pdrive-auth-failure-guard --begin-start' \
+        '       pdrive-auth-failure-guard --start-allowed' \
+        '       pdrive-auth-failure-guard --after-service-exit' \
+        '       pdrive-auth-failure-guard --mark-rate-limited' \
+        '       pdrive-auth-failure-guard --mark-healthy' \
+        '       pdrive-auth-failure-guard --help' \
+        '' \
+        'Internal systemd lifecycle guard for terminal Proton authentication errors.' \
+        'It records no credentials and is not intended for interactive use.'
+}
+
+start_allowed() {
+    local status restart_suppressed schema_version
+
+    # Existing installations have no state until the first guarded lifecycle
+    # event. Once the file exists, only a fully valid ready state may enter the
+    # mount process. Reauthentication writes ready immediately before start.
+    [[ -e "${auth_state_file}" ]] || return 0
+    if [[ ! -r "${auth_state_file}" ]] || ! command -v jq >/dev/null 2>&1; then
+        printf '%s\n' \
+            'PDrive authentication state cannot be validated; service start is blocked.' >&2
+        return 1
+    fi
+    if ! schema_version="$(jq -er '.schema_version | select(type == "number")' \
+        "${auth_state_file}" 2>/dev/null)" \
+        || ! status="$(jq -er '.status | select(type == "string")' \
+            "${auth_state_file}" 2>/dev/null)" \
+        || ! restart_suppressed="$(jq -er \
+            '.restart_suppressed | if type == "boolean" then tostring else error("invalid boolean") end' \
+            "${auth_state_file}" 2>/dev/null)"; then
+        printf '%s\n' \
+            'PDrive authentication state is malformed; service start is blocked.' >&2
+        return 1
+    fi
+    if [[ "${schema_version}" == 1 && "${status}" == 'ready' \
+        && "${restart_suppressed}" == false ]]; then
+        return 0
+    fi
+    printf '%s\n' \
+        'PDrive authentication requires attention; use PDrive Control Center to reauthorize.' >&2
+    return 1
+}
+
+write_auth_state() {
+    local status="$1"
+    local reason="$2"
+    local restart_suppressed="$3"
+    local retry_after="${4:-}"
+    local generated_at temporary
+
+    mkdir -p -- "${state_dir}"
+    generated_at="$(date --iso-8601=seconds)"
+    temporary="$(mktemp "${state_dir}/.pdrive-auth-state.XXXXXX")"
+    {
+        printf '{\n'
+        printf '  "generated_at": "%s",\n' "${generated_at}"
+        printf '  "reason": "%s",\n' "${reason}"
+        printf '  "restart_suppressed": %s,\n' "${restart_suppressed}"
+        if [[ -n "${retry_after}" ]]; then
+            printf '  "retry_after": "%s",\n' "${retry_after}"
+        fi
+        printf '  "schema_version": 1,\n'
+        printf '  "status": "%s"\n' "${status}"
+        printf '}\n'
+    } > "${temporary}"
+    chmod 0600 "${temporary}"
+    mv -f -- "${temporary}" "${auth_state_file}"
+}
+
+mark_rate_limited() {
+    local now_epoch retry_epoch retry_after
+
+    if [[ ! "${rate_limit_cooldown_seconds}" =~ ^[0-9]+$ ]] \
+        || (( rate_limit_cooldown_seconds < 60 )); then
+        printf 'Invalid PDRIVE_AUTH_RATE_LIMIT_SECONDS: %s\n' \
+            "${rate_limit_cooldown_seconds}" >&2
+        exit 2
+    fi
+    now_epoch="$(date +%s)"
+    retry_epoch=$((now_epoch + rate_limit_cooldown_seconds))
+    retry_after="$(date --date="@${retry_epoch}" --iso-8601=seconds)"
+    write_auth_state 'rate-limited' 'login-rate-limited' true "${retry_after}"
+}
+
+begin_start() {
+    local log_size=0 temporary
+
+    mkdir -p -- "${state_dir}"
+    if [[ -f "${mount_log}" ]]; then
+        log_size="$(stat -c %s -- "${mount_log}" 2>/dev/null || printf '0')"
+    fi
+    [[ "${log_size}" =~ ^[0-9]+$ ]] || log_size=0
+    temporary="$(mktemp "${state_dir}/.pdrive-auth-attempt.XXXXXX")"
+    printf 'log_offset=%s\n' "${log_size}" > "${temporary}"
+    chmod 0600 "${temporary}"
+    mv -f -- "${temporary}" "${attempt_file}"
+}
+
+notification_setting() {
+    local key="$1"
+    local fallback="$2"
+
+    if command -v jq >/dev/null 2>&1 && [[ -r "${ui_preferences}" ]]; then
+        jq -r --arg key "${key}" --arg fallback "${fallback}" \
+            'if .[$key] | type == "string" then .[$key] else $fallback end' \
+            "${ui_preferences}" 2>/dev/null || printf '%s\n' "${fallback}"
+        return
+    fi
+    printf '%s\n' "${fallback}"
+}
+
+notify_reauthorization_required() {
+    local language policy title detail
+
+    command -v notify-send >/dev/null 2>&1 || return 0
+    policy="$(notification_setting notification_policy important)"
+    [[ "${policy}" != 'off' ]] || return 0
+    language="$(notification_setting language en)"
+    if [[ "${language}" == 'de' ]]; then
+        title='PDrive muss neu autorisiert werden'
+        detail='Automatische Loginversuche wurden gestoppt. Öffne das PDrive Control Center und autorisiere dein Proton-Konto einmal neu.'
+    else
+        title='PDrive needs reauthorization'
+        detail='Automatic login attempts were stopped. Open PDrive Control Center and reauthorize your Proton account once.'
+    fi
+    notify-send \
+        --urgency=critical \
+        --app-name='PDrive Control Center' \
+        --icon='io.github.claudiuschuster.PDriveControl' \
+        "${title}" "${detail}" || true
+}
+
+after_service_exit() {
+    local log_offset current_size new_log terminal_state_active=false
+
+    [[ -r "${attempt_file}" && -f "${mount_log}" ]] || return 0
+    log_offset="$(awk -F= '$1 == "log_offset" && $2 ~ /^[0-9]+$/ { print $2; exit }' "${attempt_file}")"
+    [[ "${log_offset}" =~ ^[0-9]+$ ]] || return 0
+    current_size="$(stat -c %s -- "${mount_log}" 2>/dev/null || printf '0')"
+    [[ "${current_size}" =~ ^[0-9]+$ ]] || return 0
+    (( current_size >= log_offset )) || return 0
+
+    new_log="$(tail -c "+$((log_offset + 1))" -- "${mount_log}" 2>/dev/null || true)"
+    if ! grep -Fq \
+        "this account requires a 2FA code. Can be provided with --protondrive-2fa=000000" \
+        <<< "${new_log}"; then
+        return 0
+    fi
+
+    if [[ -r "${auth_state_file}" ]] \
+        && grep -Eq '"status": "(rate-limited|reauthorization-required)"' \
+            "${auth_state_file}"; then
+        terminal_state_active=true
+    fi
+    if [[ "${terminal_state_active}" == false ]]; then
+        write_auth_state 'reauthorization-required' 'two-factor-required' true
+        notify_reauthorization_required
+    fi
+
+    # This request is intentionally asynchronous: ExecStopPost may still be
+    # completing for this same unit. An explicit stop cancels Restart=on-failure
+    # before its one-hour retry can create another Proton login session.
+    systemctl --user --no-block stop "${service_name}" >/dev/null 2>&1 || true
+}
+
+case "${1:-}" in
+    --start-allowed)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        start_allowed
+        ;;
+    --begin-start)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        begin_start
+        ;;
+    --after-service-exit)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        after_service_exit
+        ;;
+    --mark-healthy)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        write_auth_state 'ready' 'authenticated' false
+        ;;
+    --mark-rate-limited)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        mark_rate_limited
+        ;;
+    -h|--help|'')
+        (( $# <= 1 )) || { usage >&2; exit 2; }
+        usage
+        ;;
+    *)
+        printf 'Unknown option: %s\n\n' "$1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

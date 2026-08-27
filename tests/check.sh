@@ -121,6 +121,7 @@ fi
 "${project_dir}/tests/test-prerequisites.sh"
 "${project_dir}/tests/test-setup.sh"
 "${project_dir}/tests/test-reauth.sh"
+"${project_dir}/tests/test-auth-failure-guard.sh"
 "${project_dir}/tests/test-setup-wizard-ui.sh"
 "${project_dir}/tests/test-state.sh"
 PYTHONDONTWRITEBYTECODE=1 python3 "${project_dir}/tests/test-draft-recovery.py"
