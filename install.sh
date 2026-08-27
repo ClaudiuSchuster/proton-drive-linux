@@ -170,6 +170,8 @@ for source_file in "${project_dir}"/systemd/user/*; do
     install -m 0644 "${source_file}" "${unit_dir}/$(basename -- "${source_file}")"
 done
 install -m 0644 "${project_dir}/README.md" "${doc_dir}/README.md"
+install -m 0644 "${project_dir}/docs/QUICK_START.md" "${doc_dir}/QUICK_START.md"
+install -m 0644 "${project_dir}/docs/EVERYDAY_USE.md" "${doc_dir}/EVERYDAY_USE.md"
 install -m 0644 "${project_dir}/docs/OPERATIONS.md" "${doc_dir}/OPERATIONS.md"
 install -m 0644 "${project_dir}/docs/TROUBLESHOOTING.md" "${doc_dir}/TROUBLESHOOTING.md"
 install -m 0644 "${project_dir}/docs/DEVELOPMENT.md" "${doc_dir}/DEVELOPMENT.md"
@@ -188,6 +190,9 @@ install -m 0644 \
 install -m 0644 \
     "${project_dir}/docs/assets/pdrive-history.png" \
     "${doc_assets_dir}/pdrive-history.png"
+install -m 0644 \
+    "${project_dir}/docs/assets/pdrive-auth-cooldown.png" \
+    "${doc_assets_dir}/pdrive-auth-cooldown.png"
 install -m 0644 \
     "${project_dir}/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg" \
     "${doc_icon_dir}/io.github.claudiuschuster.PDriveControl.svg"

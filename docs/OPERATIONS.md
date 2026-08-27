@@ -282,9 +282,9 @@ watchdog state. Health history on disk is capped at 512 samples, the state
 adapter exposes 48, and the UI renders the latest 24.
 
 The control popover opens guarded operations, account reauthorization,
-Preferences, an About dialog and
-a native Markdown documentation window with Getting started, Operations,
-Troubleshooting, Security and License pages. The About dialog reports the
+Preferences, an About dialog and a native documentation window with Quick
+start, Everyday use, Operations, Troubleshooting, Security and License pages.
+The About dialog reports the
 installed PDrive Control Center version, project authors, GPL license and
 canonical GitHub project link.
 Selecting any popover action closes the menu before its dialog or operation
@@ -295,9 +295,11 @@ software updates remain the responsibility of the documented installer or
 future system package manager. The documentation viewer prefers
 `$XDG_DATA_HOME/doc/proton-drive-linux`, then conventional
 `/usr/share/doc/proton-drive-linux` package files and finally a development
-checkout. Headings, lists, tables, quotations, GitHub callouts, code, local
-project images and links are rendered by GTK without WebKit or another runtime
-dependency. Remote badge images are not fetched. The popover is constructed
+checkout. Quick start through Security render headings, lists, tables,
+quotations, GitHub callouts, code, local project images and links through GTK
+without WebKit or another runtime dependency. License is deliberately shown as
+literal plain text so its punctuation can never be interpreted as Markdown.
+Remote badge images are not fetched. The popover is constructed
 with visible child widgets but remains closed until the user activates its
 header button.
 

@@ -240,6 +240,13 @@ license_text = license_page.buffer.get_text(
     True,
 )
 assert "GNU GENERAL PUBLIC LICENSE" in license_text
+license_source = module.pathlib.Path(sys.argv[1]).resolve().parent.parent / "LICENSE"
+assert license_text == license_source.read_text(encoding="utf-8")
+assert "for details type `show w'." in license_text
+assert "commands `show w' and `show c'" in license_text
+assert not license_page.link_tags
+license_marker = license_page.buffer.get_iter_at_offset(license_text.index("`show w'"))
+assert license_page.tags["inline-code"] not in license_marker.get_tags()
 license_end = license_page.buffer.get_end_iter()
 assert license_end.backward_char()
 assert all(
@@ -672,22 +679,127 @@ documentation_windows = [
 ]
 assert len(documentation_windows) == 1
 documentation_window = documentation_windows[0]
-assert len(documentation_window.stack.get_children()) == 5
-guide = documentation_window.stack.get_child_by_name("guide")
-assert guide is not None
-guide_text = guide.text_view.get_buffer().get_text(
-    guide.text_view.get_buffer().get_start_iter(),
-    guide.text_view.get_buffer().get_end_iter(),
+documentation_pages = documentation_window.stack.get_children()
+assert len(documentation_pages) == 6
+assert [documentation_window.stack.child_get_property(page, "name") for page in documentation_pages] == [
+    "quick-start",
+    "everyday-use",
+    "operations",
+    "troubleshooting",
+    "security",
+    "license",
+]
+assert [documentation_window.stack.child_get_property(page, "title") for page in documentation_pages] == [
+    "Quick start",
+    "Everyday use",
+    "Operations",
+    "Troubleshooting",
+    "Security",
+    "License",
+]
+quick_start = documentation_window.stack.get_child_by_name("quick-start")
+assert quick_start is not None
+quick_start_text = quick_start.text_view.get_buffer().get_text(
+    quick_start.text_view.get_buffer().get_start_iter(),
+    quick_start.text_view.get_buffer().get_end_iter(),
     True,
 )
-assert "Proton Drive Linux Mount Toolkit" in guide_text
-assert "IMPORTANT" in guide_text
-assert "independent community project" in guide_text
-assert "<img" not in guide_text
-assert "[!IMPORTANT]" not in guide_text
-assert len(guide.rendered_images) == 5
-assert guide.rendered_images[0].name == "io.github.claudiuschuster.PDriveControl.svg"
-assert guide.rendered_images[-1].name == "pdrive-control-menu.png"
+for newcomer_guidance in (
+    "Quick start",
+    "Complete the setup wizard",
+    "Open Proton Drive in Nemo",
+    "Verify the first upload",
+    "finished Nemo copy means the local VFS cache accepted the data",
+    "Know the protected login state",
+):
+    assert newcomer_guidance in quick_start_text
+assert "<img" not in quick_start_text
+assert "[!IMPORTANT]" not in quick_start_text
+assert [image.name for image in quick_start.rendered_images] == [
+    "pdrive-control-center.png",
+    "pdrive-auth-cooldown.png",
+]
+everyday_use = documentation_window.stack.get_child_by_name("everyday-use")
+assert everyday_use is not None
+everyday_text = everyday_use.text_view.get_buffer().get_text(
+    everyday_use.text_view.get_buffer().get_start_iter(),
+    everyday_use.text_view.get_buffer().get_end_iter(),
+    True,
+)
+for everyday_guidance in (
+    "Work with files in Nemo",
+    "Read transfer state correctly",
+    "Know when a write is remote",
+    "Bandwidth and responsiveness",
+    "Cache and external clients",
+    "Before shutdown, update or uninstall",
+):
+    assert everyday_guidance in everyday_text
+assert [image.name for image in everyday_use.rendered_images] == ["pdrive-transfers.png"]
+
+edge_long_line = "Apostrophe reader's line " + "x" * 4096
+edge_targets = []
+edge_view = module.MarkdownView(
+    "# Renderer edges\n\n"
+    f"{edge_long_line}\n\n"
+    "Use `inline code` and [Everyday use](EVERYDAY_USE.md).\n\n"
+    "| Setting | Value |\n"
+    "| --- | --- |\n"
+    "| Cache | protected |\n\n"
+    '<img src="assets/pdrive-auth-cooldown.png" width="700" alt="Auth cooldown">\n',
+    edge_targets.append,
+    module.pathlib.Path(sys.argv[1]).resolve().parent.parent / "docs",
+)
+edge_text = edge_view.buffer.get_text(
+    edge_view.buffer.get_start_iter(),
+    edge_view.buffer.get_end_iter(),
+    True,
+)
+assert edge_long_line in edge_text
+assert "Apostrophe reader's line" in edge_text
+assert "inline code" in edge_text
+inline_marker = edge_view.buffer.get_iter_at_offset(edge_text.index("inline code"))
+assert edge_view.tags["inline-code"] in inline_marker.get_tags()
+assert [target for _tag, target in edge_view.link_tags] == ["EVERYDAY_USE.md"]
+assert "Setting:" in edge_text and "Value:" in edge_text
+assert [image.name for image in edge_view.rendered_images] == ["pdrive-auth-cooldown.png"]
+edge_view.destroy()
+
+link_tag, link_target = quick_start.link_tags[0]
+link_start = quick_start.buffer.get_start_iter()
+assert link_start.forward_to_tag_toggle(link_tag)
+link_location = quick_start.text_view.get_iter_location(link_start)
+link_x, link_y = quick_start.text_view.buffer_to_window_coords(
+    module.Gtk.TextWindowType.TEXT,
+    link_location.x + 1,
+    link_location.y + max(1, link_location.height // 2),
+)
+link_event = type(
+    "LinkMotion",
+    (),
+    {
+        "x": link_x,
+        "y": link_y,
+        "button": 1,
+        "window": quick_start.text_view.get_window(module.Gtk.TextWindowType.TEXT),
+    },
+)()
+assert quick_start.link_at(
+    link_event.x,
+    link_event.y,
+    module.Gtk.TextWindowType.TEXT,
+) == link_target
+quick_start.on_motion_notify(quick_start.text_view, link_event)
+link_cursor = link_event.window.get_cursor()
+assert link_cursor is not None
+assert link_cursor.get_cursor_type() == module.Gdk.CursorType.HAND2
+quick_start.on_pointer_leave(quick_start.text_view, link_event)
+assert link_event.window.get_cursor() is None
+assert quick_start.on_button_release(quick_start.text_view, link_event)
+assert documentation_window.stack.get_visible_child_name() == "operations"
+documentation_window.stack.set_visible_child_name("quick-start")
+documentation_window.on_link("EVERYDAY_USE.md", "docs/QUICK_START.md")
+assert documentation_window.stack.get_visible_child_name() == "everyday-use"
 operations = documentation_window.stack.get_child_by_name("operations")
 assert operations is not None
 operations_text = operations.text_view.get_buffer().get_text(
@@ -792,7 +904,11 @@ assert opened_configuration_dialogs == [
     "Restart cooldown",
 ]
 
-assert module.tray_supports_distinct_clicks()
+display_type = module.Gdk.Display.get_default().__gtype__.name
+if display_type == "GdkBroadwayDisplay":
+    assert not module.tray_supports_distinct_clicks()
+else:
+    assert module.tray_supports_distinct_clicks()
 
 
 class FixedAdjustment:
@@ -872,12 +988,18 @@ window.on_refresh_timer()
 assert len(refreshes) == 2
 app.preferences["close_to_tray"] = True
 app.configure_tray()
-assert app.status_icon is not None
-assert app.indicator is None
+if display_type == "GdkBroadwayDisplay":
+    assert (app.status_icon is None) != (app.indicator is None)
+else:
+    assert app.status_icon is not None
+    assert app.indicator is None
 app.preferences["close_to_tray"] = False
 app.preferences["start_in_tray"] = False
 app.configure_tray()
-assert not app.status_icon.get_visible()
+if app.status_icon is not None:
+    assert not app.status_icon.get_visible()
+else:
+    assert app.indicator is not None
 app.demo = True
 window.demo = True
 

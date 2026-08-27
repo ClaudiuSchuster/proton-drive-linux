@@ -99,92 +99,23 @@ UI or manual service start can create another premature login attempt.
 Existing configuration, credentials, cache and state are preserved when the
 installer is run again.
 
-## PDrive Control Center
+## Start using PDrive
 
-The Overview shows health, live traffic, active work, queued uploads and their
-estimated remaining time, unreviewed issues, VFS-cache use and storage
-capacity. The Capacity card keeps the two worlds explicit:
+Complete the first-run wizard, select **Open PDrive folder**, and work in
+`/pdrive` through Nemo. A finished file-manager copy means the protected local
+cache accepted the write; wait for zero Active transfers and an empty Queue
+before treating it as remotely complete.
 
-- **Proton cloud:** used, total and free account storage;
-- **Local cache disk:** local free space and current VFS-cache use.
+- [Quick start](docs/QUICK_START.md) — installation, first login, `/pdrive` and
+  one verified upload.
+- [Everyday use](docs/EVERYDAY_USE.md) — transfers, cache, notifications,
+  bandwidth and safe routine operation.
+- [Troubleshooting](docs/TROUBLESHOOTING.md) — symptom-led help when something
+  looks wrong.
 
-Cloud capacity is refreshed at startup, every 15 minutes and with the manual
-refresh button. Live polling (two seconds by default) reuses that value instead
-of repeatedly contacting Proton.
-
-Click Active, Queue or VFS-Cache to jump to the matching Transfers section.
-Click Unreviewed issues to inspect correlated active, recovering and resolved
-incidents with sanitized timestamps, affected paths, retry counts, rclone
-context and suggested next steps before explicitly marking anything as
-reviewed. A successful automatic recovery remains one informational record
-instead of several stale errors.
-
-History keeps the latest systemd, mount, watchdog and guarded draft-recovery
-state together with a bounded health timeline, so background decisions remain
-inspectable without reading several logs first.
-
-The folder button opens `/pdrive` in Nemo. Matching navigation, header and menu
-actions open the official [Proton Drive web client](https://drive.proton.me/)
-for account-wide settings and workflows outside the mount.
-
-Preferences control close-to-tray, start-in-tray, desktop notification level,
-the live refresh interval, hidden-window metric polling and language. The menu
-also contains the locally rendered in-app manual. The [Control Center settings reference](docs/OPERATIONS.md#control-center-settings-reference)
-lists every choice, default, activation time and safety effect.
-
-## Everyday use
-
-Open `/pdrive` in Nemo and use it like a network filesystem.
-
-- Closing a locally written file schedules its upload after a short delay.
-- Deleting inside `/pdrive` deletes remotely.
-- Moving within `/pdrive` is normally a server-side operation.
-- Moving between local storage and `/pdrive` is generally copy-then-delete.
-- A finished Nemo copy means the local cache accepted the data, not necessarily
-  that Proton already received it.
-
-For important writes, wait for zero active transfers and an empty queue. Before
-shutdown or uninstall, verify the mount with:
-
-```bash
-pdrive-watch
-pdrive-refresh
-```
-
-Both the VFS queue and the locally Dirty file count should be zero.
-
-## Common controls
-
-The GUI delegates changes to the same guarded terminal helpers:
-
-```bash
-pdrive-watch                 # detailed health report
-pdrive-doctor                # deeper local diagnosis
-pdrive-bwlimit 4.2           # 4.2 MiB/s upload, unlimited download
-pdrive-bwlimit off           # remove the live limit
-pdrive-cache-age 24          # retain clean read cache for 24 hours
-pdrive-refresh --refresh     # guarded metadata refresh after external changes
-```
-
-The GUI bandwidth slider ranges from **⏸ ≈0** (a clearly labelled near-pause
-at `0.02 MiB/s`) to **Unlimited**. rclone treats `0` as unlimited, so the
-near-pause is an intentionally tiny live limit rather than a native pause.
-
-Every no-argument and `--help` path is action-free unless the default command is
-explicitly documented as a read-only status check. Complete helper behavior and
-safety gates are in the [Operations handbook](docs/OPERATIONS.md).
-
-## Fast browsing and other Proton clients
-
-The optional exclusive Proton metadata cache makes Nemo browsing much faster
-when this mount is the only writer. While enabled, do not concurrently change
-files through Proton Web, the mobile app, the official CLI or another rclone
-client. If an exceptional external change occurs, use the guarded metadata
-refresh only after all local uploads finish.
-
-See [Operations](docs/OPERATIONS.md) for setup and
-[Troubleshooting](docs/TROUBLESHOOTING.md) when navigation, authentication or an
-upload behaves unexpectedly.
+The same pages are available offline from **Menu → Documentation …** in the
+Control Center. Detailed controls and maintenance remain in the
+[Operations handbook](docs/OPERATIONS.md).
 
 ## Update
 
@@ -215,6 +146,10 @@ recovery unless you deliberately remove them later.
 
 ## Documentation and development
 
+- [Quick start](docs/QUICK_START.md) — the shortest path from installation to a
+  verified remote upload.
+- [Everyday use](docs/EVERYDAY_USE.md) — concise guidance for normal Nemo and
+  Control Center workflows.
 - [Operations handbook](docs/OPERATIONS.md) — every helper, configuration and
   safe operating procedure.
 - [Troubleshooting](docs/TROUBLESHOOTING.md) — symptom-led diagnosis and guarded

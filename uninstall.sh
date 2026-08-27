@@ -125,6 +125,7 @@ if [[ -d "${doc_dir}" ]]; then
         "${doc_dir}/docs/assets/pdrive-control-menu.png" \
         "${doc_dir}/docs/assets/pdrive-transfers.png" \
         "${doc_dir}/docs/assets/pdrive-history.png" \
+        "${doc_dir}/docs/assets/pdrive-auth-cooldown.png" \
         "${doc_dir}/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg"
     rmdir "${doc_dir}/docs/assets" "${doc_dir}/docs" 2>/dev/null || true
     rmdir "${doc_dir}/share/icons/hicolor/scalable/apps" \
@@ -133,7 +134,8 @@ if [[ -d "${doc_dir}" ]]; then
         "${doc_dir}/share/icons" \
         "${doc_dir}/share" 2>/dev/null || true
     find "${doc_dir}" -mindepth 1 -maxdepth 1 -type f \
-        \( -name README.md -o -name OPERATIONS.md -o -name TROUBLESHOOTING.md \
+        \( -name README.md -o -name QUICK_START.md -o -name EVERYDAY_USE.md \
+        -o -name OPERATIONS.md -o -name TROUBLESHOOTING.md \
         -o -name DEVELOPMENT.md \
         -o -name SECURITY.md -o -name LICENSE -o -name VERSION \) \
         -delete

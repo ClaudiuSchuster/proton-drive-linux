@@ -1,9 +1,10 @@
 # Development guide
 
 This guide is for contributors working on proton-drive-linux itself. The
-[README](../README.md) stays focused on installing and using the product;
-[Operations](OPERATIONS.md) and [Troubleshooting](TROUBLESHOOTING.md) remain the
-authoritative runtime handbooks.
+[README](../README.md) stays focused on the product and installation.
+[Quick start](QUICK_START.md) and [Everyday use](EVERYDAY_USE.md) serve normal
+users; [Operations](OPERATIONS.md) and [Troubleshooting](TROUBLESHOOTING.md)
+remain the authoritative maintenance and recovery handbooks.
 
 ## Product boundaries
 
