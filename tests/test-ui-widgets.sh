@@ -508,6 +508,83 @@ assert not window.queue_card.detail.get_layout().is_ellipsized(), (
 )
 assert "d" in queue_stress_detail, queue_stress_detail
 assert "ETA ≈" in window.queue_card.detail.get_tooltip_text()
+
+direction_state = copy.deepcopy(module.demo_state())
+direction_state["transfers"]["recent"] = [
+    {
+        "name": "completed-upload.bin",
+        "size": 1024,
+        "bytes": 1024,
+        "completed": True,
+        "error": "",
+        "direction": "upload",
+    },
+    {
+        "name": "failed-download.bin",
+        "size": 2048,
+        "bytes": 1024,
+        "completed": False,
+        "error": "read failed",
+        "direction": "download",
+    },
+    {
+        "name": "ambiguous-transfer-with-a-long-name-that-must-not-crowd-the-badges.bin",
+        "size": 4096,
+        "bytes": 4096,
+        "completed": True,
+        "error": "",
+        "direction": "unknown",
+    },
+]
+window.apply_state(direction_state)
+window.resize(module.DEFAULT_WINDOW_WIDTH, 620)
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
+recent_rows = window.recent_list.get_children()
+assert len(recent_rows) == 3
+expected_directions = ["unknown", "download", "upload"]
+expected_results = ["Completed", "Failed", "Completed"]
+expected_icons = {
+    "upload": "network-transmit-symbolic",
+    "download": "network-receive-symbolic",
+    "unknown": "dialog-question-symbolic",
+}
+for row, expected_direction, expected_result in zip(
+    recent_rows,
+    expected_directions,
+    expected_results,
+    strict=True,
+):
+    row_widgets = list(descendants(row))
+    badges = [
+        widget
+        for widget in row_widgets
+        if widget.get_name() == f"transfer-direction-{expected_direction}"
+    ]
+    assert len(badges) == 1
+    badge_images = [
+        widget
+        for widget in descendants(badges[0])
+        if isinstance(widget, module.Gtk.Image)
+    ]
+    assert len(badge_images) == 1
+    assert badge_images[0].get_icon_name()[0] == expected_icons[expected_direction]
+    row_labels = [
+        widget
+        for widget in row_widgets
+        if isinstance(widget, module.Gtk.Label)
+    ]
+    assert expected_result in [widget.get_text() for widget in row_labels]
+    direction_text = {
+        "upload": "Upload",
+        "download": "Download",
+        "unknown": "Direction unknown",
+    }[expected_direction]
+    direction_labels = [widget for widget in row_labels if widget.get_text() == direction_text]
+    assert len(direction_labels) == 1
+    assert not direction_labels[0].get_layout().is_ellipsized()
+
+window.apply_state(module.demo_state())
 assert window.retention_button.get_sensitive()
 assert window.retention_button.get_tooltip_text() == "Change cache retention"
 assert window.retention_button.get_events() & module.Gdk.EventMask.ENTER_NOTIFY_MASK
