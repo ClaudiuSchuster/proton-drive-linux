@@ -41,6 +41,10 @@ DRAFT_RECOVERY_LATEST = env_path(
     "PDRIVE_DRAFT_RECOVERY_LATEST",
     STATE_DIR / "pdrive-draft-recovery-latest.json",
 )
+AUTH_STATE_FILE = env_path(
+    "PDRIVE_AUTH_STATE",
+    STATE_DIR / "pdrive-auth-state.json",
+)
 
 
 def run(command: list[str], timeout: float = 3.0) -> tuple[int, str, str]:
@@ -425,6 +429,12 @@ def sanitize_issue_text(value: str) -> str:
 
 def classify_issue(message: str, level: str) -> tuple[str, str, str]:
     lowered = message.lower()
+    if "this account requires a 2fa code" in lowered:
+        return (
+            "authentication",
+            "Proton account reauthorization required",
+            "Open PDrive Control Center and complete one guided reauthorization. Automatic login retries are stopped.",
+        )
     if "no vfs active" in lowered:
         return (
             "vfs-startup",
@@ -490,6 +500,7 @@ def classify_issue(message: str, level: str) -> tuple[str, str, str]:
 
 
 ISSUE_PRIORITY = {
+    "authentication": 110,
     "draft-conflict": 100,
     "http-429": 90,
     "dns": 80,
@@ -651,6 +662,7 @@ def enrich_issue_lifecycles(
     queue: dict[str, Any],
     transfers: list[dict[str, Any]],
     latest: dict[str, Any],
+    authentication: dict[str, Any],
 ) -> dict[str, Any]:
     """Resolve log incidents only when current runtime evidence proves recovery."""
 
@@ -667,7 +679,22 @@ def enrich_issue_lifecycles(
         resolved_at = ""
         queue_item = queue_items.get(subject)
         completed_at = completed_after_issue(event, transfers)
-        if completed_at and category in UPLOAD_INCIDENT_CATEGORIES:
+        authentication_ready_at = issue_timestamp(str(authentication.get("generated_at") or ""))
+        event_observed_at = issue_timestamp(str(event.get("last_seen") or event.get("timestamp") or ""))
+        if (
+            category == "authentication"
+            and authentication.get("status") == "ready"
+            and authentication_ready_at is not None
+            and event_observed_at is not None
+            and authentication_ready_at >= event_observed_at
+        ):
+            lifecycle = "resolved"
+            resolved_at = str(authentication.get("generated_at") or "")
+            resolution = "The Proton account was reauthorized and the mount started successfully."
+            event["level"] = "notice"
+            event["title"] = "Proton account reauthorized"
+            event["guidance"] = "No further action is required while the mount remains ready."
+        elif completed_at and category in UPLOAD_INCIDENT_CATEGORIES:
             lifecycle = "resolved"
             resolved_at = completed_at
             resolution = "The affected upload completed successfully after rclone recovered."
@@ -947,6 +974,7 @@ def normalize_draft_recovery(raw: dict[str, Any], now_epoch: int) -> dict[str, A
         "active",
         "completed",
         "confirming",
+        "confirming-bridge-stall",
         "confirming-finalization",
         "confirming-stall",
         "cooldown",
@@ -959,9 +987,14 @@ def normalize_draft_recovery(raw: dict[str, Any], now_epoch: int) -> dict[str, A
         "finalization-restart-requested",
         "finalization-restarted",
         "finalizing",
+        "bridge-cooldown",
+        "bridge-restart-limited",
+        "bridge-restart-requested",
+        "bridge-restarted",
         "network-deferred",
         "observing",
         "probing",
+        "probing-bridge-stall",
         "probing-finalization",
         "process-changed",
         "recovering",
@@ -982,14 +1015,65 @@ def normalize_draft_recovery(raw: dict[str, Any], now_epoch: int) -> dict[str, A
         "age_seconds": max(0, now_epoch - generated_epoch) if generated_epoch else -1,
         "status": status,
         "detail": str(raw.get("detail") or "")[:500],
-        "phase": (str(raw.get("phase")) if raw.get("phase") in {"recovery", "finalization"} else "normal"),
+        "phase": (
+            str(raw.get("phase")) if raw.get("phase") in {"recovery", "finalization", "bridge-recovery"} else "normal"
+        ),
         "queue_count": max(0, integer(raw.get("queue_count"))),
         "progress_proven": boolean(raw.get("progress_proven")),
         "error_category": str(raw.get("error_category") or "none")[:80],
         "stall_confirmations": max(0, integer(raw.get("stall_confirmations"))),
         "restart_attempts": max(0, integer(raw.get("restart_attempts"))),
         "finalization_restart_attempts": max(0, integer(raw.get("finalization_restart_attempts"))),
+        "bridge_unwedge_restart_attempts": max(0, integer(raw.get("bridge_unwedge_restart_attempts"))),
+        "bridge_failure_cycles": max(0, integer(raw.get("bridge_failure_cycles"))),
     }
+
+
+def normalize_authentication(raw: dict[str, Any], now_epoch: int) -> dict[str, Any]:
+    generated_at = str(raw.get("generated_at") or "")
+    generated_epoch = iso_epoch(generated_at)
+    retry_after = str(raw.get("retry_after") or "")
+    retry_epoch = iso_epoch(retry_after)
+    status = str(raw.get("status") or "unknown")
+    if status not in {"ready", "rate-limited", "reauthorization-required"}:
+        status = "unknown"
+    reason = str(raw.get("reason") or "unknown")
+    if reason not in {"authenticated", "login-rate-limited", "two-factor-required"}:
+        reason = "unknown"
+    retry_remaining = max(0, retry_epoch - now_epoch) if retry_epoch else 0
+    if status == "rate-limited" and not retry_epoch:
+        retry_remaining = -1
+    elif status == "rate-limited" and retry_remaining == 0:
+        status = "reauthorization-required"
+        reason = "two-factor-required"
+    return {
+        "available": bool(raw),
+        "generated_at": generated_at,
+        "age_seconds": max(0, now_epoch - generated_epoch) if generated_epoch else -1,
+        "status": status,
+        "reason": reason,
+        "restart_suppressed": boolean(raw.get("restart_suppressed")),
+        "retry_after": retry_after,
+        "retry_remaining_seconds": retry_remaining,
+    }
+
+
+def watchdog_health_is_disproven(
+    latest: dict[str, Any],
+    service: dict[str, Any],
+    mount: dict[str, Any],
+    rc_errors: dict[str, str],
+) -> bool:
+    """Return true when current runtime facts contradict a historical alert."""
+
+    reason = latest.get("reason_code")
+    if reason == "service-down":
+        return bool(service.get("active"))
+    if reason == "active-without-mount":
+        return bool(mount.get("ready"))
+    if reason == "queue-monitor-unavailable":
+        return "vfs/queue" not in rc_errors
+    return False
 
 
 def build_state(include_capacity: bool = False) -> dict[str, Any]:
@@ -997,6 +1081,7 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
     now_epoch = int(now.timestamp())
     latest = normalize_latest(read_key_values(LATEST_FILE), now_epoch)
     draft_recovery = normalize_draft_recovery(read_json_object(DRAFT_RECOVERY_LATEST), now_epoch)
+    authentication = normalize_authentication(read_json_object(AUTH_STATE_FILE), now_epoch)
     service = service_state()
     mount = mount_state()
     # vfs/* returns an error and writes an ERROR line to rclone's own log while
@@ -1033,7 +1118,19 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
     for endpoint, message in rc_errors.items():
         components.append({"component": endpoint, "message": message})
 
-    if not service["active"]:
+    if authentication["status"] == "rate-limited":
+        health_status = "critical"
+        health_summary = (
+            "Proton temporarily rate-limited login attempts. Reauthorization remains paused until the cooldown expires."
+        )
+        health_reason = "reauthorization-rate-limited"
+    elif authentication["status"] == "reauthorization-required":
+        health_status = "critical"
+        health_summary = (
+            "Proton account reauthorization is required. Automatic login retries were stopped to protect the account."
+        )
+        health_reason = "reauthorization-required"
+    elif not service["active"]:
         health_status = "critical"
         health_summary = f"The Proton Drive service is {service['active_state']}/{service['sub_state']}."
         health_reason = "service-inactive"
@@ -1045,7 +1142,25 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
         health_status = "warning"
         health_summary = "The mount is ready, but some live values are temporarily unavailable."
         health_reason = "rc-unavailable"
-    elif latest["status"] in {"warning", "critical"} and 0 <= latest["age_seconds"] <= 10800:
+    elif (
+        draft_recovery["status"]
+        in {
+            "bridge-cooldown",
+            "bridge-restart-limited",
+            "confirming-bridge-stall",
+            "probing-bridge-stall",
+            "restart-failed",
+        }
+        and 0 <= draft_recovery["age_seconds"] <= 10800
+    ):
+        health_status = "warning"
+        health_summary = draft_recovery["detail"] or "The guarded Proton bridge recovery needs attention."
+        health_reason = "bridge-recovery"
+    elif (
+        latest["status"] in {"warning", "critical"}
+        and 0 <= latest["age_seconds"] <= 10800
+        and not watchdog_health_is_disproven(latest, service, mount, rc_errors)
+    ):
         health_status = latest["status"]
         health_summary = latest["summary"]
         health_reason = latest["reason_code"]
@@ -1107,6 +1222,7 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
         },
         "service": service,
         "mount": mount,
+        "authentication": authentication,
         "remote_capacity": remote_capacity(include_capacity, mount["ready"]),
         "network": {"dns": latest["dns"], "tcp": latest["tcp"]},
         "network_io": process_tcp_counters(service["pid"]),
@@ -1159,7 +1275,13 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
             "cache_max_age_valid": cache_max_age_valid,
             "cooldown_seconds": latest["cooldown_seconds"],
         },
-        "issues": enrich_issue_lifecycles(recent_issues(), queue, recent_transfers, latest),
+        "issues": enrich_issue_lifecycles(
+            recent_issues(),
+            queue,
+            recent_transfers,
+            latest,
+            authentication,
+        ),
         "watchdog": latest,
         "draft_recovery": draft_recovery,
         "history": history_entries(),

@@ -29,10 +29,17 @@ if grep -qF 'NEUSTART' <<< "${watch_help}"; then
     printf 'The public restart confirmation is not English-first.\n' >&2
     exit 1
 fi
+grep -qF -- "--app-name='PDrive Control Center'" "${project_dir}/bin/pdrive-watch"
+grep -qF -- "--icon='io.github.claudiuschuster.PDriveControl'" "${project_dir}/bin/pdrive-watch"
+grep -qF -- "--app-name='PDrive Control Center'" "${project_dir}/libexec/pdrive-auth-failure-guard"
+grep -qF -- "--icon='io.github.claudiuschuster.PDriveControl'" \
+    "${project_dir}/libexec/pdrive-auth-failure-guard"
 HOME="${test_home}" bash "${project_dir}/install.sh" --help >/dev/null
 HOME="${test_home}" bash "${project_dir}/uninstall.sh" --help >/dev/null
 HOME="${test_home}" bash "${project_dir}/libexec/setup-rclone-proton" >/dev/null
 HOME="${test_home}" bash "${project_dir}/libexec/reauth-rclone-proton" --help >/dev/null
+HOME="${test_home}" "${project_dir}/libexec/pdrive-auth-failure-guard" >/dev/null
+HOME="${test_home}" "${project_dir}/libexec/pdrive-auth-failure-guard" --help >/dev/null
 HOME="${test_home}" make -s -C "${project_dir}" help >/dev/null
 HOME="${test_home}" make -s -C "${project_dir}" version >/dev/null
 after="$(snapshot)"

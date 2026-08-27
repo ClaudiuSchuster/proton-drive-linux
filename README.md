@@ -64,7 +64,8 @@ Keyring and provides a native GTK control center for the details that matter.
 - Fine-grained bandwidth plus guarded upload-slot, cache-retention,
   metadata-refresh and restart controls.
 - Conservative health monitoring with desktop notifications.
-- Guided first setup, encrypted credentials and signed rclone updates.
+- Guided first setup, native account reauthorization, encrypted credentials and
+  signed rclone updates.
 
 This is an on-demand filesystem, not a full offline mirror. Reads download data
 when needed; writes remain protected in the local VFS cache until uploaded.
@@ -87,6 +88,13 @@ directory. On first launch, the setup wizard checks prerequisites, can install
 missing Debian/Ubuntu/Mint packages through Polkit, prepares a current
 Proton-capable rclone and guides you through username, password and optional
 2FA. Credentials never appear in command arguments or environment variables.
+
+If Proton later requires a fresh login, PDrive stops automatic service retries,
+shows one actionable notification and offers reauthorization directly in the
+Control Center. The existing account name and protected VFS upload cache remain
+untouched while the replacement login is verified. A real Proton rate limit is
+distinguished from rejected credentials and persists a local retry time so no
+UI or manual service start can create another premature login attempt.
 
 Existing configuration, credentials, cache and state are preserved when the
 installer is run again.

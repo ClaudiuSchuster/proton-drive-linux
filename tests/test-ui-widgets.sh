@@ -112,7 +112,7 @@ popover_buttons = [
     for widget in descendants(popover.get_child())
     if isinstance(widget, module.Gtk.Button)
 ]
-assert len(popover_buttons) == 12
+assert len(popover_buttons) == 13
 assert all(button.get_visible() for button in popover_buttons)
 assert all(button.get_sensitive() for button in popover_buttons)
 assert all(button.get_tooltip_text() for button in popover_buttons)
@@ -128,6 +128,7 @@ popover_labels = [
 assert "Documentation …" in popover_labels
 assert "Open Proton Drive on the web" in popover_labels
 assert "About …" in popover_labels
+assert "Reauthorize Proton account …" in popover_labels
 for configuration_action in (
     "Bandwidth limit …",
     "Upload slots …",
@@ -391,6 +392,95 @@ window.apply_state(critical_state)
 window.apply_state(critical_state)
 assert window.status_title.get_text() == "Problem"
 
+auth_state = copy.deepcopy(critical_state)
+auth_state["authentication"] = {
+    "available": True,
+    "generated_at": auth_state["generated_at"],
+    "age_seconds": 0,
+    "status": "reauthorization-required",
+    "reason": "two-factor-required",
+    "restart_suppressed": True,
+}
+auth_state["health"].update(
+    {
+        "status": "critical",
+        "reason_code": "reauthorization-required",
+        "summary": (
+            "Proton account reauthorization is required. "
+            "Automatic login retries were stopped to protect the account."
+        ),
+    }
+)
+window.apply_state(auth_state)
+assert window.status_title.get_text() == "Reauthorization required"
+assert "Automatic login retries were stopped" in window.status_summary.get_text()
+assert window.status_action.get_visible()
+assert window.status_action.get_sensitive()
+assert window.status_action.get_tooltip_text() == "Reauthorize Proton account …"
+assert window.queue_card.value.get_text() == "–"
+assert window.queue_card.detail.get_text() == "Reauthorization needed"
+assert "local cache data remains protected" in window.live_summary.get_text()
+assert "live queue unavailable" in window.live_detail_labels["upload"].get_text()
+assert "stored locally" in window.live_detail_labels["cache"].get_text()
+
+reauth_dialog = module.ReauthorizationDialog(window)
+assert reauth_dialog.get_title() == "Proton account reauthorization"
+assert not reauth_dialog.reauthorize_button.get_sensitive()
+assert len(
+    [
+        widget
+        for widget in descendants(reauth_dialog.form)
+        if isinstance(widget, module.Gtk.Entry)
+    ]
+) == 2
+reauth_dialog.password_entry.set_text("correct horse battery staple")
+assert reauth_dialog.reauthorize_button.get_sensitive()
+reauth_dialog.two_factor_entry.set_text("123")
+assert not reauth_dialog.reauthorize_button.get_sensitive()
+reauth_dialog.two_factor_entry.set_text("123456")
+assert reauth_dialog.reauthorize_button.get_sensitive()
+reauth_dialog.begin_busy_state()
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
+assert reauth_dialog.busy
+assert reauth_dialog.progress.get_visible()
+assert reauth_dialog.spinner.get_property("active")
+assert not reauth_dialog.form.get_sensitive()
+assert not reauth_dialog.show_password.get_sensitive()
+reauth_dialog.reauthorization_finished(43, "PDRIVE_REAUTH_ERROR=rate-limited")
+assert reauth_dialog.completed
+assert reauth_dialog.reauthorize_button.get_label() == "Close"
+assert not reauth_dialog.form.get_sensitive()
+assert reauth_dialog.hero_title.get_text() == "Login temporarily paused"
+reauth_dialog.destroy()
+
+rate_limited_state = copy.deepcopy(auth_state)
+rate_limited_state["authentication"].update(
+    {
+        "status": "rate-limited",
+        "reason": "login-rate-limited",
+        "retry_after": "2099-08-24T11:10:00+00:00",
+        "retry_remaining_seconds": 3600,
+    }
+)
+rate_limited_state["health"].update(
+    {
+        "reason_code": "reauthorization-rate-limited",
+        "summary": (
+            "Proton temporarily rate-limited login attempts. "
+            "Reauthorization remains paused until the cooldown expires."
+        ),
+    }
+)
+window.apply_state(rate_limited_state)
+assert window.status_title.get_text() == "Login temporarily paused"
+assert "Try again after" in window.status_summary.get_text()
+assert not window.status_action.get_visible()
+assert window.queue_card.value.get_text() == "–"
+
+window.apply_state(module.demo_state())
+assert not window.status_action.get_visible()
+
 stress_state = copy.deepcopy(module.demo_state())
 stress_state["queue"].update(
     {
@@ -416,7 +506,7 @@ assert not window.queue_card.detail.get_layout().is_ellipsized(), (
     queue_stress_detail,
     window.queue_card.detail.get_allocated_width(),
 )
-assert queue_stress_detail.endswith("d"), queue_stress_detail
+assert "d" in queue_stress_detail, queue_stress_detail
 assert "ETA ≈" in window.queue_card.detail.get_tooltip_text()
 assert window.retention_button.get_sensitive()
 assert window.retention_button.get_tooltip_text() == "Change cache retention"
@@ -439,8 +529,9 @@ assert "stall confirmation" in watchdog_detail
 assert len(watchdog_detail.splitlines()) == 2
 draft_detail = window.service_detail_values["draft_recovery"].get_text()
 assert "0/2 stall confirmations" in draft_detail
-assert "0/1 payload · 0/1 finalization restart" in draft_detail
-assert len(draft_detail.splitlines()) == 2
+assert "0/1 payload · 0/1 finalization · 0/6 bridge restart" in draft_detail
+assert "0/3 bridge failure cycles" in draft_detail
+assert len(draft_detail.splitlines()) == 3
 assert "payload traffic" in window.service_detail_values["draft_recovery"].get_tooltip_text()
 assert all(value.get_xalign() == 0.5 for value in window.config_labels.values())
 assert window.live_summary.get_selectable()

@@ -45,6 +45,10 @@ POST_FINALIZATION_SETTLE_SECONDS = int(os.environ.get("PDRIVE_FINALIZATION_SETTL
 POST_FINALIZATION_ERROR_LOOKBACK_SECONDS = 15 * 60
 POST_FINALIZATION_RESTART_GAP_SECONDS = 30 * 60
 POST_FINALIZATION_RESTART_LIMIT = 1
+POST_BRIDGE_FAILURE_CYCLES_REQUIRED = 3
+POST_BRIDGE_FAILURE_MIN_SEPARATION_SECONDS = 30
+POST_BRIDGE_STALL_RESTART_GAP_SECONDS = 30 * 60
+POST_BRIDGE_STALL_RESTART_LIMIT = 6
 POST_RECOVERY_STATE_VERSION = 2
 POST_RECOVERY_BASELINE_SOURCES = {
     "transition",
@@ -465,6 +469,44 @@ def post_recovery_error(name: str, since_epoch: int, *, allow_backend_context: b
     return {"epoch": 0, "category": "none", "signature": ""}
 
 
+def bridge_failure_summary(name: str, since_epoch: int, *, allow_backend_context: bool = False) -> dict[str, int]:
+    """Count separated, path-correlated HTTP 502 upload failures for one process."""
+
+    try:
+        with MOUNT_LOG.open("rb") as stream:
+            stream.seek(0, os.SEEK_END)
+            stream.seek(max(0, stream.tell() - 2 * 1024 * 1024))
+            lines = stream.read().decode("utf-8", errors="replace").replace("\x00", "").splitlines()
+    except OSError:
+        return {"cycles": 0, "last_epoch": 0}
+
+    timestamp_pattern = re.compile(r"^(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})")
+    failure_pattern = re.compile(
+        r"\b502\s+(?:POST|PUT)\s+https://[^\s]+/storage/blocks(?:\s|:)",
+        re.I,
+    )
+    local_zone = dt.datetime.now().astimezone().tzinfo
+    epochs: list[int] = []
+    for line in lines:
+        path_specific = name in line
+        backend_context = allow_backend_context and "proton drive root link id" in line.lower()
+        if (not path_specific and not backend_context) or failure_pattern.search(line) is None:
+            continue
+        timestamp = timestamp_pattern.match(line)
+        if timestamp is None:
+            continue
+        try:
+            moment = dt.datetime.strptime(" ".join(timestamp.groups()), "%Y/%m/%d %H:%M:%S").replace(tzinfo=local_zone)
+        except ValueError:
+            continue
+        epoch = int(moment.timestamp())
+        if epoch < since_epoch:
+            continue
+        if not epochs or epoch - epochs[-1] >= POST_BRIDGE_FAILURE_MIN_SEPARATION_SECONDS:
+            epochs.append(epoch)
+    return {"cycles": len(epochs), "last_epoch": epochs[-1] if epochs else 0}
+
+
 def recovery_state_compatible(previous: dict[str, Any], fingerprint: str) -> bool:
     return (
         int(previous.get("state_version") or 0) == POST_RECOVERY_STATE_VERSION
@@ -514,9 +556,25 @@ def post_recovery_decision(previous: dict[str, Any], observation: dict[str, Any]
             "finalization_confirmations": 0,
             "last_finalization_confirmation_epoch": 0,
             "finalization_restart_attempts": 0,
+            "bridge_failure_cycles": 0,
+            "last_bridge_failure_epoch": 0,
+            "bridge_stall_confirmations": 0,
+            "last_bridge_stall_epoch": 0,
+            "bridge_unwedge_restart_attempts": 0,
+            "last_bridge_unwedge_epoch": 0,
             "last_pid": 0,
             "baseline_source": str(observation.get("baseline_source") or "observation"),
         }
+
+    for key, default in (
+        ("bridge_failure_cycles", 0),
+        ("last_bridge_failure_epoch", 0),
+        ("bridge_stall_confirmations", 0),
+        ("last_bridge_stall_epoch", 0),
+        ("bridge_unwedge_restart_attempts", 0),
+        ("last_bridge_unwedge_epoch", 0),
+    ):
+        state.setdefault(key, default)
 
     pid = max(0, int(observation.get("pid") or 0))
     previous_pid = max(0, int(state.get("last_pid") or 0))
@@ -537,6 +595,8 @@ def post_recovery_decision(previous: dict[str, Any], observation: dict[str, Any]
         )
         state["zero_activity_confirmations"] = 0
         state["last_zero_activity_epoch"] = 0
+        state["bridge_stall_confirmations"] = 0
+        state["last_bridge_stall_epoch"] = 0
 
     state["last_pid"] = pid
     state["last_transfer_bytes"] = transfer_bytes
@@ -544,6 +604,8 @@ def post_recovery_decision(previous: dict[str, Any], observation: dict[str, Any]
     state["queue_bytes"] = max(0, int(observation.get("queue_bytes") or 0))
     state["tries"] = max(0, int(observation.get("tries") or 0))
     state["updated_epoch"] = now_epoch
+    state["bridge_failure_cycles"] = max(0, int(observation.get("bridge_failure_cycles") or 0))
+    state["last_bridge_failure_epoch"] = max(0, int(observation.get("last_bridge_failure_epoch") or 0))
 
     error_epoch = max(0, int(observation.get("error_epoch") or 0))
     last_progress_epoch = max(0, int(state.get("last_progress_epoch") or 0))
@@ -610,6 +672,10 @@ def post_recovery_decision(previous: dict[str, Any], observation: dict[str, Any]
         state["finalization_error_signature"] = ""
         state["finalization_confirmations"] = 0
         state["last_finalization_confirmation_epoch"] = 0
+        state["bridge_failure_cycles"] = 0
+        state["last_bridge_failure_epoch"] = 0
+        state["bridge_stall_confirmations"] = 0
+        state["last_bridge_stall_epoch"] = 0
         return result(
             "process-changed",
             "The recovery process changed; fresh progress and error evidence are required.",
@@ -715,11 +781,82 @@ def post_recovery_decision(previous: dict[str, Any], observation: dict[str, Any]
     if upload_limit is not None and int(upload_limit) <= POST_RECOVERY_NEAR_PAUSE_BYTES:
         state["zero_activity_confirmations"] = 0
         state["last_zero_activity_epoch"] = 0
+        state["bridge_stall_confirmations"] = 0
+        state["last_bridge_stall_epoch"] = 0
         return result("throttled", "Recovery restart checks are suspended while upload bandwidth is near pause.")
     if not observation.get("connectivity_healthy", False):
         state["zero_activity_confirmations"] = 0
         state["last_zero_activity_epoch"] = 0
+        state["bridge_stall_confirmations"] = 0
+        state["last_bridge_stall_epoch"] = 0
         return result("network-deferred", "Recovery restart checks are deferred until DNS connectivity is healthy.")
+
+    bridge_failure_epoch = max(0, int(state.get("last_bridge_failure_epoch") or 0))
+    bridge_stall = (
+        int(state.get("bridge_failure_cycles") or 0) >= POST_BRIDGE_FAILURE_CYCLES_REQUIRED
+        and bridge_failure_epoch > last_progress_epoch
+    )
+    if bridge_stall:
+        if not observation.get("upload_retry_safe", False):
+            return result(
+                "upgrade-required",
+                "The installed rclone release has an unsafe upload retry; update it before bridge recovery.",
+            )
+        if int(state.get("bridge_unwedge_restart_attempts") or 0) >= POST_BRIDGE_STALL_RESTART_LIMIT:
+            return result(
+                "bridge-restart-limited",
+                "The guarded Proton bridge restart limit for this cache generation has been reached.",
+            )
+        last_bridge_restart = max(0, int(state.get("last_bridge_unwedge_epoch") or 0))
+        if last_bridge_restart and now_epoch - last_bridge_restart < POST_BRIDGE_STALL_RESTART_GAP_SECONDS:
+            return result(
+                "bridge-cooldown",
+                "The Proton bridge recovery is waiting for its minimum restart gap.",
+            )
+
+        activity = str(observation.get("activity") or "not-probed")
+        if activity == "not-probed":
+            return result(
+                "probing-bridge-stall",
+                "Repeated Proton block-upload failures are awaiting an independent payload-activity probe.",
+                probe=True,
+            )
+        if activity == "process-changed":
+            state["bridge_stall_confirmations"] = 0
+            state["last_bridge_stall_epoch"] = 0
+            return result(
+                "process-changed", "The process changed during the bridge-stall probe; no restart was requested."
+            )
+        if activity == "moving":
+            state["bridge_stall_confirmations"] = 0
+            state["last_bridge_stall_epoch"] = 0
+            return result("recovering", "Payload traffic resumed after the Proton block-upload failures.")
+        if activity != "idle":
+            return result("observing", "The bridge-stall activity probe returned no actionable result.")
+
+        confirmations = max(0, int(state.get("bridge_stall_confirmations") or 0))
+        last_confirmation = max(0, int(state.get("last_bridge_stall_epoch") or 0))
+        if not last_confirmation or now_epoch - last_confirmation >= POST_RECOVERY_MIN_CONFIRMATION_SECONDS:
+            confirmations = min(POST_RECOVERY_CONFIRMATIONS_REQUIRED, confirmations + 1)
+            state["bridge_stall_confirmations"] = confirmations
+            state["last_bridge_stall_epoch"] = now_epoch
+        if confirmations < POST_RECOVERY_CONFIRMATIONS_REQUIRED:
+            return result(
+                "confirming-bridge-stall",
+                "The known Proton bridge stall signature needs one separated idle confirmation.",
+            )
+
+        state["bridge_unwedge_restart_attempts"] = max(0, int(state.get("bridge_unwedge_restart_attempts") or 0)) + 1
+        state["last_bridge_unwedge_epoch"] = now_epoch
+        state["bridge_stall_confirmations"] = 0
+        state["last_bridge_stall_epoch"] = 0
+        return result(
+            "bridge-restart-requested",
+            "A proven Proton bridge worker stall passed every guard; one controlled restart was requested.",
+            restart=True,
+            restart_kind="bridge-unwedge",
+        )
+
     last_restart_epoch = max(0, int(state.get("last_restart_epoch") or 0))
     if last_restart_epoch and now_epoch - last_restart_epoch < POST_RECOVERY_RESTART_COOLDOWN_SECONDS:
         return result("cooldown", "The guarded recovery restart is still cooling down.")
@@ -1029,6 +1166,12 @@ def observe_recovery_queue(
         recovery_started_epoch,
         allow_backend_context=len(queue) == 1,
     )
+    process_started = process_started_epoch(pid)
+    bridge_failures = bridge_failure_summary(
+        str(candidate.get("name") or ""),
+        max(recovery_started_epoch, process_started),
+        allow_backend_context=len(queue) == 1,
+    )
     observation = {
         "now_epoch": int(time.time()),
         "fingerprint": fingerprint,
@@ -1043,6 +1186,8 @@ def observe_recovery_queue(
         "error_epoch": error["epoch"],
         "error_category": error["category"],
         "error_signature": error["signature"],
+        "bridge_failure_cycles": bridge_failures["cycles"],
+        "last_bridge_failure_epoch": bridge_failures["last_epoch"],
         "upload_limit": effective_upload_limit(),
         "connectivity_healthy": connectivity_healthy(),
         "upload_retry_safe": installed_upload_retry_safe(),
@@ -1090,14 +1235,26 @@ def automatic_recovery(force: bool = False) -> int:
                         str(state.get("fingerprint") or ""),
                     )
                 except RecoveryError:
+                    finalization_restarts = int(state.get("finalization_restart_attempts") or 0)
+                    payload_restarts = int(state.get("restart_attempts") or 0)
+                    bridge_restarts = int(state.get("bridge_unwedge_restart_attempts") or 0)
                     save_latest(
                         "restart-failed",
                         "The guarded recovery restart failed validation; inspect the user-service journal before intervening.",
-                        phase="recovery",
+                        phase=(
+                            "finalization"
+                            if restart_kind == "finalization"
+                            else "bridge-recovery"
+                            if restart_kind == "bridge-unwedge"
+                            else "recovery"
+                        ),
                         progress_proven=bool(state.get("progress_proven")),
                         error_category=state.get("last_error_category", "none"),
                         stall_confirmations=POST_RECOVERY_CONFIRMATIONS_REQUIRED,
-                        restart_attempts=int(state.get("restart_attempts") or 0),
+                        restart_attempts=payload_restarts + finalization_restarts + bridge_restarts,
+                        finalization_restart_attempts=finalization_restarts,
+                        bridge_unwedge_restart_attempts=bridge_restarts,
+                        bridge_failure_cycles=int(state.get("bridge_failure_cycles") or 0),
                     )
                     return 75
                 state["last_pid"] = new_pid
@@ -1105,18 +1262,35 @@ def automatic_recovery(force: bool = False) -> int:
                 state["payload_complete_epoch"] = 0
                 state["finalization_confirmations"] = 0
                 state["last_finalization_confirmation_epoch"] = 0
+                state["bridge_stall_confirmations"] = 0
+                state["last_bridge_stall_epoch"] = 0
                 state["updated_epoch"] = int(time.time())
                 atomic_json(MONITOR_STATE, state)
                 finalization_restarts = int(state.get("finalization_restart_attempts") or 0)
                 payload_restarts = int(state.get("restart_attempts") or 0)
+                bridge_restarts = int(state.get("bridge_unwedge_restart_attempts") or 0)
                 save_latest(
-                    "finalization-restarted" if restart_kind == "finalization" else "restarted",
+                    (
+                        "finalization-restarted"
+                        if restart_kind == "finalization"
+                        else "bridge-restarted"
+                        if restart_kind == "bridge-unwedge"
+                        else "restarted"
+                    ),
                     (
                         "One guarded finalization restart validated the new process and restored the exact protected queue."
                         if restart_kind == "finalization"
+                        else "One guarded Proton bridge restart validated the new process and restored the exact protected queue."
+                        if restart_kind == "bridge-unwedge"
                         else "One guarded recovery restart validated the new process and restored the exact protected queue."
                     ),
-                    phase="finalization" if restart_kind == "finalization" else "recovery",
+                    phase=(
+                        "finalization"
+                        if restart_kind == "finalization"
+                        else "bridge-recovery"
+                        if restart_kind == "bridge-unwedge"
+                        else "recovery"
+                    ),
                     queue_count=len(restored_queue),
                     progress_proven=True,
                     error_category=(
@@ -1125,14 +1299,24 @@ def automatic_recovery(force: bool = False) -> int:
                         else state.get("last_error_category", "none")
                     ),
                     stall_confirmations=POST_RECOVERY_CONFIRMATIONS_REQUIRED,
-                    restart_attempts=payload_restarts + finalization_restarts,
+                    restart_attempts=payload_restarts + finalization_restarts + bridge_restarts,
                     finalization_restart_attempts=finalization_restarts,
+                    bridge_unwedge_restart_attempts=bridge_restarts,
+                    bridge_failure_cycles=int(state.get("bridge_failure_cycles") or 0),
                 )
                 return 0
+            decision_status = str(decision["status"])
+            bridge_stage = "bridge" in decision_status
             save_latest(
                 decision["status"],
                 decision["detail"],
-                phase="finalization" if int(state.get("payload_complete_epoch") or 0) else "recovery",
+                phase=(
+                    "finalization"
+                    if int(state.get("payload_complete_epoch") or 0)
+                    else "bridge-recovery"
+                    if bridge_stage
+                    else "recovery"
+                ),
                 queue_count=len(queue),
                 progress_proven=bool(state.get("progress_proven")),
                 error_category=(
@@ -1143,11 +1327,16 @@ def automatic_recovery(force: bool = False) -> int:
                 stall_confirmations=(
                     int(state.get("finalization_confirmations") or 0)
                     if int(state.get("payload_complete_epoch") or 0)
+                    else int(state.get("bridge_stall_confirmations") or 0)
+                    if bridge_stage
                     else int(state.get("zero_activity_confirmations") or 0)
                 ),
                 restart_attempts=int(state.get("restart_attempts") or 0)
-                + int(state.get("finalization_restart_attempts") or 0),
+                + int(state.get("finalization_restart_attempts") or 0)
+                + int(state.get("bridge_unwedge_restart_attempts") or 0),
                 finalization_restart_attempts=int(state.get("finalization_restart_attempts") or 0),
+                bridge_unwedge_restart_attempts=int(state.get("bridge_unwedge_restart_attempts") or 0),
+                bridge_failure_cycles=int(state.get("bridge_failure_cycles") or 0),
             )
             return 0
         recover_namespace(False, queue, metadata_cache)
@@ -1236,6 +1425,12 @@ def automatic_recovery(force: bool = False) -> int:
         "finalization_confirmations": 0,
         "last_finalization_confirmation_epoch": 0,
         "finalization_restart_attempts": 0,
+        "bridge_failure_cycles": 0,
+        "last_bridge_failure_epoch": 0,
+        "bridge_stall_confirmations": 0,
+        "last_bridge_stall_epoch": 0,
+        "bridge_unwedge_restart_attempts": 0,
+        "last_bridge_unwedge_epoch": 0,
         "last_pid": service_pid_and_args()[0],
         "baseline_source": "transition",
         "queue_count": len(recovery_queue),
@@ -1253,6 +1448,8 @@ def automatic_recovery(force: bool = False) -> int:
         error_category="none",
         stall_confirmations=0,
         restart_attempts=0,
+        bridge_unwedge_restart_attempts=0,
+        bridge_failure_cycles=0,
     )
     return 0
 

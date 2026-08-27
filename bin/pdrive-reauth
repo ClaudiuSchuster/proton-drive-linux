@@ -23,7 +23,7 @@ usage() {
         '' \
         'Der Lauf mit --reauth:' \
         '  1. verlangt zuerst die exakte Bestätigung JA;' \
-        '  2. liest Benutzername, Passwort und optionalen 2FA-Code verdeckt ein;' \
+        '  2. übernimmt das bestehende Konto und liest Passwort sowie 2FA-Code verdeckt ein;' \
         '  3. testet eine neue verschlüsselte Konfiguration isoliert und genau einmal;' \
         '  4. lässt bei Fehlschlag Dienst und vorhandene Konfiguration unangetastet;' \
         '  5. stoppt erst nach Erfolg, sichert rclone.conf und ersetzt sie atomar;' \
@@ -89,11 +89,6 @@ if [[ "${answer}" != 'REAUTH' ]]; then
     exit 0
 fi
 
-read -r -p 'Proton-Benutzername oder E-Mail-Adresse: ' proton_username
-if [[ -z "${proton_username}" ]]; then
-    echo 'Ein leerer Benutzername ist nicht zulässig.' >&2
-    exit 65
-fi
 read -r -s -p 'Aktuelles Proton-Kontopasswort: ' proton_password
 echo
 if [[ -z "${proton_password}" ]]; then
@@ -118,9 +113,9 @@ if [[ -n "${proton_2fa}" && ! "${proton_2fa}" =~ ^[0-9]{6}$ ]]; then
 fi
 
 set +e
-printf '%s\0' "${proton_username}" "${proton_password}" "${proton_2fa}" \
+printf '%s\0' '' "${proton_password}" "${proton_2fa}" \
     | "${reauth_backend}" --reauth-from-stdin
 reauth_rc=$?
 set -e
-unset proton_username proton_password proton_2fa
+unset proton_password proton_2fa
 exit "${reauth_rc}"

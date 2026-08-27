@@ -184,6 +184,8 @@ GERMAN_TRANSLATIONS = {
     "Reset restart cooldown": "Neustart-Cooldown zurücksetzen",
     "Refresh metadata …": "Metadaten neu laden …",
     "Safely restart service …": "Dienst sicher neu starten …",
+    "Reauthorize Proton account …": "Proton-Konto neu autorisieren …",
+    "Reauthorization is available in the installed application when the account requires it.": "Die neue Autorisierung ist in der installierten Anwendung verfügbar, sobald das Konto sie benötigt.",
     "Documentation …": "Handbuch …",
     "Documentation": "Handbuch",
     "Getting started": "Einstieg",
@@ -297,9 +299,12 @@ GERMAN_TRANSLATIONS = {
     "Draft recovery": "Draft-Recovery",
     "Monitoring": "Wird überwacht",
     "Confirming stall": "Stillstand wird bestätigt",
+    "Confirming bridge stall": "Bridge-Stillstand wird bestätigt",
     "Confirming finalization": "Finalisierung wird bestätigt",
     "Finalizing": "Wird finalisiert",
     "Finalization cooldown": "Finalisierungs-Cooldown",
+    "Bridge cooldown": "Bridge-Cooldown",
+    "Bridge recovery": "Bridge-Recovery",
     "Upgrade required": "Update erforderlich",
     "Restarted safely": "Sicher neu gestartet",
     "Cooldown": "Cooldown",
@@ -309,7 +314,7 @@ GERMAN_TRANSLATIONS = {
     "Inactive": "Inaktiv",
     "Unavailable": "Nicht verfügbar",
     "Deferred": "Zurückgestellt",
-    "{status} · {confirmations}/2 stall confirmations\n{payload}/1 payload · {finalization}/1 finalization restart(s) · checked {time}": "{status} · {confirmations}/2 Stillstandsbestätigungen\n{payload}/1 Payload- · {finalization}/1 Finalisierungsneustart(s) · geprüft {time}",
+    "{status} · {confirmations}/2 stall confirmations\n{payload}/1 payload · {finalization}/1 finalization · {bridge}/6 bridge restart(s)\n{cycles}/3 bridge failure cycles · checked {time}": "{status} · {confirmations}/2 Stillstandsbestätigungen\n{payload}/1 Payload · {finalization}/1 Finalisierung · {bridge}/6 Bridge-Neustart(s)\n{cycles}/3 Bridge-Fehlerzyklen · geprüft {time}",
     "VFS endpoint queried before mount readiness": "VFS-Endpunkt vor Mount-Bereitschaft abgefragt",
     "No action is needed when the service is active and /pdrive is writable. Refresh the view to confirm.": "Keine Aktion nötig, wenn der Dienst aktiv und /pdrive beschreibbar ist. Aktualisiere zur Bestätigung die Ansicht.",
     "Remote upload draft conflict": "Konflikt mit einem Remote-Uploadentwurf",
@@ -351,16 +356,22 @@ GERMAN_TRANSLATIONS = {
     "{bytes} · ETA calculating": "{bytes} · ETA wird berechnet",
     "{bytes} · ⏸ ETA waiting": "{bytes} · ⏸ ETA wartet",
     "Queue is empty · ETA complete": "Warteschlange leer · ETA abgeschlossen",
+    "Reauthorization needed": "Neue Autorisierung nötig",
+    "The stopped mount cannot report its live queue. Local VFS-cache data remains protected.": "Der gestoppte Mount kann seine Live-Warteschlange nicht melden. Lokale VFS-Cachedaten bleiben geschützt.",
     "Mark issues reviewed": "Probleme als geprüft markieren",
     "Could not update issue review state": "Prüfstatus der Probleme konnte nicht gespeichert werden",
     "{files} local cache files": "{files} lokale Cachedateien",
     "{files} synced local file(s)": "{files} synchronisierte lokale Datei(en)",
     "{pending} pending · {clean} synced": "{pending} ausstehend · {clean} synchronisiert",
     "{pending} pending upload · {files} cache file(s)": "{pending} ausstehender Upload · {files} Cachedatei(en)",
+    "Protected locally · state unavailable": "Lokal geschützt · Status nicht verfügbar",
     "on the cache filesystem": "auf dem Cache-Dateisystem",
     "{active} active transfer(s) · {count} file(s) queued · {speed}": "{active} aktive Transfer(s) · {count} Datei(en) in der Queue · {speed}",
     "{count} file(s) are queued; rclone is preparing the next upload.": "{count} Datei(en) warten; rclone bereitet den nächsten Upload vor.",
     "Everything is in sync. The service keeps its fast metadata cache warm and waits for changes.": "Alles ist synchronisiert. Der Dienst hält seinen schnellen Metadatencache warm und wartet auf Änderungen.",
+    "Reauthorize Proton to resume the mount. Automatic login retries are paused and local cache data remains protected.": "Autorisiere Proton neu, um den Mount fortzusetzen. Automatische Loginversuche sind pausiert und lokale Cachedaten bleiben geschützt.",
+    "Upload · paused for reauthorization · live queue unavailable": "Upload · für neue Autorisierung pausiert · Live-Warteschlange nicht verfügbar",
+    "Cache · {cache} stored locally · upload state resumes after reauthorization": "Cache · {cache} lokal gespeichert · Uploadstatus folgt nach neuer Autorisierung",
     "enabled": "aktiv",
     "disabled": "aus",
     "Service {active}/{sub} · PID {pid}": "Dienst {active}/{sub} · PID {pid}",
@@ -488,6 +499,32 @@ GERMAN_TRANSLATIONS = {
     "Enter your Proton username or email address.": "Gib deinen Proton-Benutzernamen oder deine E-Mail-Adresse ein.",
     "Passwords are empty or do not match.": "Die Passwörter sind leer oder stimmen nicht überein.",
     "The 2FA code must be empty or exactly six digits.": "Der 2FA-Code muss leer oder genau sechsstellig sein.",
+    "Reauthorization required": "Neue Autorisierung erforderlich",
+    "Proton account reauthorization is required. Automatic login retries were stopped to protect the account.": "Das Proton-Konto muss neu autorisiert werden. Automatische Loginversuche wurden zum Schutz des Kontos gestoppt.",
+    "Reauthorize": "Neu autorisieren",
+    "Reauthorize securely": "Sicher neu autorisieren",
+    "Proton account reauthorization": "Proton-Konto neu autorisieren",
+    "Your Proton session needs a fresh sign-in. Automatic retries are paused, and pending cache data remains protected.": "Deine Proton-Sitzung benötigt eine neue Anmeldung. Automatische Versuche sind pausiert und ausstehende Cachedaten bleiben geschützt.",
+    "Enter the current password for the already configured Proton account and a fresh 2FA code.": "Gib das aktuelle Passwort des bereits eingerichteten Proton-Kontos und einen frischen 2FA-Code ein.",
+    "Automatic login retries remain paused until reauthorization succeeds.": "Automatische Loginversuche bleiben pausiert, bis die neue Autorisierung erfolgreich ist.",
+    "Verifying account and starting Proton Drive …": "Konto wird geprüft und Proton Drive gestartet …",
+    "One bounded login attempt is running. The existing encrypted configuration remains active until Proton accepts the replacement.": "Ein begrenzter Loginversuch läuft. Die bestehende verschlüsselte Konfiguration bleibt aktiv, bis Proton den Ersatz akzeptiert.",
+    "Reauthorization successful": "Neue Autorisierung erfolgreich",
+    "Proton Drive is mounted again. Pending uploads can continue from the protected cache.": "Proton Drive ist wieder gemountet. Ausstehende Uploads können aus dem geschützten Cache fortgesetzt werden.",
+    "Credentials accepted; mount needs attention": "Zugangsdaten akzeptiert; Mount benötigt Aufmerksamkeit",
+    "Proton accepted the new credentials, but /pdrive did not become ready. The account does not need another login; inspect service diagnostics instead.": "Proton hat die neuen Zugangsdaten akzeptiert, aber /pdrive wurde nicht bereit. Das Konto benötigt keinen weiteren Login; prüfe stattdessen die Dienstdiagnose.",
+    "The reauthentication helper could not be started.": "Der Reautorisierungshelfer konnte nicht gestartet werden.",
+    "Reauthorization timed out. Check the network and retry once with a fresh 2FA code.": "Die neue Autorisierung hat das Zeitlimit überschritten. Prüfe das Netzwerk und versuche es einmal mit einem frischen 2FA-Code erneut.",
+    "Enter your current Proton password.": "Gib dein aktuelles Proton-Passwort ein.",
+    "Proton did not accept the login. Check the password and retry once with a fresh 2FA code.": "Proton hat die Anmeldung nicht akzeptiert. Prüfe das Passwort und versuche es einmal mit einem frischen 2FA-Code erneut.",
+    "The existing encrypted configuration was not changed.": "Die bestehende verschlüsselte Konfiguration wurde nicht verändert.",
+    "The existing encrypted configuration was updated safely.": "Die bestehende verschlüsselte Konfiguration wurde sicher aktualisiert.",
+    "Proton account reauthorization required": "Neue Autorisierung des Proton-Kontos erforderlich",
+    "Open PDrive Control Center and complete one guided reauthorization. Automatic login retries are stopped.": "Öffne das PDrive Control Center und führe einmal die geführte neue Autorisierung durch. Automatische Loginversuche sind gestoppt.",
+    "Proton account reauthorized": "Proton-Konto neu autorisiert",
+    "The Proton account was reauthorized and the mount started successfully.": "Das Proton-Konto wurde neu autorisiert und der Mount erfolgreich gestartet.",
+    "No further action is required while the mount remains ready.": "Solange der Mount bereit bleibt, ist keine weitere Aktion erforderlich.",
+    "Close": "Schließen",
     "Connecting to Proton Drive": "Verbindung mit Proton Drive wird hergestellt",
     "One bounded login attempt is running. Please do not submit another code while it is active.": "Ein begrenzter Loginversuch läuft. Bitte sende währenddessen keinen weiteren Code.",
     "Setup complete": "Einrichtung abgeschlossen",
@@ -498,6 +535,10 @@ GERMAN_TRANSLATIONS = {
     "Could not start the setup helper.": "Der Einrichtungshelfer konnte nicht gestartet werden.",
     "The login attempt timed out. Check the network and try again with a fresh 2FA code.": "Der Loginversuch hat das Zeitlimit überschritten. Prüfe das Netzwerk und versuche es mit einem frischen 2FA-Code erneut.",
     "Proton temporarily rate-limited login attempts. Wait for the complete backoff before trying again.": "Proton hat Loginversuche vorübergehend begrenzt. Warte die vollständige Sperrzeit ab, bevor du es erneut versuchst.",
+    "Login temporarily paused": "Login vorübergehend pausiert",
+    "Proton temporarily rate-limited login attempts. Reauthorization remains paused until the cooldown expires.": "Proton hat Loginversuche vorübergehend begrenzt. Die neue Autorisierung bleibt bis zum Ablauf der Wartezeit pausiert.",
+    "Try again after {time}. Local cache data remains protected.": "Versuche es nach {time} erneut. Lokale Cachedaten bleiben geschützt.",
+    "The retry time is saved locally. Close this dialog and wait until the time shown in the Overview.": "Der Zeitpunkt für den nächsten Versuch ist lokal gespeichert. Schließe diesen Dialog und warte bis zu der in der Übersicht angezeigten Zeit.",
     "Proton did not accept the login. Check the credentials and retry once with a fresh 2FA code.": "Proton hat den Login nicht akzeptiert. Prüfe die Zugangsdaten und versuche es einmal mit einem frischen 2FA-Code erneut.",
     "No configuration was installed, so it is safe to retry after correcting the problem.": "Es wurde keine Konfiguration installiert; nach Behebung des Problems kannst du sicher erneut versuchen.",
 }
@@ -508,6 +549,8 @@ GERMAN_HEALTH_SUMMARIES = {
     "mounted": "Proton Drive ist gemountet und bereit.",
     "service-inactive": "Der Proton-Drive-Dienst ist nicht aktiv.",
     "service-down": "Der Proton-Drive-Dienst ist nicht aktiv.",
+    "reauthorization-required": "Das Proton-Konto muss neu autorisiert werden. Automatische Loginversuche wurden zum Schutz des Kontos gestoppt.",
+    "reauthorization-rate-limited": "Proton hat Loginversuche vorübergehend begrenzt. Die neue Autorisierung bleibt bis zum Ablauf der Wartezeit pausiert.",
     "mount-not-ready": "Der Dienst läuft, aber /pdrive ist noch nicht bereit.",
     "active-without-mount": "rclone ist aktiv, aber der FUSE-Mount /pdrive fehlt.",
     "rc-unavailable": "Der Mount ist bereit, aber einige Livewerte sind vorübergehend nicht erreichbar.",
@@ -561,6 +604,16 @@ def autostart_path() -> pathlib.Path:
 def setup_config_path() -> pathlib.Path:
     configured = os.environ.get("PDRIVE_RCLONE_CONFIG")
     return pathlib.Path(configured).expanduser() if configured else pathlib.Path.home() / ".config/rclone/rclone.conf"
+
+
+def reauth_backend_path() -> str:
+    configured = os.environ.get("PDRIVE_REAUTH_BACKEND")
+    if configured:
+        return configured
+    installed = pathlib.Path.home() / ".local/libexec/reauth-rclone-proton"
+    if installed.is_file() and os.access(installed, os.X_OK):
+        return str(installed)
+    return str(pathlib.Path(__file__).resolve().parent.parent / "libexec/reauth-rclone-proton")
 
 
 def mount_path() -> pathlib.Path:
@@ -1150,6 +1203,15 @@ button.setup-primary {
   padding: 9px 18px;
 }
 button.setup-primary:hover { background-image: linear-gradient(to bottom, #4994b3, #2e718d); }
+.reauth-panel {
+  background: rgba(255,255,255,0.035);
+  border: 1px solid rgba(255,255,255,0.09);
+  border-radius: 11px;
+  padding: 14px;
+}
+.reauth-note { color: #aab4c4; }
+.reauth-success { color: #59e0b7; font-weight: 700; }
+.reauth-attention { color: #ffc76a; font-weight: 700; }
 .setup-error {
   background: #42232a;
   border: 1px solid #a74659;
@@ -1172,6 +1234,7 @@ DRAFT_RECOVERY_STATUS_LABELS = {
     "active": "Monitoring",
     "completed": "Completed",
     "confirming": "Monitoring",
+    "confirming-bridge-stall": "Confirming bridge stall",
     "confirming-finalization": "Confirming finalization",
     "confirming-stall": "Confirming stall",
     "cooldown": "Cooldown",
@@ -1184,9 +1247,14 @@ DRAFT_RECOVERY_STATUS_LABELS = {
     "finalization-restart-requested": "Confirming finalization",
     "finalization-restarted": "Restarted safely",
     "finalizing": "Finalizing",
+    "bridge-cooldown": "Bridge cooldown",
+    "bridge-restart-limited": "Manual review",
+    "bridge-restart-requested": "Bridge recovery",
+    "bridge-restarted": "Restarted safely",
     "network-deferred": "Network deferred",
     "observing": "Monitoring",
     "probing": "Monitoring",
+    "probing-bridge-stall": "Confirming bridge stall",
     "probing-finalization": "Confirming finalization",
     "process-changed": "Fresh baseline",
     "recovering": "Monitoring",
@@ -1205,6 +1273,7 @@ REASON_LABELS = {
     "persistent-upload-failure": "Persistent upload failure",
     "service-inactive": "Service inactive",
     "service-down": "Service inactive",
+    "reauthorization-required": "Reauthorization required",
     "mount-not-ready": "Mount not ready",
     "active-without-mount": "Mount missing",
     "rc-unavailable": "Live interface unavailable",
@@ -2529,7 +2598,7 @@ class SetupWizard(Gtk.Box):
                 stderr=subprocess.PIPE,
             )
             try:
-                _stdout, stderr = process.communicate(bytes(payload), timeout=SETUP_TIMEOUT_SECONDS)
+                _stdout, stderr = process.communicate(payload, timeout=SETUP_TIMEOUT_SECONDS)
             except subprocess.TimeoutExpired:
                 process.kill()
                 _stdout, stderr = process.communicate()
@@ -2579,6 +2648,293 @@ class SetupWizard(Gtk.Box):
         return GLib.SOURCE_REMOVE
 
 
+class ReauthorizationDialog(Gtk.Dialog):
+    """One bounded, transactional Proton reauthorization inside PDCC."""
+
+    def __init__(self, window: "PDriveWindow") -> None:
+        super().__init__(
+            title=translate("Proton account reauthorization"),
+            transient_for=window,
+            modal=True,
+        )
+        self.parent_window = window
+        self.busy = False
+        self.completed = False
+        self.set_default_size(520, -1)
+        self.add_buttons(
+            translate("Cancel"),
+            Gtk.ResponseType.CANCEL,
+            translate("Reauthorize securely"),
+            Gtk.ResponseType.OK,
+        )
+        self.cancel_button = self.get_widget_for_response(Gtk.ResponseType.CANCEL)
+        self.reauthorize_button = self.get_widget_for_response(Gtk.ResponseType.OK)
+        add_css(self.reauthorize_button, "setup-primary")
+        self.set_default_response(Gtk.ResponseType.OK)
+        self.connect("response", self.on_response)
+        self.connect("delete-event", self.on_delete)
+
+        content = self.get_content_area()
+        content.set_spacing(12)
+        content.set_margin_top(18)
+        content.set_margin_bottom(18)
+        content.set_margin_start(18)
+        content.set_margin_end(18)
+
+        hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        self.hero_icon = Gtk.Image.new_from_icon_name("dialog-password-symbolic", Gtk.IconSize.DIALOG)
+        self.hero_icon.set_pixel_size(46)
+        add_css(self.hero_icon, "warning")
+        hero.pack_start(self.hero_icon, False, False, 0)
+        hero_text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.hero_title = label("Reauthorization required", "status-title")
+        self.hero_detail = label(
+            "Your Proton session needs a fresh sign-in. Automatic retries are paused, and pending cache data remains protected.",
+            "status-detail",
+        )
+        self.hero_detail.set_line_wrap(True)
+        hero_text.pack_start(self.hero_title, False, False, 0)
+        hero_text.pack_start(self.hero_detail, False, False, 0)
+        hero.pack_start(hero_text, True, True, 0)
+        content.pack_start(hero, False, False, 0)
+
+        self.form = Gtk.Grid(column_spacing=16, row_spacing=12)
+        add_css(self.form, "reauth-panel")
+        self.password_entry = Gtk.Entry()
+        self.password_entry.set_visibility(False)
+        self.password_entry.set_invisible_char("●")
+        self.two_factor_entry = Gtk.Entry()
+        self.two_factor_entry.set_visibility(False)
+        self.two_factor_entry.set_invisible_char("●")
+        self.two_factor_entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+        self.two_factor_entry.set_max_length(6)
+        for row_index, (title, entry) in enumerate(
+            (
+                ("Password", self.password_entry),
+                ("Current 2FA code (optional)", self.two_factor_entry),
+            )
+        ):
+            self.form.attach(label(title), 0, row_index, 1, 1)
+            entry.set_hexpand(True)
+            entry.connect("changed", self.update_button_state)
+            entry.connect("activate", lambda _entry: self.start_reauthorization())
+            self.form.attach(entry, 1, row_index, 1, 1)
+        content.pack_start(self.form, False, False, 0)
+
+        account_note = label(
+            "Enter the current password for the already configured Proton account and a fresh 2FA code.",
+            "reauth-note",
+        )
+        account_note.set_line_wrap(True)
+        content.pack_start(account_note, False, False, 0)
+        retry_note = label(
+            "Automatic login retries remain paused until reauthorization succeeds.",
+            "reauth-note",
+        )
+        retry_note.set_line_wrap(True)
+        content.pack_start(retry_note, False, False, 0)
+
+        self.show_password = Gtk.CheckButton(label=translate("Show passwords"))
+        self.show_password.set_tooltip_text(translate("Show passwords"))
+        self.show_password.connect("toggled", self.on_show_password)
+        content.pack_start(self.show_password, False, False, 0)
+
+        self.progress = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        self.spinner = Gtk.Spinner()
+        self.progress.pack_start(self.spinner, False, False, 0)
+        self.progress_label = label("Verifying account and starting Proton Drive …", "section-subtitle")
+        self.progress.pack_start(self.progress_label, True, True, 0)
+        content.pack_start(self.progress, False, False, 0)
+
+        self.result_detail = label("")
+        self.result_detail.set_no_show_all(True)
+        self.result_detail.set_line_wrap(True)
+        content.pack_start(self.result_detail, False, False, 0)
+
+        self.show_all()
+        self.progress.hide()
+        self.result_detail.hide()
+        self.update_button_state()
+        self.password_entry.grab_focus()
+
+    def on_delete(self, _dialog: Gtk.Dialog, _event: Gdk.Event) -> bool:
+        return self.busy
+
+    def on_show_password(self, button: Gtk.CheckButton) -> None:
+        visible = button.get_active()
+        self.password_entry.set_visibility(visible)
+        self.two_factor_entry.set_visibility(visible)
+
+    def credentials_valid(self) -> bool:
+        two_factor = self.two_factor_entry.get_text().strip()
+        return bool(self.password_entry.get_text()) and (not two_factor or bool(re.fullmatch(r"[0-9]{6}", two_factor)))
+
+    def update_button_state(self, *_args: Any) -> None:
+        self.reauthorize_button.set_sensitive(self.completed or (not self.busy and self.credentials_valid()))
+
+    def on_response(self, _dialog: Gtk.Dialog, response: int) -> None:
+        if self.busy:
+            return
+        if response in {Gtk.ResponseType.CANCEL, Gtk.ResponseType.DELETE_EVENT} or self.completed:
+            self.destroy()
+            return
+        if response == Gtk.ResponseType.OK:
+            self.start_reauthorization()
+
+    def start_reauthorization(self) -> None:
+        if self.busy or self.completed:
+            return
+        password = self.password_entry.get_text()
+        two_factor = self.two_factor_entry.get_text().strip()
+        if not password:
+            self.show_error("Enter your current Proton password.")
+            return
+        if two_factor and not re.fullmatch(r"[0-9]{6}", two_factor):
+            self.show_error("The 2FA code must be empty or exactly six digits.")
+            return
+
+        payload = bytearray()
+        for value in ("", password, two_factor):
+            payload.extend(value.encode("utf-8"))
+            payload.append(0)
+        self.password_entry.set_text("")
+        self.two_factor_entry.set_text("")
+        del password, two_factor
+        self.begin_busy_state()
+        threading.Thread(target=self.reauthorization_worker, args=(payload,), daemon=True).start()
+
+    def begin_busy_state(self) -> None:
+        self.busy = True
+        self.form.set_sensitive(False)
+        self.show_password.set_sensitive(False)
+        self.cancel_button.set_sensitive(False)
+        self.reauthorize_button.set_sensitive(False)
+        self.result_detail.hide()
+        self.progress.show_all()
+        self.spinner.start()
+
+    def reauthorization_worker(self, payload: bytearray) -> None:
+        returncode = 127
+        error_text = ""
+        try:
+            process = subprocess.Popen(
+                [reauth_backend_path(), "--reauth-from-stdin"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                _stdout, stderr = process.communicate(bytes(payload), timeout=SETUP_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                _stdout, stderr = process.communicate()
+                returncode = 124
+            else:
+                returncode = process.returncode
+            error_text = stderr.decode("utf-8", errors="replace")[-4096:]
+        except OSError:
+            error_text = "helper-unavailable"
+        finally:
+            for index in range(len(payload)):
+                payload[index] = 0
+            payload.clear()
+        GLib.idle_add(self.reauthorization_finished, returncode, error_text)
+
+    def show_error(self, message: str) -> None:
+        self.set_result_style("setup-error")
+        self.result_detail.set_text(translate(message))
+        self.result_detail.show()
+
+    def set_result_style(self, css_class: str) -> None:
+        context = self.result_detail.get_style_context()
+        for candidate in ("setup-error", "reauth-success", "reauth-attention"):
+            context.remove_class(candidate)
+        context.add_class(css_class)
+
+    def reauthorization_finished(self, returncode: int, error_text: str) -> bool:
+        self.busy = False
+        self.spinner.stop()
+        self.progress.hide()
+        self.cancel_button.set_sensitive(True)
+        if returncode in {0, 75}:
+            self.completed = True
+            self.form.set_sensitive(False)
+            self.cancel_button.hide()
+            self.reauthorize_button.set_label(translate("Close"))
+            self.reauthorize_button.set_sensitive(True)
+            self.hero_icon.set_from_icon_name(
+                "emblem-ok-symbolic" if returncode == 0 else "dialog-warning-symbolic",
+                Gtk.IconSize.DIALOG,
+            )
+            icon_context = self.hero_icon.get_style_context()
+            for candidate in ("good", "warning", "danger"):
+                icon_context.remove_class(candidate)
+            add_css(self.hero_icon, "good" if returncode == 0 else "warning")
+            if returncode == 0:
+                self.hero_title.set_text(translate("Reauthorization successful"))
+                self.hero_detail.set_text(
+                    translate("Proton Drive is mounted again. Pending uploads can continue from the protected cache.")
+                )
+                self.result_detail.set_text(translate("The existing encrypted configuration was updated safely."))
+                self.set_result_style("reauth-success")
+            else:
+                self.hero_title.set_text(translate("Credentials accepted; mount needs attention"))
+                self.hero_detail.set_text(
+                    translate(
+                        "Proton accepted the new credentials, but /pdrive did not become ready. The account does not need another login; inspect service diagnostics instead."
+                    )
+                )
+                self.result_detail.set_text(translate("The existing encrypted configuration was updated safely."))
+                self.set_result_style("reauth-attention")
+            self.result_detail.show()
+            self.parent_window.request_refresh(force_capacity=True)
+            return GLib.SOURCE_REMOVE
+
+        if "PDRIVE_REAUTH_ERROR=rate-limited" in error_text:
+            self.completed = True
+            self.form.set_sensitive(False)
+            self.cancel_button.hide()
+            self.reauthorize_button.set_label(translate("Close"))
+            self.reauthorize_button.set_sensitive(True)
+            self.hero_icon.set_from_icon_name("appointment-soon-symbolic", Gtk.IconSize.DIALOG)
+            icon_context = self.hero_icon.get_style_context()
+            for candidate in ("good", "warning", "danger"):
+                icon_context.remove_class(candidate)
+            add_css(self.hero_icon, "warning")
+            self.hero_title.set_text(translate("Login temporarily paused"))
+            self.hero_detail.set_text(
+                translate(
+                    "Proton temporarily rate-limited login attempts. Wait for the complete backoff before trying again."
+                )
+            )
+            self.result_detail.set_text(
+                translate(
+                    "The retry time is saved locally. Close this dialog and wait until the time shown in the Overview."
+                )
+            )
+            self.set_result_style("reauth-attention")
+            self.result_detail.show()
+            self.parent_window.request_refresh()
+            return GLib.SOURCE_REMOVE
+
+        self.form.set_sensitive(True)
+        self.show_password.set_sensitive(True)
+        self.password_entry.grab_focus()
+        if error_text == "helper-unavailable":
+            message = "The reauthentication helper could not be started."
+        elif returncode == 124:
+            message = "Reauthorization timed out. Check the network and retry once with a fresh 2FA code."
+        else:
+            message = "Proton did not accept the login. Check the password and retry once with a fresh 2FA code."
+        self.result_detail.set_text(
+            translate(message) + " " + translate("The existing encrypted configuration was not changed.")
+        )
+        self.set_result_style("setup-error")
+        self.result_detail.show()
+        self.update_button_state()
+        return GLib.SOURCE_REMOVE
+
+
 class PDriveWindow(Gtk.ApplicationWindow):
     def __init__(self, application: Gtk.Application, demo: bool = False) -> None:
         super().__init__(application=application)
@@ -2589,6 +2945,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.content_fit_completed = False
         self.documentation_window: DocumentationWindow | None = None
         self.about_dialog: Gtk.AboutDialog | None = None
+        self.reauthorization_dialog: ReauthorizationDialog | None = None
         self.setup_wizard: SetupWizard | None = None
         self.setup_required = not demo and not setup_config_path().is_file()
         self.dashboard_timer_id = 0
@@ -2801,6 +3158,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             ),
             ("view-refresh-symbolic", "Refresh metadata …", self.on_metadata_refresh),
             ("system-reboot-symbolic", "Safely restart service …", self.on_restart),
+            ("dialog-password-symbolic", "Reauthorize Proton account …", self.on_reauthorize),
         ]
         for icon_name, text, callback in actions:
             button = Gtk.Button()
@@ -2898,6 +3256,14 @@ class PDriveWindow(Gtk.ApplicationWindow):
         text_box.pack_start(self.status_title, False, False, 0)
         text_box.pack_start(self.status_summary, False, False, 0)
         self.status_box.pack_start(text_box, True, True, 0)
+        self.status_action = Gtk.Button(label=translate("Reauthorize"))
+        self.status_action.set_no_show_all(True)
+        self.status_action.set_tooltip_text(translate("Reauthorize Proton account …"))
+        self.status_action.connect("clicked", self.on_reauthorize)
+        add_css(self.status_action, "setup-primary")
+        set_pointer_on_hover(self.status_action)
+        self.status_box.pack_start(self.status_action, False, False, 0)
+        self.status_action.hide()
         right = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=3)
         right.set_halign(Gtk.Align.END)
         live_row = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=5)
@@ -3610,6 +3976,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.refreshing = False
         self.current_state = state
         health = state.get("health", {})
+        authentication = state.get("authentication", {})
         queue = state.get("queue", {})
         transfers = state.get("transfers", {})
         watchdog = state.get("watchdog", {})
@@ -3652,20 +4019,32 @@ class PDriveWindow(Gtk.ApplicationWindow):
         active = len(transfers.get("active", [])) or int(queue.get("active") or 0)
         slots = int(config.get("running_transfers") or config.get("transfers") or 0)
         self.active_card.update(str(active), translate_format("of {slots} upload slots in use", slots=slots))
-        queue_detail = self.queue_eta_detail(
-            queue,
-            speed,
-            int(service.get("pid") or 0),
-            sample_time,
-        )
-        queue_tooltip = queue_detail
-        if self.upload_eta_seconds >= 0:
-            queue_tooltip = translate_format(
-                "{bytes} remaining · ETA ≈ {eta}",
-                bytes=human_bytes(queue.get("remaining_bytes", queue.get("bytes", 0))),
-                eta=clock_duration(self.upload_eta_seconds),
+        authentication_status = str(authentication.get("status") or "unknown")
+        reauthorization_required = authentication_status == "reauthorization-required"
+        authentication_blocked = authentication_status in {"rate-limited", "reauthorization-required"}
+        rate_limited = authentication_status == "rate-limited"
+        if authentication_blocked:
+            queue_detail = translate("Reauthorization needed")
+            queue_tooltip = translate(
+                "The stopped mount cannot report its live queue. Local VFS-cache data remains protected."
             )
-        self.queue_card.update(str(queue.get("count", 0)), queue_detail, queue_tooltip)
+            queue_value = "–"
+        else:
+            queue_detail = self.queue_eta_detail(
+                queue,
+                speed,
+                int(service.get("pid") or 0),
+                sample_time,
+            )
+            queue_tooltip = queue_detail
+            if self.upload_eta_seconds >= 0:
+                queue_tooltip = translate_format(
+                    "{bytes} remaining · ETA ≈ {eta}",
+                    bytes=human_bytes(queue.get("remaining_bytes", queue.get("bytes", 0))),
+                    eta=clock_duration(self.upload_eta_seconds),
+                )
+            queue_value = str(queue.get("count", 0))
+        self.queue_card.update(queue_value, queue_detail, queue_tooltip)
         live_status = status
         live_summary = self.localized_health_summary(state)
         if (
@@ -3683,11 +4062,18 @@ class PDriveWindow(Gtk.ApplicationWindow):
         ):
             live_status = "working"
             live_summary = translate("The retried upload is transferring again with verified process traffic.")
-        self.update_status(
-            live_status,
-            translate(STATUS_META.get(live_status, STATUS_META["unknown"])[1]),
-            live_summary,
-        )
+        if rate_limited:
+            status_title = "Login temporarily paused"
+            live_summary = translate_format(
+                "Try again after {time}. Local cache data remains protected.",
+                time=local_time(str(authentication.get("retry_after") or "")),
+            )
+        elif reauthorization_required:
+            status_title = "Reauthorization required"
+        else:
+            status_title = STATUS_META.get(live_status, STATUS_META["unknown"])[1]
+        self.update_status(live_status, translate(status_title), live_summary)
+        self.status_action.set_visible(reauthorization_required)
         issues = state.get("issues", {})
         application = self.get_application()
         if (
@@ -3698,11 +4084,14 @@ class PDriveWindow(Gtk.ApplicationWindow):
             application.mark_issues_reviewed(state)
         self.update_issue_card(issues)
         self.update_issues(issues)
-        cache_card_detail = translate_format(
-            "{pending} pending upload · {files} cache file(s)",
-            pending=human_bytes(vfs.get("pending_bytes", 0)),
-            files=vfs.get("cache_files", 0),
-        )
+        if authentication_blocked:
+            cache_card_detail = translate("Protected locally · state unavailable")
+        else:
+            cache_card_detail = translate_format(
+                "{pending} pending upload · {files} cache file(s)",
+                pending=human_bytes(vfs.get("pending_bytes", 0)),
+                files=vfs.get("cache_files", 0),
+            )
         self.cache_card.update(human_bytes(vfs.get("cache_bytes", 0)), cache_card_detail)
         self.capacity_card.update(
             self.remote_capacity,
@@ -3716,7 +4105,16 @@ class PDriveWindow(Gtk.ApplicationWindow):
             translate_format("Peak {speed}", speed=human_rate(max(self.download_samples, default=0)))
         )
 
-        if active:
+        if rate_limited:
+            summary = translate_format(
+                "Try again after {time}. Local cache data remains protected.",
+                time=local_time(str(authentication.get("retry_after") or "")),
+            )
+        elif reauthorization_required:
+            summary = translate(
+                "Reauthorize Proton to resume the mount. Automatic login retries are paused and local cache data remains protected."
+            )
+        elif active:
             summary = translate_format(
                 "{active} active transfer(s) · {count} file(s) queued · {speed}",
                 active=active,
@@ -3747,28 +4145,41 @@ class PDriveWindow(Gtk.ApplicationWindow):
         for color_class in ("good", "warning", "danger", "muted", "accent"):
             summary_context.remove_class(color_class)
         summary_context.add_class(summary_color)
-        self.live_detail_labels["upload"].set_text(
-            translate_format(
-                "Upload · {active} active · {count} queued ({bytes}) · {speed}",
-                active=active,
-                count=queue.get("count", 0),
-                bytes=human_bytes(queue.get("bytes", 0)),
-                speed=human_rate(speed),
+        if authentication_blocked:
+            self.live_detail_labels["upload"].set_text(
+                translate("Upload · paused for reauthorization · live queue unavailable")
             )
-        )
+        else:
+            self.live_detail_labels["upload"].set_text(
+                translate_format(
+                    "Upload · {active} active · {count} queued ({bytes}) · {speed}",
+                    active=active,
+                    count=queue.get("count", 0),
+                    bytes=human_bytes(queue.get("bytes", 0)),
+                    speed=human_rate(speed),
+                )
+            )
         self.live_detail_labels["download"].set_text(
             translate_format(
                 "Download · {speed} · rclone process receive traffic",
                 speed=human_rate(download_speed),
             )
         )
-        self.live_detail_labels["cache"].set_text(
-            translate_format(
-                "Cache · {pending} pending upload · {clean} synced read cache",
-                pending=human_bytes(vfs.get("pending_bytes", 0)),
-                clean=human_bytes(vfs.get("clean_bytes", 0)),
+        if authentication_blocked:
+            self.live_detail_labels["cache"].set_text(
+                translate_format(
+                    "Cache · {cache} stored locally · upload state resumes after reauthorization",
+                    cache=human_bytes(vfs.get("cache_bytes", 0)),
+                )
             )
-        )
+        else:
+            self.live_detail_labels["cache"].set_text(
+                translate_format(
+                    "Cache · {pending} pending upload · {clean} synced read cache",
+                    pending=human_bytes(vfs.get("pending_bytes", 0)),
+                    clean=human_bytes(vfs.get("clean_bytes", 0)),
+                )
+            )
         if self.remote_capacity.get("available"):
             cloud_detail = translate_format(
                 "Proton cloud · {free} free of {total}",
@@ -3826,15 +4237,18 @@ class PDriveWindow(Gtk.ApplicationWindow):
         draft_recovery_status = str(draft_recovery.get("status") or "unavailable")
         self.service_detail_values["draft_recovery"].set_text(
             translate_format(
-                "{status} · {confirmations}/2 stall confirmations\n{payload}/1 payload · {finalization}/1 finalization restart(s) · checked {time}",
+                "{status} · {confirmations}/2 stall confirmations\n{payload}/1 payload · {finalization}/1 finalization · {bridge}/6 bridge restart(s)\n{cycles}/3 bridge failure cycles · checked {time}",
                 status=translate(DRAFT_RECOVERY_STATUS_LABELS.get(draft_recovery_status, "Unavailable")),
                 confirmations=int(draft_recovery.get("stall_confirmations") or 0),
                 payload=max(
                     0,
                     int(draft_recovery.get("restart_attempts") or 0)
-                    - int(draft_recovery.get("finalization_restart_attempts") or 0),
+                    - int(draft_recovery.get("finalization_restart_attempts") or 0)
+                    - int(draft_recovery.get("bridge_unwedge_restart_attempts") or 0),
                 ),
                 finalization=int(draft_recovery.get("finalization_restart_attempts") or 0),
+                bridge=int(draft_recovery.get("bridge_unwedge_restart_attempts") or 0),
+                cycles=int(draft_recovery.get("bridge_failure_cycles") or 0),
                 time=local_time(str(draft_recovery.get("generated_at") or "")),
             )
         )
@@ -4400,6 +4814,36 @@ class PDriveWindow(Gtk.ApplicationWindow):
             Gio.AppInfo.launch_default_for_uri(pathlib.Path("/pdrive").as_uri(), None)
         except GLib.Error as error:
             self.message("Could not open mount", str(error), Gtk.MessageType.ERROR)
+
+    def on_reauthorize(self, _button: Gtk.Button) -> None:
+        if self.demo:
+            self.message(
+                "Proton account reauthorization",
+                "Reauthorization is available in the installed application when the account requires it.",
+                Gtk.MessageType.INFO,
+            )
+            return
+        authentication = self.current_state.get("authentication", {})
+        if isinstance(authentication, dict) and authentication.get("status") == "rate-limited":
+            self.message(
+                "Login temporarily paused",
+                translate_format(
+                    "Try again after {time}. Local cache data remains protected.",
+                    time=local_time(str(authentication.get("retry_after") or "")),
+                ),
+                Gtk.MessageType.WARNING,
+            )
+            return
+        if self.reauthorization_dialog is not None:
+            self.reauthorization_dialog.present()
+            return
+        dialog = ReauthorizationDialog(self)
+        self.reauthorization_dialog = dialog
+        dialog.connect(
+            "destroy",
+            lambda _dialog: setattr(self, "reauthorization_dialog", None),
+        )
+        dialog.present()
 
     def on_copy_short_status(self, _button: Gtk.Button) -> None:
         status = getattr(self, "short_status_text", "")
@@ -5422,6 +5866,14 @@ def demo_state() -> dict[str, Any]:
             "restarts": 0,
             "uptime_seconds": 98765,
         },
+        "authentication": {
+            "available": True,
+            "generated_at": now,
+            "age_seconds": 0,
+            "status": "ready",
+            "reason": "authenticated",
+            "restart_suppressed": False,
+        },
         "remote_capacity": {
             "available": True,
             "total_bytes": 2_199_023_255_552,
@@ -5488,6 +5940,8 @@ def demo_state() -> dict[str, Any]:
             "stall_confirmations": 0,
             "restart_attempts": 0,
             "finalization_restart_attempts": 0,
+            "bridge_unwedge_restart_attempts": 0,
+            "bridge_failure_cycles": 0,
         },
         "history": list(reversed(history)),
     }

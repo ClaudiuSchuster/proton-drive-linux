@@ -94,6 +94,15 @@ project-specific; CI remains the authority for mechanical formatting rules.
 - Health reporting must distinguish no work from failed work. Automatic recovery
   requires corroborating queue/error evidence, repeated confirmations, and the
   configured cooldown; it must not restart a healthy idle mount.
+- Treat Proton's explicit fresh-2FA requirement as terminal authentication
+  state, not a transient service failure. Correlate it only with the current
+  start, suppress subsequent automatic login retries, emit at most one desktop
+  notification per unresolved incident, preserve the existing account and VFS
+  cache, and clear the state only after isolated reauthorization succeeds.
+- Classify login rate limiting from concrete private-log HTTP 429 evidence,
+  never from advisory prose. Persist a credential-free retry timestamp, block
+  every UI and direct-service bypass until it expires, and keep HTTP 422 or
+  generic credential rejection distinct.
 - A stall inside the guarded draft-recovery namespace may receive at most one
   automatic restart per exact cache generation. Require prior matching transfer
   progress, a newer concrete path-specific error, healthy connectivity, two
@@ -105,6 +114,14 @@ project-specific; CI remains the authority for mechanical formatting rules.
   connectivity, two separated zero-activity probes and its own one-attempt
   generation-bound allowance. Never consume the ordinary payload-recovery
   allowance for this phase.
+- A repeated Proton block-upload 502 sequence may exhaust the API bridge's
+  global upload-worker semaphore even though rclone still reports an active
+  transfer. Keep this recovery distinct from the ordinary stall and
+  finalization allowances. It requires three separated, same-process 502
+  cycles after proven progress, healthy connectivity, bandwidth above near
+  pause, two separated idle probes and the same strict generation/namespace/
+  queue validation. Persist at most six bridge-unwedge restarts per exact cache
+  generation with a 30-minute gap; never reset that budget automatically.
 - New installations are temporarily pinned to the tested official fixed rclone
   1.76 beta. The updater must hold it rather than downgrade to an older stable
   release, then return to stable automatically once stable 1.76 or newer exists.

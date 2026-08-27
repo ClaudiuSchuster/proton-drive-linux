@@ -22,7 +22,15 @@ Cinnamon login
 The mount service waits for the Keyring item instead of repeatedly attempting
 Proton logins before the desktop session has unlocked it. Its start timeout is
 unlimited so a legitimate Proton backoff is not killed after systemd's usual
-90 seconds. Failed service starts are delayed by one hour.
+90 seconds. Transient failed service starts are delayed by one hour. A terminal
+Proton 2FA requirement is different: the authentication guard cancels the
+scheduled retry after the first failure, records a credential-free state and
+sends one desktop notification so repeated login sessions cannot accumulate.
+Before any later service start, a systemd `ExecCondition` permits only an absent
+legacy state or a fully validated `ready` state. A terminal or malformed state
+therefore skips rclone without contacting Proton or scheduling another retry;
+the transactional reauthorization path writes `ready` only after its isolated
+candidate login succeeds.
 
 ## Installed files
 
@@ -264,7 +272,8 @@ result and exit status, uptime, restart count, mount filesystem and the latest
 watchdog state. Health history on disk is capped at 512 samples, the state
 adapter exposes 48, and the UI renders the latest 24.
 
-The control popover opens guarded operations, Preferences, an About dialog and
+The control popover opens guarded operations, account reauthorization,
+Preferences, an About dialog and
 a native Markdown documentation window with Getting started, Operations,
 Troubleshooting, Security and License pages. The About dialog reports the
 installed PDrive Control Center version, project authors, GPL license and
@@ -355,6 +364,7 @@ format, CLI equivalent and refusal conditions:
 | **Mark issues reviewed**   | Advances only the local issue watermark; it does not delete logs, history or unresolved health evidence.              |
 | **Open Proton Drive web**  | Opens the official web client for account-wide settings; it makes no local PDrive change.                             |
 | **Open PDrive folder**     | Opens `/pdrive` in the file manager; reads and writes then follow normal mounted-filesystem semantics.                |
+| **Reauthorize account**    | Runs one isolated login from a native dialog and replaces the encrypted configuration only after Proton accepts it.   |
 
 Metadata refresh and service restart deliberately finish their final safety
 checks in a terminal so the user sees the exact queue state and confirmation
@@ -561,6 +571,36 @@ never changes the baseline or service.
 
 ## Emergency reauthentication
 
+PDrive normally detects the terminal backend message that a fresh 2FA login is
+required. `pdrive-auth-failure-guard` correlates it only with log output from
+the current service start, writes mode-0600
+`~/.local/state/rclone/pdrive-auth-state.json`, cancels the pending
+`Restart=on-failure` retry and sends one notification according to the Control
+Center notification preference. It never records a username, password, TOTP,
+API URL or session token. The Overview then shows **Reauthorization required**
+with a dedicated button; the same action is available under **hamburger menu →
+Reauthorize Proton account**.
+
+The native dialog uses the account already present in the encrypted
+configuration and requests only the current account password and optional fresh
+six-digit 2FA code. It performs exactly one bounded attempt. The password and
+code fields are cleared immediately; their encoded mutable buffer crosses an
+anonymous stdin pipe and is overwritten after the helper returns. They never
+enter argv, the environment, state JSON or screenshots. A rejected login keeps
+the old configuration and the stopped retry guard intact. A successful login
+backs up and atomically replaces the encrypted configuration, clears the
+one-time code, starts `/pdrive` and changes the authentication state to ready.
+
+Only concrete HTTP 429 evidence in the private isolated-login log activates the
+rate-limit state; generic login rejection and HTTP 422 do not. PDrive stores a
+credential-free `retry_after` timestamp with a conservative one-hour cooldown,
+shows it in the Overview, turns the dialog into a Close-only explanation and
+blocks the hamburger-menu and direct-service-start bypasses. When the timestamp
+expires, the normalized state automatically offers reauthorization again. A
+successful isolated login clears either terminal state immediately.
+
+The equivalent terminal fallback remains:
+
 ```bash
 pdrive-reauth
 pdrive-reauth --reauth
@@ -570,10 +610,11 @@ The no-option form is help only. Use `--reauth` exclusively for an expired or
 invalid session, a changed Proton password, or a diagnosis that clearly points
 to authentication.
 
-The helper requires `REAUTH` and silently reads username, password twice and an
-optional current TOTP. It transports all three fields through an anonymous
-stdin pipe to a narrow internal backend; credentials never appear in process
-arguments or environment variables.
+The helper requires `REAUTH`, reuses the existing account name and silently
+reads the current password twice plus an optional current TOTP. It transports
+an empty account override and both secrets through an anonymous stdin pipe to a
+narrow internal backend; credentials never appear in process arguments or
+environment variables.
 
 The backend builds a separate encrypted candidate configuration and performs
 exactly one bounded, read-only login using a dedicated temporary cache. A failed
@@ -585,8 +626,9 @@ removed on every exit. Documented non-session backend choices such as an
 obscured two-password mailbox value and custom encoding are preserved; old
 client/session tokens are deliberately not copied into the candidate.
 
-After HTTP 429, leave the service stopped and wait for Proton's complete stated
-backoff plus a small margin. Repeated “tests” can extend the block.
+After HTTP 429, leave the service stopped until the retry time shown by PDrive.
+If Proton states a longer backoff, that longer interval remains authoritative.
+Repeated “tests” can extend the block.
 
 ## Advanced draft recovery
 
@@ -668,6 +710,38 @@ Relevant finalization states are `finalizing`, `confirming-finalization`,
 `finalization-restart-limited` and `upgrade-required`. The last state means the
 queued payload is being preserved because the installed rclone does not yet
 contain the safe retry behavior.
+
+### Proton bridge worker-stall recovery
+
+Repeated HTTP 502 failures while encrypted blocks are uploaded can leave the
+current Proton API bridge process with no available block-upload workers. The
+rclone process and VFS queue then remain present, but the transfer produces no
+TCP or payload progress. This is different from both an ordinary VFS stall and
+the final commit phase.
+
+The helper recognizes this narrow signature only after all of the following
+evidence belongs to the same process and exact cache generation:
+
+- matching payload progress was proven before the failure;
+- at least three path-correlated HTTP 502 block-upload cycles occurred at least
+  30 seconds apart;
+- the newest failure is later than the newest payload progress;
+- upload bandwidth is above near pause and DNS is healthy;
+- two 20-second activity probes at least two minutes apart remain idle;
+- the fixed rclone version, recovery flag, namespace, Dirty byte count, queue
+  and generation fingerprint still pass the normal restart validation.
+
+This stage has a separate budget of six controlled restarts per exact cache
+generation and a minimum 30-minute gap. Its counters never consume or bypass
+the one ordinary payload restart or the one finalization restart. Active
+traffic, a process change, near-pause bandwidth or unhealthy connectivity
+clears pending confirmations without consuming the budget. Reaching the limit
+leaves the complete Dirty cache protected for manual review.
+
+Relevant states are `probing-bridge-stall`, `confirming-bridge-stall`,
+`bridge-cooldown`, `bridge-restarted` and `bridge-restart-limited`. The Control
+Center shows the observed failure cycles and the independent restart budget in
+**History → Service diagnostics → Draft recovery**.
 
 The automatic path deliberately needs two observations. `--recover-now` skips
 only that waiting period; every cache, namespace, exclusivity and rollback guard

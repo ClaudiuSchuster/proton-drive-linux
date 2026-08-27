@@ -285,6 +285,79 @@ limited = module.post_recovery_decision(
 )
 assert limited["status"] == "restart-limited" and not limited["restart"]
 
+bridge_first_idle = module.post_recovery_decision(
+    {},
+    observation(
+        error_epoch=9_000,
+        error_category="remote-server",
+        bridge_failure_cycles=3,
+        last_bridge_failure_epoch=9_000,
+        activity="idle",
+    ),
+)
+assert bridge_first_idle["status"] == "confirming-bridge-stall"
+assert bridge_first_idle["state"]["bridge_stall_confirmations"] == 1
+
+bridge_state = dict(bridge_first_idle["state"])
+bridge_state["restart_attempts"] = 1
+bridge_state["last_restart_epoch"] = 10_200
+bridge_confirmed = module.post_recovery_decision(
+    bridge_state,
+    observation(
+        now_epoch=10_300,
+        error_epoch=9_000,
+        error_category="remote-server",
+        bridge_failure_cycles=3,
+        last_bridge_failure_epoch=9_000,
+        activity="idle",
+    ),
+)
+assert bridge_confirmed["status"] == "bridge-restart-requested"
+assert bridge_confirmed["restart"] and bridge_confirmed["restart_kind"] == "bridge-unwedge"
+assert bridge_confirmed["state"]["bridge_unwedge_restart_attempts"] == 1
+
+bridge_cooldown = module.post_recovery_decision(
+    bridge_confirmed["state"],
+    observation(
+        now_epoch=10_600,
+        error_epoch=10_500,
+        error_category="remote-server",
+        bridge_failure_cycles=3,
+        last_bridge_failure_epoch=10_500,
+        activity="idle",
+    ),
+)
+assert bridge_cooldown["status"] == "bridge-cooldown" and not bridge_cooldown["restart"]
+
+bridge_limited_state = dict(bridge_confirmed["state"])
+bridge_limited_state["bridge_unwedge_restart_attempts"] = module.POST_BRIDGE_STALL_RESTART_LIMIT
+bridge_limited = module.post_recovery_decision(
+    bridge_limited_state,
+    observation(
+        now_epoch=20_000,
+        error_epoch=19_900,
+        error_category="remote-server",
+        bridge_failure_cycles=3,
+        last_bridge_failure_epoch=19_900,
+        activity="idle",
+    ),
+)
+assert bridge_limited["status"] == "bridge-restart-limited" and not bridge_limited["restart"]
+
+bridge_moving = module.post_recovery_decision(
+    bridge_first_idle["state"],
+    observation(
+        now_epoch=10_300,
+        error_epoch=9_000,
+        error_category="remote-server",
+        bridge_failure_cycles=3,
+        last_bridge_failure_epoch=9_000,
+        activity="moving",
+    ),
+)
+assert bridge_moving["status"] == "recovering"
+assert bridge_moving["state"]["bridge_stall_confirmations"] == 0
+
 moving = module.post_recovery_decision(
     first_idle["state"],
     observation(now_epoch=10_300, error_epoch=9_000, activity="moving"),
@@ -429,6 +502,22 @@ with tempfile.TemporaryDirectory(prefix="proton-drive-linux-context-") as contex
     assert module.post_recovery_error("fixture.bin", context_epoch)["epoch"] == 0
     contextual_error = module.post_recovery_error("fixture.bin", context_epoch, allow_backend_context=True)
     assert contextual_error["category"] == "remote-file-removed"
+
+    context_log.write_text(
+        "2026/08/26 02:39:09 ERROR : proton drive root link ID '': "
+        "502 POST https://storage.invalid/storage/blocks: failed\n"
+        "2026/08/26 02:39:20 ERROR : proton drive root link ID '': "
+        "502 POST https://storage.invalid/storage/blocks: duplicate\n"
+        "2026/08/26 02:40:09 ERROR : proton drive root link ID '': "
+        "502 POST https://storage.invalid/storage/blocks: failed\n"
+        "2026/08/26 02:41:09 ERROR : proton drive root link ID '': "
+        "502 POST https://storage.invalid/storage/blocks: failed\n"
+        "2026/08/26 02:42:09 ERROR : proton drive root link ID '': "
+        "502 POST https://drive-api.invalid/core/v4/users: unrelated\n",
+        encoding="utf-8",
+    )
+    bridge_summary = module.bridge_failure_summary("fixture.bin", context_epoch, allow_backend_context=True)
+    assert bridge_summary["cycles"] == 3
 
 probe_changed = module.post_recovery_decision(
     first_idle["state"],

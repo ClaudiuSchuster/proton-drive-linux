@@ -101,6 +101,13 @@ notification_allowed() {
     esac
 }
 
+notify_pdrive() {
+    notify-send \
+        --app-name='PDrive Control Center' \
+        --icon='io.github.claudiuschuster.PDriveControl' \
+        "$@"
+}
+
 trim_watch_history() {
     local entry_count history_tmp
 
@@ -1180,16 +1187,16 @@ if [[ "${record_mode}" == true ]]; then
         && command -v notify-send >/dev/null 2>&1; then
         case "${status}" in
             ready)
-                notify-send --app-name='Proton Drive' 'Proton Drive ist bereit' \
+                notify_pdrive 'Proton Drive ist bereit' \
                     'Der Mount ist direkt unter /pdrive verfügbar.' || true
                 ;;
             warning|critical)
-                notify-send --urgency=critical --app-name='Proton Drive' \
+                notify_pdrive --urgency=critical \
                     'Proton-Drive-Monitor: Aufmerksamkeit nötig' "${reason}" || true
                 ;;
             working)
                 if [[ "${reason_code}" == 'auto-restart-issued' ]]; then
-                    notify-send --urgency=normal --app-name='Proton Drive' \
+                    notify_pdrive --urgency=normal \
                         'Proton Drive wird vorsichtig neu gestartet' \
                         'Zwei Prüfungen bestätigten einen Uploadstillstand ohne laufende Nutzdatenübertragung.' || true
                 fi
