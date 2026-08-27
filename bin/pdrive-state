@@ -306,7 +306,36 @@ def transfer_name(item: dict[str, Any]) -> str:
     return str(item.get("name") or item.get("path") or item.get("remote") or "Unknown file")
 
 
-def normalize_transfer(item: dict[str, Any], *, completed: bool = False) -> dict[str, Any]:
+def fs_config_name(value: Any) -> str:
+    """Return only rclone's configuration name, never a root or local path."""
+
+    text = str(value or "").strip()
+    if not text or ":" not in text:
+        return ""
+    return text.split(":", 1)[0]
+
+
+def transfer_direction(item: dict[str, Any], proton_source: Any) -> str:
+    """Classify a transfer without exposing rclone filesystem identifiers."""
+
+    proton_config = fs_config_name(proton_source)
+    source = str(item.get("srcFs") or "").strip()
+    destination = str(item.get("dstFs") or "").strip()
+    if not proton_config or not source or not destination:
+        return "unknown"
+    source_is_proton = fs_config_name(source) == proton_config
+    destination_is_proton = fs_config_name(destination) == proton_config
+    if source_is_proton == destination_is_proton:
+        return "unknown"
+    return "download" if source_is_proton else "upload"
+
+
+def normalize_transfer(
+    item: dict[str, Any],
+    *,
+    completed: bool = False,
+    proton_source: Any = "",
+) -> dict[str, Any]:
     size = integer(item.get("size") or item.get("totalBytes"))
     done = integer(item.get("bytes") or item.get("transferred"))
     percentage = number(item.get("percentage"), -1.0)
@@ -327,6 +356,7 @@ def normalize_transfer(item: dict[str, Any], *, completed: bool = False) -> dict
         "completed": completed and not error,
         "error": error,
         "group": str(item.get("group") or ""),
+        "direction": transfer_direction(item, proton_source),
     }
 
 
@@ -1093,12 +1123,14 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
     if not isinstance(transferred, list):
         transferred = []
     recent_transfers = [
-        normalize_transfer(item, completed=True) for item in transferred[-24:] if isinstance(item, dict)
+        normalize_transfer(item, completed=True, proton_source=mount["source"])
+        for item in transferred[-24:]
+        if isinstance(item, dict)
     ]
     active_raw = stats.get("transferring", [])
     if not isinstance(active_raw, list):
         active_raw = []
-    active = [normalize_transfer(item) for item in active_raw if isinstance(item, dict)]
+    active = [normalize_transfer(item, proton_source=mount["source"]) for item in active_raw if isinstance(item, dict)]
     queue = normalize_queue(rc_payloads.get("vfs/queue"))
     mark_finalizing_transfers(queue, active)
     queue["remaining_bytes"] = queue_remaining_bytes(queue, active)

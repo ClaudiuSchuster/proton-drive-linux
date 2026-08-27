@@ -56,7 +56,7 @@ printf '%s\n' \
     '    else' \
     '      printf "%s\\n" '\''{"bytes":1048576,"speed":524288,"errors":0,"transferring":[{"name":"demo/file.iso","size":2097152,"bytes":1048576,"speed":524288,"eta":2}]} '\''' \
     '    fi ;;' \
-    '  core/transferred) printf "%s\\n" '\''{"transferred":[{"name":"done.txt","size":12,"bytes":12,"completedAt":"2026-08-24T10:00:00+00:00"},{"name":"Projects/demo.qcow2","size":1048576,"bytes":1048576,"completedAt":"2026-08-24T10:04:00+00:00"}]} '\'' ;;' \
+    '  core/transferred) printf "%s\\n" '\''{"transferred":[{"name":"done.txt","size":12,"bytes":12,"completedAt":"2026-08-24T10:00:00+00:00","srcFs":"/tmp/vfs/proton-test","dstFs":"proton-test:"},{"name":"Projects/demo.qcow2","size":1048576,"bytes":1048576,"completedAt":"2026-08-24T10:04:00+00:00","srcFs":"proton-test:","dstFs":"/tmp/vfs/proton-test"},{"name":"missing-direction.txt","size":24,"bytes":24,"completedAt":"2026-08-24T10:05:00+00:00"},{"name":"ambiguous-direction.txt","size":48,"bytes":48,"completedAt":"2026-08-24T10:06:00+00:00","srcFs":"proton-test:source","dstFs":"proton-test:destination"}]} '\'' ;;' \
     '  vfs/queue) printf "%s\\n" '\''{"queue":[{"name":"demo/file.iso","size":2097152,"tries":2,"uploading":true}]} '\'' ;;' \
     '  vfs/stats) printf "%s\\n" '\''{"diskCache":{"bytesUsed":3145728,"files":2,"uploadsQueued":1,"uploadsInProgress":1,"erroredFiles":0,"outOfSpace":false},"opt":{"CacheMaxAge":86400000000000}}'\'' ;;' \
     '  core/bwlimit) printf "%s\\n" '\''{"rate":"4M:off","bytesPerSecondTx":4194304}'\'' ;;' \
@@ -162,6 +162,9 @@ jq -e '
     and .mount.ready == true
     and .stats.speed == 524288
     and .transfers.active[0].name == "demo/file.iso"
+    and .transfers.active[0].direction == "unknown"
+    and ([.transfers.recent[].direction] == ["upload", "download", "unknown", "unknown"])
+    and ([.transfers.recent[] | has("srcFs") or has("dstFs")] | any | not)
     and .queue.count == 1
     and .queue.active == 1
     and .queue.remaining_bytes == 1048576

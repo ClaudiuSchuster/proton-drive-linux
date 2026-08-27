@@ -394,6 +394,9 @@ GERMAN_TRANSLATIONS = {
     "The payload is complete; success is confirmed only after Proton commits the remote file.": "Der Payload ist vollständig; erfolgreich ist der Upload erst, nachdem Proton die Remote-Datei committed hat.",
     "Failed": "Fehler",
     "Completed": "Fertig",
+    "Upload": "Upload",
+    "Download": "Download",
+    "Direction unknown": "Richtung unbekannt",
     "No history yet": "Noch kein Verlauf",
     "The pdrive-watch timer has not recorded a sample yet.": "Der pdrive-watch-Timer hat noch keinen Messpunkt gespeichert.",
     "Queue {queue} · active {active} · error counter {errors} · notices {notices}": "Queue {queue} · aktiv {active} · Fehlerzähler {errors} · Hinweise {notices}",
@@ -4521,6 +4524,21 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.status_title.set_text(translate(title_text or fallback_title))
         self.status_summary.set_text(summary or translate("No details available."))
 
+    def transfer_direction_badge(self, direction: str) -> Gtk.Widget:
+        normalized = direction if direction in {"upload", "download"} else "unknown"
+        icon_name, text = {
+            "upload": ("network-transmit-symbolic", "Upload"),
+            "download": ("network-receive-symbolic", "Download"),
+            "unknown": ("dialog-question-symbolic", "Direction unknown"),
+        }[normalized]
+        badge = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=4)
+        badge.set_name(f"transfer-direction-{normalized}")
+        add_css(badge, "pill", "direction-pill")
+        badge.pack_start(Gtk.Image.new_from_icon_name(icon_name, Gtk.IconSize.MENU), False, False, 0)
+        badge.pack_start(label(text), False, False, 0)
+        badge.set_tooltip_text(translate(text))
+        return badge
+
     def transfer_row(self, item: dict[str, Any], queue: bool = False, recent: bool = False) -> Gtk.ListBoxRow:
         row = Gtk.ListBoxRow()
         add_css(row, "transfer-row")
@@ -4542,6 +4560,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         elif recent:
             text = "Failed" if item.get("error") else "Completed"
             top.pack_end(label(text, "pill"), False, False, 0)
+            top.pack_end(self.transfer_direction_badge(str(item.get("direction") or "unknown")), False, False, 0)
         else:
             if item.get("stage") == "finalizing":
                 speed_text = translate("Finalizing")
