@@ -43,13 +43,27 @@ assert module.translate("Documentation …") == "Handbuch …"
 assert module.translate("About …") == "Über …"
 assert module.translate("GitHub project") == "GitHub-Projekt"
 assert module.translate("License") == "Lizenz"
+assert module.translate("Quick start") == "Schnellstart"
+assert module.translate("Everyday use") == "Tägliche Nutzung"
 assert module.translate(
     "Fabian Schneider — comic relief, lively development chats and plenty of screenshots"
 ).startswith("Fabian Schneider — Quatschkomödie")
 assert module.translate("Keep running in the tray when the window closes").startswith("Beim Schließen")
 assert module.translate("Keep live metrics updating while hidden in the tray").startswith("Live-Metriken")
 module.CURRENT_LANGUAGE = "en"
-assert module.documentation_path("README.md", "README.md") == pathlib.Path(sys.argv[1]).resolve().parent.parent.joinpath("README.md")
+project_root = pathlib.Path(sys.argv[1]).resolve().parent.parent
+assert module.documentation_path("QUICK_START.md", "docs/QUICK_START.md") == project_root.joinpath(
+    "docs/QUICK_START.md"
+)
+assert [page[0] for page in module.DOCUMENTATION_PAGES] == [
+    "quick-start",
+    "everyday-use",
+    "operations",
+    "troubleshooting",
+    "security",
+    "license",
+]
+assert module.DOCUMENTATION_PAGES[-1][-1] is True
 blocks = module.markdown_blocks(
     "<p align=\"center\">\n"
     "  <img src=\"icon.svg\"\n"
@@ -80,6 +94,12 @@ assert table_blocks == [
         "**Setting:**\u2002Cache retention\n**Default:**\u2002**24 hours**",
     )
 ]
+long_line = "Apostrophe reader's line " + "x" * 4096
+edge_blocks = module.markdown_blocks(
+    f"{long_line}\n\nUse `inline code` and [a local link](EVERYDAY_USE.md).\n"
+)
+assert ("paragraph", long_line) in edge_blocks
+assert any("`inline code`" in text and "[a local link]" in text for _, text in edge_blocks)
 
 module.PDriveApplication.sync_autostart(True)
 autostart = module.autostart_path()

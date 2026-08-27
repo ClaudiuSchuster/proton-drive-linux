@@ -101,6 +101,10 @@ required_documentation=(
     'Backup and restoration'
     'Update schedule and integrity'
     'A link is not the same as a working route'
+    'Complete the setup wizard'
+    'finished Nemo copy means the local VFS cache accepted the data'
+    'Read transfer state correctly'
+    'Know when a write is remote'
 )
 for required_text in "${required_documentation[@]}"; do
     if ! grep -RiqF -- "${required_text}" \
@@ -113,6 +117,34 @@ if grep -RiqF -- 'mode-0600 Unix' "${project_dir}/README.md" "${project_dir}/doc
     printf 'Incorrect RC Unix-socket mode found in documentation.\n' >&2
     exit 1
 fi
+
+manual_files=(
+    'docs/QUICK_START.md'
+    'docs/EVERYDAY_USE.md'
+    'docs/OPERATIONS.md'
+    'docs/TROUBLESHOOTING.md'
+    'SECURITY.md'
+    'LICENSE'
+)
+manual_assets=(
+    'docs/assets/pdrive-control-center.png'
+    'docs/assets/pdrive-transfers.png'
+    'docs/assets/pdrive-auth-cooldown.png'
+)
+for manual_path in "${manual_files[@]}" "${manual_assets[@]}"; do
+    if [[ ! -s "${project_dir}/${manual_path}" ]]; then
+        printf 'Required in-app documentation asset is missing: %s\n' "${manual_path}" >&2
+        exit 1
+    fi
+    manual_name=$(basename -- "${manual_path}")
+    for lifecycle_script in install.sh uninstall.sh; do
+        if ! grep -qF -- "${manual_name}" "${project_dir}/${lifecycle_script}"; then
+            printf '%s does not handle in-app documentation asset: %s\n' \
+                "${lifecycle_script}" "${manual_name}" >&2
+            exit 1
+        fi
+    done
+done
 
 "${project_dir}/tests/test-help.sh"
 "${project_dir}/tests/test-systemd.sh"

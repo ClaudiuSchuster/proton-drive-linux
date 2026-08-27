@@ -78,16 +78,18 @@ MIN_WINDOW_HEIGHT = 480
 MAX_WINDOW_DIMENSION = 16384
 OVERVIEW_GUTTER = 16
 DOCUMENTATION_PAGES = (
-    ("guide", "Getting started", "README.md", "README.md"),
-    ("operations", "Operations", "OPERATIONS.md", "docs/OPERATIONS.md"),
+    ("quick-start", "Quick start", "QUICK_START.md", "docs/QUICK_START.md", False),
+    ("everyday-use", "Everyday use", "EVERYDAY_USE.md", "docs/EVERYDAY_USE.md", False),
+    ("operations", "Operations", "OPERATIONS.md", "docs/OPERATIONS.md", False),
     (
         "troubleshooting",
         "Troubleshooting",
         "TROUBLESHOOTING.md",
         "docs/TROUBLESHOOTING.md",
+        False,
     ),
-    ("security", "Security", "SECURITY.md", "SECURITY.md"),
-    ("license", "License", "LICENSE", "LICENSE"),
+    ("security", "Security", "SECURITY.md", "SECURITY.md", False),
+    ("license", "License", "LICENSE", "LICENSE", True),
 )
 DEFAULT_PREFERENCES: dict[str, Any] = {
     "close_to_tray": False,
@@ -188,7 +190,8 @@ GERMAN_TRANSLATIONS = {
     "Reauthorization is available in the installed application when the account requires it.": "Die neue Autorisierung ist in der installierten Anwendung verfügbar, sobald das Konto sie benötigt.",
     "Documentation …": "Handbuch …",
     "Documentation": "Handbuch",
-    "Getting started": "Einstieg",
+    "Quick start": "Schnellstart",
+    "Everyday use": "Tägliche Nutzung",
     "Operations": "Betrieb",
     "Troubleshooting": "Fehlerbehebung",
     "Security": "Sicherheit",
@@ -1865,7 +1868,13 @@ def markdown_blocks(markdown: str) -> list[tuple[str, str]]:
 class MarkdownView(Gtk.ScrolledWindow):
     INLINE_PATTERN = re.compile(r"(`[^`]+`|\*\*[^*]+\*\*|\[[^]]+\]\([^)]+\))")
 
-    def __init__(self, markdown: str, activate_link: Any, base_dir: pathlib.Path | None = None) -> None:
+    def __init__(
+        self,
+        markdown: str,
+        activate_link: Any,
+        base_dir: pathlib.Path | None = None,
+        plain_text: bool = False,
+    ) -> None:
         super().__init__()
         self.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
         self.set_shadow_type(Gtk.ShadowType.NONE)
@@ -1969,7 +1978,10 @@ class MarkdownView(Gtk.ScrolledWindow):
                 pixels_below_lines=10,
             ),
         }
-        self.render(markdown)
+        if plain_text:
+            self.insert_text(f"{markdown.rstrip()}\n", self.tags["body"])
+        else:
+            self.render(markdown)
 
     def insert_text(self, text: str, *tags: Gtk.TextTag) -> None:
         """Insert non-link text and stop an adjacent link tag from bleeding."""
@@ -2080,9 +2092,14 @@ class MarkdownView(Gtk.ScrolledWindow):
                 self.insert_inline(text, self.tags["body"])
                 self.insert_text("\n\n")
 
-    def link_at(self, x: float, y: float) -> str | None:
+    def link_at(
+        self,
+        x: float,
+        y: float,
+        window_type: Gtk.TextWindowType = Gtk.TextWindowType.TEXT,
+    ) -> str | None:
         buffer_x, buffer_y = self.text_view.window_to_buffer_coords(
-            Gtk.TextWindowType.WIDGET,
+            window_type,
             int(x),
             int(y),
         )
@@ -2102,13 +2119,17 @@ class MarkdownView(Gtk.ScrolledWindow):
             text_window.set_cursor(None)
             return
         display = text_window.get_display()
-        cursor = Gdk.Cursor.new_from_name(display, "pointer")
-        if cursor is None:
-            cursor = Gdk.Cursor.new_for_display(display, Gdk.CursorType.HAND2)
+        cursor = Gdk.Cursor.new_for_display(display, Gdk.CursorType.HAND2)
         text_window.set_cursor(cursor)
 
+    def event_window_type(self, event: Gdk.Event) -> Gtk.TextWindowType:
+        event_window = getattr(event, "window", None)
+        if event_window is None:
+            return Gtk.TextWindowType.TEXT
+        return self.text_view.get_window_type(event_window)
+
     def on_motion_notify(self, _widget: Gtk.Widget, event: Gdk.EventMotion) -> bool:
-        self.set_link_cursor(self.link_at(event.x, event.y) is not None)
+        self.set_link_cursor(self.link_at(event.x, event.y, self.event_window_type(event)) is not None)
         return False
 
     def on_pointer_leave(self, _widget: Gtk.Widget, _event: Gdk.EventCrossing) -> bool:
@@ -2118,7 +2139,7 @@ class MarkdownView(Gtk.ScrolledWindow):
     def on_button_release(self, _widget: Gtk.Widget, event: Gdk.EventButton) -> bool:
         if event.button != 1:
             return False
-        target = self.link_at(event.x, event.y)
+        target = self.link_at(event.x, event.y, self.event_window_type(event))
         if target is not None:
             self.activate_link(target)
             return True
@@ -2162,8 +2183,10 @@ class DocumentationWindow(Gtk.Window):
             title,
             installed_name,
             repository_relative,
+            plain_text,
         ) in DOCUMENTATION_PAGES:
             path = documentation_path(installed_name, repository_relative)
+            render_as_plain_text = False
             if path is None:
                 markdown = (
                     f"# {translate('Documentation unavailable')}\n\n"
@@ -2173,6 +2196,7 @@ class DocumentationWindow(Gtk.Window):
             else:
                 try:
                     markdown = path.read_text(encoding="utf-8")
+                    render_as_plain_text = plain_text
                 except OSError:
                     markdown = (
                         f"# {translate('Documentation unavailable')}\n\n"
@@ -2182,6 +2206,7 @@ class DocumentationWindow(Gtk.Window):
                 markdown,
                 lambda target, current=repository_relative: self.on_link(target, current),
                 path.resolve().parent if path is not None else None,
+                plain_text=render_as_plain_text,
             )
             self.stack.add_titled(view, page_name, translate(title))
             self.page_names[pathlib.PurePosixPath(repository_relative).name.lower()] = page_name

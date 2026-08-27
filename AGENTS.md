@@ -162,7 +162,9 @@ project-specific; CI remains the authority for mechanical formatting rules.
 - `systemd/user`: mount, watchdog, and updater lifecycle.
 - `tests`: action-free help checks, fixtures, setup safety, state schema, and GTK
   behavior.
-- `README.md`: product overview and common installation/use.
+- `README.md`: concise product overview, installation and documentation routes.
+- `docs/QUICK_START.md`: newcomer path through first verified remote upload.
+- `docs/EVERYDAY_USE.md`: task-oriented normal operation in Nemo and the GUI.
 - `docs/OPERATIONS.md`: complete operational reference.
 - `docs/TROUBLESHOOTING.md`: symptom-led diagnosis and recovery.
 
@@ -176,10 +178,13 @@ project-specific; CI remains the authority for mechanical formatting rules.
 - For UI changes, exercise both languages, the minimum supported width, content
   fitting on a normal desktop, tray actions, and both zero-activity and active
   transfer states. Use fixtures or demo mode rather than a real cloud mutation.
-- Capture Cinnamon product images through one X11 root screenshot followed by
-  an exact crop. Do not automate repeated `ScreenshotArea` D-Bus calls; that
-  path has caused reproducible Cinnamon crashes. Keep the active-window
-  highlight visible in the main product shot.
+- Prefer an isolated GTK Broadway display for deterministic demo screenshots
+  and widget-level visual checks so the live desktop remains private and usable.
+  Never place a fullscreen backdrop window on the real session. Use Cinnamon
+  root capture plus an exact crop only when the image must prove compositor,
+  tray, Nemo or window-manager integration. Do not automate repeated
+  `ScreenshotArea` D-Bus calls; that path has caused reproducible Cinnamon
+  crashes. Keep the active-window highlight visible in the main product shot.
 - For state-schema changes, update fixtures and UI consumers together. Preserve
   backwards-compatible defaults when a field can be absent from an older
   snapshot.
