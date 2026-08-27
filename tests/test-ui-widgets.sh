@@ -742,6 +742,7 @@ for newcomer_guidance in (
 assert "<img" not in quick_start_text
 assert "[!IMPORTANT]" not in quick_start_text
 assert [image.name for image in quick_start.rendered_images] == [
+    "pdrive-setup-wizard.png",
     "pdrive-control-center.png",
     "pdrive-auth-cooldown.png",
 ]
