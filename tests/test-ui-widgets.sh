@@ -378,6 +378,32 @@ stalled_labels = [
 assert "0 B/s" in stalled_labels
 assert any("⏸ ETA waiting" in text for text in stalled_labels)
 
+recovery_limited_state = copy.deepcopy(stalled_state)
+recovery_limited_state["health"].update(
+    {
+        "status": "warning",
+        "reason_code": "recovery-limited",
+        "summary": (
+            "The protected upload is stalled after guarded recovery attempts. "
+            "Local cache data remains protected."
+        ),
+    }
+)
+recovery_limited_state["draft_recovery"].update(
+    {
+        "status": "restart-limited",
+        "error_category": "remote-file-removed",
+        "progress_proven": True,
+    }
+)
+window.apply_state(recovery_limited_state)
+assert window.status_title.get_text() == "Attention"
+assert "Local cache data remains protected" in window.status_summary.get_text()
+module.CURRENT_LANGUAGE = "de"
+window.apply_state(recovery_limited_state)
+assert "Lokale Cachedaten bleiben geschützt" in window.status_summary.get_text()
+module.CURRENT_LANGUAGE = "en"
+
 window.upload_eta_pid = 0
 window.upload_eta_signature = ()
 window.upload_eta_samples = 0

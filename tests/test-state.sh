@@ -26,8 +26,12 @@ printf '%s\n' \
     'ActiveEnterTimestamp=Mon 2026-08-24 10:00:00 CEST' \
     'ActiveEnterTimestampMonotonic=1000000' \
     'EOF' > "${fake_bin}/systemctl"
+# This single-quoted line deliberately writes a literal shell expansion into
+# the fake ss executable instead of expanding it in this test process.
+# shellcheck disable=SC2016
 printf '%s\n' \
     '#!/usr/bin/env bash' \
+    'if [[ "${PDRIVE_TEST_NO_TCP:-}" == 1 ]]; then exit 0; fi' \
     'cat <<EOF' \
     '0 0 192.0.2.10:54321 198.51.100.20:443 users:(("rclone-bin",pid=4242,fd=8))' \
     ' cubic bytes_sent:8388608 bytes_acked:8388609 bytes_received:3145728' \
@@ -51,7 +55,9 @@ printf '%s\n' \
     'if [[ "${PDRIVE_TEST_NO_VFS:-}" == 1 && "${endpoint}" == vfs/* ]]; then exit 99; fi' \
     'case "${endpoint}" in' \
     '  core/stats)' \
-    '    if [[ "${PDRIVE_TEST_COMPLETE:-}" == 1 ]]; then' \
+    '    if [[ "${PDRIVE_TEST_STALLED:-}" == 1 ]]; then' \
+    '      printf "%s\n" '\''{"bytes":1048576,"speed":0,"errors":0,"transferring":[{"name":"demo/file.iso","size":2097152,"bytes":1048576,"speed":0,"eta":null}]} '\''' \
+    '    elif [[ "${PDRIVE_TEST_COMPLETE:-}" == 1 ]]; then' \
     '      printf "%s\\n" '\''{"bytes":2097152,"speed":0,"errors":0,"transferring":[{"name":"demo/file.iso","size":2097152,"bytes":2097152,"speed":0,"eta":null}]} '\''' \
     '    else' \
     '      printf "%s\\n" '\''{"bytes":1048576,"speed":524288,"errors":0,"transferring":[{"name":"demo/file.iso","size":2097152,"bytes":1048576,"speed":524288,"eta":2}]} '\''' \
@@ -285,6 +291,45 @@ jq -e '
 ' "${stale_watchdog_json}" >/dev/null
 mv -f -- "${state_dir}/pdrive-watch-latest.ready" \
     "${state_dir}/pdrive-watch-latest.txt"
+
+cp -- "${state_dir}/pdrive-draft-recovery-latest.json" \
+    "${state_dir}/pdrive-draft-recovery-latest.ready"
+cat > "${state_dir}/pdrive-draft-recovery-latest.json" <<EOF
+{
+  "detail": "The guarded restart limit for this cache generation has been reached.",
+  "error_category": "remote-file-removed",
+  "generated_at": "$(date --iso-8601=seconds)",
+  "phase": "recovery",
+  "progress_proven": true,
+  "queue_count": 1,
+  "restart_attempts": 2,
+  "status": "restart-limited"
+}
+EOF
+recovery_limited_json="${test_root}/recovery-limited.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_TEST_NO_TCP=1 \
+PDRIVE_TEST_STALLED=1 \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+    "${project_dir}/bin/pdrive-state" --compact > "${recovery_limited_json}"
+jq -e '
+    .health.status == "warning"
+    and .health.reason_code == "recovery-limited"
+    and (.health.summary | contains("Local cache data remains protected"))
+    and .network_io.available == true
+    and .network_io.connections == 0
+    and .stats.speed == 0
+    and .queue.count == 1
+' "${recovery_limited_json}" >/dev/null
+mv -f -- "${state_dir}/pdrive-draft-recovery-latest.ready" \
+    "${state_dir}/pdrive-draft-recovery-latest.json"
 
 finalizing_json="${test_root}/state-finalizing.json"
 HOME="${test_home}" \

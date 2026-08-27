@@ -734,8 +734,9 @@ The helper recognizes this narrow signature only after all of the following
 evidence belongs to the same process and exact cache generation:
 
 - matching payload progress was proven before the failure;
-- at least three path-correlated HTTP 502 block-upload cycles occurred at least
-  30 seconds apart;
+- either at least three path-correlated HTTP 502 block-upload cycles occurred
+  at least 30 seconds apart, or two such cycles were followed by a terminal
+  `This file has been removed` response in the same or a later log second;
 - the newest failure is later than the newest payload progress;
 - upload bandwidth is above near pause and DNS is healthy;
 - two 20-second activity probes at least two minutes apart remain idle;
@@ -748,6 +749,12 @@ the one ordinary payload restart or the one finalization restart. Active
 traffic, a process change, near-pause bandwidth or unhealthy connectivity
 clears pending confirmations without consuming the budget. Reaching the limit
 leaves the complete Dirty cache protected for manual review.
+
+The two-cycle terminal variant avoids a recovery deadlock: once Proton has
+removed the failed remote draft, the block worker may become fully idle and can
+no longer emit a third 502 cycle. A single 502, an older 404, or two ordinary
+server errors remain insufficient and fall back to the conservative normal
+limits.
 
 Relevant states are `probing-bridge-stall`, `confirming-bridge-stall`,
 `bridge-cooldown`, `bridge-restarted` and `bridge-restart-limited`. The Control

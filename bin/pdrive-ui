@@ -565,6 +565,7 @@ GERMAN_HEALTH_SUMMARIES = {
     "low-space": "Der freie Speicher liegt unter dem sicheren Grenzwert.",
     "queue-monitor-unavailable": "Die lokale VFS-Warteschlange konnte nicht geprüft werden.",
     "persistent-upload-failure": "Mindestens eine Datei ist trotz mehrerer Versuche weiterhin nicht hochgeladen.",
+    "recovery-limited": "Der geschützte Upload hängt nach den begrenzten Wiederherstellungsversuchen fest. Lokale Cachedaten bleiben geschützt.",
     "upload-stall-cache-protected": "Ein möglicher Uploadstillstand wurde erkannt; der warme Metadatencache verhindert einen automatischen Neustart.",
     "upload-stall-cooldown": "Ein Uploadstillstand wurde erkannt; der automatische Neustart befindet sich noch im Cooldown.",
     "upload-stall-confirming": "Ein möglicher Uploadstillstand wird durch weitere Messungen bestätigt.",
@@ -1277,6 +1278,7 @@ DRAFT_RECOVERY_STATUS_LABELS = {
 REASON_LABELS = {
     "mounted": "Mount ready",
     "persistent-upload-failure": "Persistent upload failure",
+    "recovery-limited": "Guarded recovery exhausted",
     "service-inactive": "Service inactive",
     "service-down": "Service inactive",
     "reauthorization-required": "Reauthorization required",

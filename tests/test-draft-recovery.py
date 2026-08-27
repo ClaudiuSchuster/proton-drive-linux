@@ -285,6 +285,86 @@ limited = module.post_recovery_decision(
 )
 assert limited["status"] == "restart-limited" and not limited["restart"]
 
+combined_bridge_first = module.post_recovery_decision(
+    confirmed["state"],
+    observation(
+        now_epoch=60_000,
+        error_epoch=59_010,
+        error_category="remote-file-removed",
+        bridge_failure_cycles=2,
+        last_bridge_failure_epoch=59_000,
+        activity="idle",
+    ),
+)
+assert combined_bridge_first["status"] == "confirming-bridge-stall"
+assert combined_bridge_first["state"]["bridge_stall_confirmations"] == 1
+combined_bridge_confirmed = module.post_recovery_decision(
+    combined_bridge_first["state"],
+    observation(
+        now_epoch=60_300,
+        error_epoch=59_010,
+        error_category="remote-file-removed",
+        bridge_failure_cycles=2,
+        last_bridge_failure_epoch=59_000,
+        activity="idle",
+    ),
+)
+assert combined_bridge_confirmed["status"] == "bridge-restart-requested"
+assert combined_bridge_confirmed["restart_kind"] == "bridge-unwedge"
+
+combined_bridge_moving = module.post_recovery_decision(
+    combined_bridge_first["state"],
+    observation(
+        now_epoch=60_300,
+        error_epoch=59_010,
+        error_category="remote-file-removed",
+        bridge_failure_cycles=2,
+        last_bridge_failure_epoch=59_000,
+        activity="moving",
+    ),
+)
+assert combined_bridge_moving["status"] == "recovering"
+assert not combined_bridge_moving["restart"]
+
+single_bridge_cycle = module.post_recovery_decision(
+    confirmed["state"],
+    observation(
+        now_epoch=60_000,
+        error_epoch=59_010,
+        error_category="remote-file-removed",
+        bridge_failure_cycles=1,
+        last_bridge_failure_epoch=59_000,
+        activity="idle",
+    ),
+)
+assert single_bridge_cycle["status"] == "restart-limited"
+
+stale_terminal_error = module.post_recovery_decision(
+    confirmed["state"],
+    observation(
+        now_epoch=60_000,
+        error_epoch=58_900,
+        error_category="remote-file-removed",
+        bridge_failure_cycles=2,
+        last_bridge_failure_epoch=59_000,
+        activity="idle",
+    ),
+)
+assert stale_terminal_error["status"] == "restart-limited"
+
+two_remote_server_cycles = module.post_recovery_decision(
+    confirmed["state"],
+    observation(
+        now_epoch=60_000,
+        error_epoch=59_010,
+        error_category="remote-server",
+        bridge_failure_cycles=2,
+        last_bridge_failure_epoch=59_000,
+        activity="idle",
+    ),
+)
+assert two_remote_server_cycles["status"] == "restart-limited"
+
 bridge_first_idle = module.post_recovery_decision(
     {},
     observation(
