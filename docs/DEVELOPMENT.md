@@ -125,6 +125,10 @@ Code, identifiers, public documentation and development metadata are English.
 The UI defaults to English and every visible string must receive a complete
 German translation in the same change. Keep GTK 3 and the installed GI stack;
 avoid a browser engine or another runtime dependency for local documentation.
+Terminal helper usage, diagnostics and errors are English-first. Desktop
+notifications default to English but may follow the saved German UI preference.
+Legacy German watchdog keys remain input-compatible state, not a public-output
+pattern for new code.
 
 The in-app Markdown viewer intentionally implements only the project's bounded
 subset. Local packaged artwork is rendered natively. Remote badges are not

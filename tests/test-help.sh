@@ -21,7 +21,13 @@ before="$(snapshot)"
 for helper in pdrive-bwlimit pdrive-cache-age pdrive-doctor pdrive-draft-recovery pdrive-reauth \
     pdrive-prerequisites pdrive-recovery pdrive-refresh pdrive-setup pdrive-state pdrive-transfers \
     pdrive-ui pdrive-watch; do
-    HOME="${test_home}" "${project_dir}/bin/${helper}" --help >/dev/null
+    helper_help="$(HOME="${test_home}" "${project_dir}/bin/${helper}" --help 2>&1)"
+    if grep -Eq \
+        'Verwendung:|Unbekannte Option|Keine Option|Konfiguration:|Neustart|Wiederherstellung|Bestätigung|Warnung:' \
+        <<< "${helper_help}"; then
+        printf 'German-first terminal help remains in %s.\n' "${helper}" >&2
+        exit 1
+    fi
 done
 watch_help="$(HOME="${test_home}" "${project_dir}/bin/pdrive-watch" --help)"
 grep -qF 'RESTART' <<< "${watch_help}"
@@ -34,6 +40,14 @@ grep -qF -- "--icon='io.github.claudiuschuster.PDriveControl'" "${project_dir}/b
 grep -qF -- "--app-name='PDrive Control Center'" "${project_dir}/libexec/pdrive-auth-failure-guard"
 grep -qF -- "--icon='io.github.claudiuschuster.PDriveControl'" \
     "${project_dir}/libexec/pdrive-auth-failure-guard"
+grep -qF "notification_language='en'" "${project_dir}/bin/pdrive-watch"
+grep -qF "configured_notification_language" "${project_dir}/bin/pdrive-watch"
+grep -qF "printf 'generated_at=%s\\n'" "${project_dir}/bin/pdrive-watch"
+if grep -qF "printf 'Zeit=%s\\n'" "${project_dir}/bin/pdrive-watch"; then
+    printf 'The watchdog still writes German-first state keys.\n' >&2
+    exit 1
+fi
+grep -qF "language en" "${project_dir}/libexec/pdrive-auth-failure-guard"
 HOME="${test_home}" bash "${project_dir}/install.sh" --help >/dev/null
 HOME="${test_home}" bash "${project_dir}/uninstall.sh" --help >/dev/null
 HOME="${test_home}" bash "${project_dir}/libexec/setup-rclone-proton" >/dev/null

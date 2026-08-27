@@ -10,17 +10,17 @@ readonly vfs_meta_root="${HOME}/.cache/rclone/vfsMeta"
 
 usage() {
     printf '%s\n' \
-        'Aufruf: pdrive-recovery [OPTION]' \
+        'Usage: pdrive-recovery [OPTION]' \
         '' \
-        'Ohne Option: konfigurierten und laufenden Proton-Metadatencache anzeigen.' \
-        '--enable:  schnellen Exklusivmodus für die nächste Dienstinstanz aktivieren.' \
-        '--disable: parallelclient-kompatiblen Modus für die nächste Instanz einstellen.' \
-        '-h, --help: nur diese Hilfe anzeigen.' \
+        'No option: show the configured and running Proton metadata-cache mode.' \
+        '--enable:  enable fast exclusive mode for the next service instance.' \
+        '--disable: use parallel-client-compatible mode for the next instance.' \
+        '-h, --help: show only this action-free help.' \
         '' \
-        "Konfiguration: ${recovery_config}" \
-        'Die Umschaltung startet rclone absichtlich nicht selbst neu.' \
-        'Bei aktivem Cache keine Änderungen über Web, Mobil-App oder zweite Clients,' \
-        'solange der rclone-Dienst läuft. Nach echtem Ausschalten ist der RAM-Cache leer.'
+        "Configuration: ${recovery_config}" \
+        'Changing the mode deliberately does not restart rclone.' \
+        'With caching enabled, do not write through Web, mobile or another client' \
+        'while rclone is running. A real stop discards the in-memory cache.'
 }
 
 read_configured_mode() {
@@ -31,7 +31,7 @@ read_configured_mode() {
         return 0
     fi
     if [[ ! -r "${recovery_config}" ]]; then
-        printf 'Konfiguration ist nicht lesbar: %s\n' "${recovery_config}" >&2
+        printf 'Configuration is not readable: %s\n' "${recovery_config}" >&2
         return 78
     fi
     entries="$(awk '
@@ -42,7 +42,7 @@ read_configured_mode() {
         printf '%s\n' "${BASH_REMATCH[1]}"
         return 0
     fi
-    printf 'Ungültige Metadatencache-Konfiguration: %s\n' "${recovery_config}" >&2
+    printf 'Invalid metadata-cache configuration: %s\n' "${recovery_config}" >&2
     return 78
 }
 
@@ -54,8 +54,8 @@ write_configured_mode() {
     mkdir -p -- "${config_dir}"
     config_tmp="$(mktemp "${config_dir}/pdrive-recovery.conf.XXXXXX")"
     printf '%s\n' \
-        '# Verwaltet mit pdrive-recovery; niemals als Shellcode einlesen.' \
-        '# true nur bei exklusivem rclone-Zugriff; keine parallelen externen Änderungen.' \
+        '# Managed by pdrive-recovery; never evaluate as shell code.' \
+        '# Use true only for exclusive rclone access without parallel external writes.' \
         "proton_metadata_cache=${value}" > "${config_tmp}"
     mv -f -- "${config_tmp}" "${recovery_config}"
 }
@@ -65,14 +65,14 @@ running_mode() {
 
     pid="$(systemctl --user show "${service_name}" -p MainPID --value --no-pager 2>/dev/null || printf '0')"
     if [[ ! "${pid}" =~ ^[1-9][0-9]*$ ]]; then
-        printf 'Dienst läuft nicht'
+        printf 'service is not running'
         return 0
     fi
     args="$(ps -ww -p "${pid}" -o args= 2>/dev/null || true)"
     case "${args}" in
-        *--protondrive-enable-caching=true*) printf 'aktiv (PID %s)' "${pid}" ;;
-        *--protondrive-enable-caching=false*) printf 'aus (PID %s)' "${pid}" ;;
-        *) printf 'nicht ermittelbar (PID %s)' "${pid}" ;;
+        *--protondrive-enable-caching=true*) printf 'enabled (PID %s)' "${pid}" ;;
+        *--protondrive-enable-caching=false*) printf 'disabled (PID %s)' "${pid}" ;;
+        *) printf 'unknown (PID %s)' "${pid}" ;;
     esac
 }
 
@@ -91,27 +91,27 @@ show_status() {
 
     configured="$(read_configured_mode)"
     if [[ "${configured}" == 'true' ]]; then
-        configured_text='AKTIV – schneller Exklusivmodus'
+        configured_text='ENABLED – fast exclusive mode'
     else
-        configured_text='aus – parallelclient-kompatibler Modus'
+        configured_text='disabled – parallel-client-compatible mode'
     fi
     running="$(running_mode)"
 
-    printf 'Proton-Drive-Metadatencache\n\n'
-    printf 'Konfiguriert: %s\n' "${configured_text}"
-    printf 'Laufend:      %s\n' "${running}"
-    printf 'Datei:        %s\n' "${recovery_config}"
+    printf 'Proton Drive metadata cache\n\n'
+    printf 'Configured: %s\n' "${configured_text}"
+    printf 'Running:    %s\n' "${running}"
+    printf 'File:       %s\n' "${recovery_config}"
     if [[ "${configured}" == 'true' ]]; then
         printf '%s\n' \
-            'WICHTIG: Keine parallelen Änderungen über Proton Web, Mobil-App,' \
-            'offizielle CLI oder einen zweiten rclone-Client durchführen, solange' \
-            'dieser rclone-Dienst läuft. Ausschalten/Stoppen verwirft den RAM-Cache.'
+            'IMPORTANT: Do not write through Proton Web, the mobile app, the official' \
+            'CLI or a second rclone client while this service runs. Stopping the' \
+            'service discards the in-memory cache.'
     fi
-    if { [[ "${configured}" == 'true' && "${running}" != aktiv* ]] \
-        || [[ "${configured}" == 'false' && "${running}" == aktiv* ]]; }; then
+    if { [[ "${configured}" == 'true' && "${running}" != enabled* ]] \
+        || [[ "${configured}" == 'false' && "${running}" == enabled* ]]; }; then
         printf '%s\n' \
-            'Hinweis: Die Konfiguration gilt erst nach einem kontrollierten Dienstneustart.' \
-            'Dafür interaktiv: pdrive-watch --restart-service'
+            'Note: The configuration applies after a controlled service restart.' \
+            'Run interactively: pdrive-watch --restart-service'
     fi
 }
 
@@ -123,27 +123,27 @@ case "${1:-}" in
         (( $# == 1 )) || { usage >&2; exit 2; }
         write_configured_mode true
         printf '%s\n' \
-            'Schneller Proton-Metadatencache wurde atomar aktiviert; der laufende Dienst blieb unangetastet.' \
-            'Während der Dienst läuft keine Änderungen über andere Proton-Clients vornehmen.'
+            'Fast Proton metadata caching was enabled atomically; the running service was left untouched.' \
+            'Do not write through another Proton client while the service runs.'
         show_status
         ;;
     --disable)
         (( $# == 1 )) || { usage >&2; exit 2; }
         configured_before="$(read_configured_mode)"
         if [[ "${configured_before}" == 'true' ]]; then
-            printf 'Prüfe vor der Deaktivierung alle Proton-VFS-Metadaten auf ausstehende Schreibvorgänge ...\n'
+            printf 'Checking all Proton VFS metadata for pending writes before disabling ...\n'
             dirty_before="$(dirty_file_count)"
             if [[ ! "${dirty_before}" =~ ^[0-9]+$ || "${dirty_before}" != '0' ]]; then
                 printf '%s\n' \
-                    "Abgelehnt: Es sind noch ${dirty_before:-unbekannt} Dirty-Dateien im lokalen Proton-VFS-Cache." \
-                    'Der Metadatencache bleibt aktiv; andernfalls könnte die neue Instanz diese Warteschlange übersehen.' \
-                    'Status prüfen mit: pdrive-watch' >&2
+                    "Refused: ${dirty_before:-unknown} Dirty file(s) remain in the local Proton VFS cache." \
+                    'Metadata caching remains enabled so a new instance cannot miss this queue.' \
+                    'Check status with: pdrive-watch' >&2
                 exit 75
             fi
         fi
         write_configured_mode false
         printf '%s\n' \
-            'Parallelclient-kompatibler Modus wurde atomar konfiguriert; der laufende Dienst blieb unangetastet.'
+            'Parallel-client-compatible mode was saved atomically; the running service was left untouched.'
         show_status
         ;;
     -h|--help)
@@ -151,7 +151,7 @@ case "${1:-}" in
         usage
         ;;
     *)
-        printf 'Unbekannte Option: %s\n\n' "$1" >&2
+        printf 'Unknown option: %s\n\n' "$1" >&2
         usage >&2
         exit 2
         ;;

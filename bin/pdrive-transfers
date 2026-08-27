@@ -10,16 +10,16 @@ readonly default_transfers=4
 
 usage() {
     printf '%s\n' \
-        'Aufruf: pdrive-transfers [ANZAHL|default]' \
+        'Usage: pdrive-transfers [COUNT|default]' \
         '' \
-        'Ohne Wert: konfigurierte und tatsächlich laufende Uploadslots anzeigen.' \
-        'ANZAHL:    1 bis 8 parallele Datei-Uploads persistent konfigurieren.' \
-        'default:   rclones Standard von 4 Uploadslots persistent konfigurieren.' \
-        '-h, --help: nur diese Hilfe anzeigen.' \
+        'No value: show the configured and currently running upload slots.' \
+        'COUNT:    persistently configure 1 to 8 parallel file uploads.' \
+        'default:  persistently configure the rclone default of 4 upload slots.' \
+        '-h, --help: show only this action-free help.' \
         '' \
-        "Konfiguration: ${transfers_config}" \
-        'Eine Änderung startet rclone absichtlich nicht neu und gilt erst beim nächsten Start.' \
-        'Ein Slot ist nur für gezielte Diagnose oder serielle Recovery gedacht.'
+        "Configuration: ${transfers_config}" \
+        'A change deliberately does not restart rclone and applies at the next start.' \
+        'Use one slot only for targeted diagnosis or serial recovery.'
 }
 
 read_configured_transfers() {
@@ -30,7 +30,7 @@ read_configured_transfers() {
         return 0
     fi
     if [[ ! -r "${transfers_config}" ]]; then
-        printf 'Konfiguration ist nicht lesbar: %s\n' "${transfers_config}" >&2
+        printf 'Configuration is not readable: %s\n' "${transfers_config}" >&2
         return 78
     fi
     entries="$(awk '
@@ -41,7 +41,7 @@ read_configured_transfers() {
         printf '%s\n' "${BASH_REMATCH[1]}"
         return 0
     fi
-    printf 'Ungültige Transferkonfiguration: %s\n' "${transfers_config}" >&2
+    printf 'Invalid transfer configuration: %s\n' "${transfers_config}" >&2
     return 78
 }
 
@@ -53,8 +53,8 @@ write_configured_transfers() {
     mkdir -p -- "${config_dir}"
     config_tmp="$(mktemp "${config_dir}/pdrive-transfers.conf.XXXXXX")"
     printf '%s\n' \
-        '# Verwaltet mit pdrive-transfers; niemals als Shellcode einlesen.' \
-        '# Anzahl gleichzeitig übertragener Dateien; gültig sind 1 bis 8.' \
+        '# Managed by pdrive-transfers; never evaluate as shell code.' \
+        '# Number of concurrent file transfers; valid values are 1 through 8.' \
         "transfers=${value}" > "${config_tmp}"
     mv -f -- "${config_tmp}" "${transfers_config}"
 }
@@ -64,14 +64,14 @@ running_transfers() {
 
     pid="$(systemctl --user show "${service_name}" -p MainPID --value --no-pager 2>/dev/null || printf '0')"
     if [[ ! "${pid}" =~ ^[1-9][0-9]*$ ]]; then
-        printf 'Dienst läuft nicht'
+        printf 'service is not running'
         return 0
     fi
     args="$(ps -ww -p "${pid}" -o args= 2>/dev/null || true)"
     if [[ "${args}" =~ --transfers=([1-8])([[:space:]]|$) ]]; then
         printf '%s (PID %s)' "${BASH_REMATCH[1]}" "${pid}"
     else
-        printf '%s – rclone-Standard (PID %s)' "${default_transfers}" "${pid}"
+        printf '%s – rclone default (PID %s)' "${default_transfers}" "${pid}"
     fi
 }
 
@@ -80,13 +80,13 @@ show_status() {
 
     configured="$(read_configured_transfers)"
     running="$(running_transfers)"
-    printf 'Proton-Drive-Uploadslots\n\n'
-    printf 'Konfiguriert: %s gleichzeitig\n' "${configured}"
-    printf 'Laufend:      %s\n' "${running}"
-    printf 'Datei:        %s\n' "${transfers_config}"
+    printf 'Proton Drive upload slots\n\n'
+    printf 'Configured: %s concurrent\n' "${configured}"
+    printf 'Running:    %s\n' "${running}"
+    printf 'File:       %s\n' "${transfers_config}"
     if [[ ! "${running}" =~ ^${configured}[[:space:]] ]]; then
         printf '%s\n' \
-            'Hinweis: Der neue Wert gilt erst nach einem kontrollierten Dienstneustart.'
+            'Note: The new value applies after the next controlled service restart.'
     fi
 }
 
@@ -97,13 +97,13 @@ case "${1:-}" in
     default)
         (( $# == 1 )) || { usage >&2; exit 2; }
         write_configured_transfers "${default_transfers}"
-        printf 'Vier Uploadslots wurden persistent konfiguriert; der laufende Dienst blieb unangetastet.\n'
+        printf 'Four upload slots were saved; the running service was left untouched.\n'
         show_status
         ;;
     [1-8])
         (( $# == 1 )) || { usage >&2; exit 2; }
         write_configured_transfers "$1"
-        printf '%s Uploadslot(s) wurden persistent konfiguriert; der laufende Dienst blieb unangetastet.\n' "$1"
+        printf '%s upload slot(s) were saved; the running service was left untouched.\n' "$1"
         show_status
         ;;
     -h|--help)
@@ -111,7 +111,7 @@ case "${1:-}" in
         usage
         ;;
     *)
-        printf 'Ungültige Anzahl: %s. Erlaubt sind 1 bis 8 oder default.\n\n' "$1" >&2
+        printf 'Invalid count: %s. Use 1 through 8 or default.\n\n' "$1" >&2
         usage >&2
         exit 2
         ;;

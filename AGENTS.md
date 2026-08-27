@@ -26,9 +26,10 @@ project-specific; CI remains the authority for mechanical formatting rules.
   German UI translations. Any new visible UI string must be added to both
   languages in the same change. Do not introduce German identifiers or
   functional constants.
-- Existing German terminal-helper output is legacy behavior. Do not expand that
-  inconsistency casually; any CLI localization should be a deliberate,
-  complete change.
+- Terminal helpers, diagnostics, help and their default notifications are
+  English-first. Desktop notifications may follow the saved English or German
+  Control Center preference. Keep legacy watchdog state readable, but never
+  expose its German compatibility keys as new public output.
 - Keep the GTK interface responsive, keyboard accessible, and useful at its
   minimum width. On launch, fit the window height to its content when the screen
   allows it; show a scrollbar only when the available display height requires

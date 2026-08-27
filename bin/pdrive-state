@@ -950,51 +950,58 @@ def normalize_delta(value: str) -> str:
 
 
 def normalize_latest(raw: dict[str, str], now_epoch: int) -> dict[str, Any]:
+    def watch_value(key: str, legacy_key: str, default: str = "") -> str:
+        return raw.get(key, raw.get(legacy_key, default))
+
     generated_epoch = 0
+    generated_at = watch_value("generated_at", "Zeit")
     try:
-        generated_epoch = int(dt.datetime.fromisoformat(raw.get("Zeit", "")).timestamp())
+        generated_epoch = int(dt.datetime.fromisoformat(generated_at).timestamp())
     except (ValueError, TypeError):
         pass
-    reason_code = raw.get("Grundcode", "unknown")
-    mode = "timer-record" if "Timer" in raw.get("Modus", "") else "manual"
-    problem_category = raw.get("LetzteProblemkategorie", "none")
+    reason_code = watch_value("reason_code", "Grundcode", "unknown")
+    raw_mode = watch_value("mode", "Modus")
+    mode = "timer-record" if raw_mode in {"timer-record", "Timer-Aufzeichnung"} else "manual"
+    problem_category = watch_value("last_problem_category", "LetzteProblemkategorie", "none")
     if problem_category == "sonstiger Fehler":
         problem_category = "other error"
+    elif problem_category == "Hinweis":
+        problem_category = "notice"
     elif problem_category == "keine":
         problem_category = "none"
     return {
         "available": bool(raw),
-        "generated_at": raw.get("Zeit", ""),
+        "generated_at": generated_at,
         "age_seconds": max(0, now_epoch - generated_epoch) if generated_epoch else -1,
         "mode": mode,
-        "status": raw.get("Status", "unknown"),
+        "status": watch_value("status", "Status", "unknown"),
         "reason_code": reason_code,
         "summary": WATCHDOG_SUMMARIES.get(reason_code, "No watchdog details are available."),
         "hint": "Run pdrive-watch for a detailed local diagnosis.",
-        "dns": raw.get("DNS", "unknown"),
-        "tcp": raw.get("TCP", "unknown"),
-        "log_age_seconds": integer(raw.get("LogAlterSekunden"), -1),
-        "last_success": raw.get("LetzterUploadErfolg", "none"),
-        "last_problem": raw.get("LetztesProblem", "none"),
+        "dns": watch_value("dns", "DNS", "unknown"),
+        "tcp": watch_value("tcp", "TCP", "unknown"),
+        "log_age_seconds": integer(watch_value("log_age_seconds", "LogAlterSekunden"), -1),
+        "last_success": watch_value("last_upload_success", "LetzterUploadErfolg", "none"),
+        "last_problem": watch_value("last_problem", "LetztesProblem", "none"),
         "last_problem_category": problem_category,
-        "successes": integer(raw.get("UploadsErfolgreichImLog")),
-        "queued_log_entries": integer(raw.get("CacheeintraegeEingereihtImLog")),
-        "errors": integer(raw.get("FehlerImLog")),
-        "notices": integer(raw.get("HinweiseImLog")),
-        "delta_successes": normalize_delta(raw.get("DeltaUploads", "No baseline")),
-        "delta_errors": normalize_delta(raw.get("DeltaFehler", "No baseline")),
-        "delta_notices": normalize_delta(raw.get("DeltaHinweise", "No baseline")),
-        "failed_confirmations": integer(raw.get("UploadfehlerBestaetigungen")),
-        "stall_confirmations": integer(raw.get("Stillstandsbestaetigungen")),
-        "metadata_cache_running": boolean(raw.get("MetadatenCacheLaufend")),
-        "metadata_cache_configured": boolean(raw.get("MetadatenCacheKonfiguriert")),
-        "configured_transfers": integer(raw.get("UploadslotsKonfiguriert"), 4),
-        "running_transfers": integer(raw.get("UploadslotsLaufend"), 4),
-        "cooldown_seconds": integer(raw.get("CooldownDauerSekunden"), 43200),
-        "last_auto_restart_epoch": integer(raw.get("LetzterAutoneustartEpoch")),
-        "automation": "enabled" if raw.get("Automatik") else "unknown",
-        "cache_bytes": integer(raw.get("CacheBytes")),
-        "free_bytes": integer(raw.get("FreierSpeicherBytes")),
+        "successes": integer(watch_value("successful_uploads_in_log", "UploadsErfolgreichImLog")),
+        "queued_log_entries": integer(watch_value("queued_cache_entries_in_log", "CacheeintraegeEingereihtImLog")),
+        "errors": integer(watch_value("errors_in_log", "FehlerImLog")),
+        "notices": integer(watch_value("notices_in_log", "HinweiseImLog")),
+        "delta_successes": normalize_delta(watch_value("delta_uploads", "DeltaUploads", "No baseline")),
+        "delta_errors": normalize_delta(watch_value("delta_errors", "DeltaFehler", "No baseline")),
+        "delta_notices": normalize_delta(watch_value("delta_notices", "DeltaHinweise", "No baseline")),
+        "failed_confirmations": integer(watch_value("failed_upload_confirmations", "UploadfehlerBestaetigungen")),
+        "stall_confirmations": integer(watch_value("stall_confirmations", "Stillstandsbestaetigungen")),
+        "metadata_cache_running": boolean(watch_value("metadata_cache_running", "MetadatenCacheLaufend")),
+        "metadata_cache_configured": boolean(watch_value("metadata_cache_configured", "MetadatenCacheKonfiguriert")),
+        "configured_transfers": integer(watch_value("upload_slots_configured", "UploadslotsKonfiguriert"), 4),
+        "running_transfers": integer(watch_value("upload_slots_running", "UploadslotsLaufend"), 4),
+        "cooldown_seconds": integer(watch_value("cooldown_seconds", "CooldownDauerSekunden"), 43200),
+        "last_auto_restart_epoch": integer(watch_value("last_auto_restart_epoch", "LetzterAutoneustartEpoch")),
+        "automation": "enabled" if watch_value("automation", "Automatik") else "unknown",
+        "cache_bytes": integer(watch_value("cache_bytes", "CacheBytes")),
+        "free_bytes": integer(watch_value("free_space_bytes", "FreierSpeicherBytes")),
     }
 
 
