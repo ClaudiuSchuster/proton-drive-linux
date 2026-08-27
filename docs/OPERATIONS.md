@@ -41,7 +41,7 @@ candidate login succeeds.
 | `~/.local/share/applications/io.github.claudiuschuster.PDriveControl.desktop`            | Cinnamon menu entry                          |
 | `~/.local/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg` | Scalable UI icon                             |
 | `~/.local/bin/rclone`                                                                    | Adds the Keyring-backed `--password-command` |
-| `~/.local/libexec/rclone-bin`                                                            | Signed stable rclone executable              |
+| `~/.local/libexec/rclone-bin`                                                            | Checksum-verified PDrive rclone executable   |
 | `~/.local/libexec/rclone-proton-*`                                                       | Mount and guarded unmount implementation     |
 | `~/.config/rclone/rclone.conf`                                                           | Encrypted rclone configuration               |
 | `~/.config/pdrive-*.conf`                                                                | Strict single-purpose helper settings        |
@@ -63,6 +63,23 @@ Debian, Ubuntu and Linux Mint it can use Polkit to run the fixed system
 executables `/usr/bin/apt-get` and `/usr/bin/install`; project scripts always
 remain unprivileged. An expandable section provides equivalent manual commands
 for advanced users.
+
+The next page configures connection headroom before Proton authentication:
+
+- **Auto-tune (recommended)** downloads and uploads bounded Cloudflare test
+  payloads totaling about 72 MB, chooses conservative samples and assigns 60%
+  to bulk PDrive file data. The remaining 40% is left to Nemo metadata,
+  interactive traffic and other applications.
+- **Set manually** exposes separate logarithmic Upload and Download sliders.
+  Use measured sustained throughput rather than an ISP's headline bit rate;
+  leaving roughly 30–40% unused normally keeps the desktop responsive.
+- **Unlimited** removes both file-data limits. It maximizes throughput but a
+  saturated connection can still affect unrelated applications.
+
+The selected pair is saved atomically and applied live when a mount already
+exists. Limits affect Proton file payloads only; login, directory listing and
+other backend metadata stay outside them. The test result is stored locally in
+mode-0600 JSON and contains rates and timestamps, never credentials.
 
 The account page transports username, password and the optional current 2FA
 code as three NUL-delimited values over an anonymous stdin pipe. They never
@@ -101,12 +118,14 @@ pdrive-prerequisites --install-rclone
 pdrive-prerequisites --help
 ```
 
-`--install-rclone` copies an installed distribution rclone into a private
-temporary file, updates that copy from rclone's stable channel, verifies the
-`protondrive` backend and only then atomically installs it as
-`~/.local/libexec/rclone-bin`. It never installs system packages or edits
-`/pdrive` itself; those privileged operations remain visible Polkit steps in the
-wizard.
+`--check` requires both the upload-safe 1.76 baseline and PDrive's Proton
+`data-bandwidth` backend command. `--install-rclone` downloads the pinned x86-64
+Linux asset from the OSS Singularity rclone release, verifies its published
+SHA-256 checksum, version and backend feature in a private temporary file, and
+only then atomically installs it as `~/.local/libexec/rclone-bin`. It never
+installs system packages or edits `/pdrive` itself; those privileged operations
+remain visible Polkit steps in the wizard. Reinstalling the expected asset is a
+safe repair when the executable was replaced by an incompatible rclone build.
 
 ## Status and diagnosis
 
@@ -345,13 +364,13 @@ only its own marked autostart file. A manual menu launch remains visible.
 These dialogs delegate to the same strict `pdrive-*` helpers available in a
 terminal. The UI never edits rclone's encrypted configuration directly.
 
-| Control and location                       | Range and default                         | When it takes effect and what it changes                                                                              |
-| ------------------------------------------ | ----------------------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| **Bandwidth** — Configuration or menu      | `0.02`–`100 MiB/s`; default **Unlimited** | Applies to the live process without restarting or closing the active transfer. Full right removes the limit.          |
-| **Upload slots** — Configuration or menu   | **1–8**; default **4**                    | Saves parallel file-upload count for the next controlled service start; it does not restart rclone.                   |
-| **Metadata cache** — Configuration or menu | Disabled / Enabled; default **Disabled**  | Saves the exclusive Proton metadata mode for the next controlled service start. Enable only for one active writer.    |
-| **Cooldown** — Configuration or menu       | **1–168 hours**; default **12 hours**     | Changes the watchdog's automatic-recovery policy immediately; it does not restart rclone or clear an active cooldown. |
-| **Cache retention** — Transfers or menu    | **1–8760 hours**; default **24 hours**    | Saves clean read-cache age for the next controlled service start. It never expires Dirty upload data.                 |
+| Control and location                       | Range and default                                              | When it takes effect and what it changes                                                                                                                                     |
+| ------------------------------------------ | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Bandwidth** — Configuration or menu      | Upload and Download: `0.02`–`100 MiB/s`; default **Unlimited** | Applies independent bulk file-data limits live without restarting or closing a transfer. Metadata/API requests stay outside them; full right removes that direction's limit. |
+| **Upload slots** — Configuration or menu   | **1–8**; default **4**                                         | Saves parallel file-upload count for the next controlled service start; it does not restart rclone.                                                                          |
+| **Metadata cache** — Configuration or menu | Disabled / Enabled; default **Disabled**                       | Saves the exclusive Proton metadata mode for the next controlled service start. Enable only for one active writer.                                                           |
+| **Cooldown** — Configuration or menu       | **1–168 hours**; default **12 hours**                          | Changes the watchdog's automatic-recovery policy immediately; it does not restart rclone or clear an active cooldown.                                                        |
+| **Cache retention** — Transfers or menu    | **1–8760 hours**; default **24 hours**                         | Saves clean read-cache age for the next controlled service start. It never expires Dirty upload data.                                                                        |
 
 Each dialog states whether a change is live or saved for the next service
 start. The Transfers cache section also shows running and saved retention when
@@ -418,19 +437,25 @@ upload and download. Every unitless numeric component receives the rclone `M`
 suffix before validation, so `4:1` becomes `4M:1M`. Values are bytes per second,
 not bits per second.
 
-The Control Center exposes the upload value as a slider. Its far-right endpoint
-is **Unlimited (`off`/`0`)**, because rclone normalizes a zero bandwidth limit
-to unlimited throughput. Its far-left **⏸ ≈0** endpoint applies `0.02 MiB/s`:
-this is an intentional near-zero throttle, not a native VFS pause. The value is
-high enough to remain above the watchdog's conservative TCP activity threshold
-during its 20-second probe. The active HTTP transfer remains open and resumes
-normal throughput as soon as the slider is moved or the limit is removed.
-Advanced asymmetric or higher values remain available through
-`pdrive-bwlimit`.
+The Control Center exposes separate logarithmic sliders for both directions.
+Each far-right endpoint is **Unlimited (`off`/`0`)**, because rclone normalizes
+a zero bandwidth limit to unlimited throughput. Upload's far-left **⏸ ≈0**
+endpoint applies `0.02 MiB/s`: this is an intentional near-zero throttle, not a
+native VFS pause. The active upload remains open and resumes normal throughput
+as soon as the slider is moved or its limit is removed.
 
-The helper first asks rclone's loopback parser to canonicalize the value, writes
-one mode-0600 config atomically, then updates the live process through the
-owner-only Unix socket. A live transfer is not restarted.
+The helper uses a short-lived loopback rclone only to canonicalize rate syntax,
+writes one mode-0600 config atomically, then calls the running Proton backend's
+`data-bandwidth` command through the owner-only Unix socket. Its shared upload
+and download token buckets wrap only file payload readers. Directory listings,
+authentication and other Proton API metadata bypass those buckets.
+
+At service start, the mount is created first and `ExecStartPost` applies the
+saved pair. The limits are deliberately not passed as backend command-line
+options: backend options participate in rclone's VFS cache fingerprint, and a
+different fingerprint could temporarily hide an existing Dirty upload queue.
+Runtime application preserves the original namespace and never restarts the
+transfer.
 
 ## Transfer concurrency
 
@@ -807,15 +832,15 @@ systemctl --user status rclone-selfupdate.timer proton-drive-update.timer
 
 The rclone timer runs ten minutes after boot when due and every Sunday at 04:00,
 with up to two hours of randomized delay. `Persistent=true` catches up after the
-computer was off. New installations currently bootstrap the pinned official
-`v1.76.0-beta.10204.660144d31` build because it contains the fix for the Proton
-retry corruption tracked by [rclone #9722](https://github.com/rclone/rclone/issues/9722).
-The updater checks stable releases without downgrading that beta. As soon as
-stable rclone 1.76 or newer exists, it returns the installation to the stable
-channel and follows stable releases normally. rclone self-update verifies the
-official release hash and available signature metadata. A newly installed
-binary is intentionally left for the next natural mount start; the updater
-never restarts an active transfer.
+computer was off. New installations currently download the pinned
+`pdrive-v1.76.0-beta.10204.1` x86-64 asset from the public OSS Singularity
+rclone release. `pdrive-prerequisites` verifies the embedded SHA-256 digest,
+minimum upload-safe version and required Proton backend command before atomic
+installation. The updater invokes that same verifier and does not follow
+rclone's official stable channel, because an otherwise newer binary may lack
+PDrive's source-reviewed file-data limiter and bridge-worker fix. A newly
+installed binary is intentionally left for the next natural mount start; the
+updater never restarts an active transfer.
 
 The optional official Proton Drive CLI timer runs five minutes after boot when
 due and daily with up to four hours of randomized delay. Its updater accepts

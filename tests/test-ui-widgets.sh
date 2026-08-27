@@ -742,6 +742,7 @@ for newcomer_guidance in (
 assert "<img" not in quick_start_text
 assert "[!IMPORTANT]" not in quick_start_text
 assert [image.name for image in quick_start.rendered_images] == [
+    "pdrive-setup-wizard.png",
     "pdrive-control-center.png",
     "pdrive-auth-cooldown.png",
 ]
@@ -913,6 +914,24 @@ def inspect_configuration_dialog(dialog):
     opened_configuration_dialogs.append(dialog.get_title())
     save_button = dialog.get_widget_for_response(module.Gtk.ResponseType.OK)
     assert not save_button.get_sensitive()
+    if dialog.get_title() == "Bandwidth limit":
+        dialog_labels = [
+            widget.get_text()
+            for widget in descendants(dialog.get_content_area())
+            if isinstance(widget, module.Gtk.Label)
+        ]
+        assert "Upload limit in MiB/s" in dialog_labels
+        assert "Download limit in MiB/s" in dialog_labels
+        scales = [
+            widget
+            for widget in descendants(dialog.get_content_area())
+            if isinstance(widget, module.Gtk.Scale)
+        ]
+        assert len(scales) == 2
+        assert scales[0].get_value() < module.BANDWIDTH_SLIDER_UNLIMITED
+        assert scales[1].get_value() == module.BANDWIDTH_SLIDER_UNLIMITED
+        scales[1].set_value(module.bandwidth_slider_position("2"))
+        assert save_button.get_sensitive()
     if dialog.get_title() in {"Metadata cache", "Restart cooldown"}:
         assert dialog.get_content_area().get_size_request()[0] == 440
     return module.Gtk.ResponseType.CANCEL
@@ -929,6 +948,29 @@ assert opened_configuration_dialogs == [
     "Metadata cache",
     "Restart cooldown",
 ]
+
+bandwidth_calls = []
+original_run_helper = window.run_helper
+
+def apply_asymmetric_bandwidth(dialog):
+    scales = [
+        widget
+        for widget in descendants(dialog.get_content_area())
+        if isinstance(widget, module.Gtk.Scale)
+    ]
+    assert len(scales) == 2
+    scales[1].set_value(module.bandwidth_slider_position("2"))
+    assert dialog.get_widget_for_response(module.Gtk.ResponseType.OK).get_sensitive()
+    return module.Gtk.ResponseType.OK
+
+module.Gtk.Dialog.run = apply_asymmetric_bandwidth
+window.run_helper = lambda command, title: bandwidth_calls.append((command, title))
+try:
+    window.on_bandwidth(None)
+finally:
+    module.Gtk.Dialog.run = original_dialog_run
+    window.run_helper = original_run_helper
+assert bandwidth_calls == [(["pdrive-bwlimit", "4.2:2"], "Bandwidth limit")]
 
 display_type = module.Gdk.Display.get_default().__gtype__.name
 if display_type == "GdkBroadwayDisplay":

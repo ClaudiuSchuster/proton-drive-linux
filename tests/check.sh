@@ -130,6 +130,7 @@ manual_assets=(
     'docs/assets/pdrive-control-center.png'
     'docs/assets/pdrive-transfers.png'
     'docs/assets/pdrive-auth-cooldown.png'
+    'docs/assets/pdrive-setup-wizard.png'
 )
 for manual_path in "${manual_files[@]}" "${manual_assets[@]}"; do
     if [[ ! -s "${project_dir}/${manual_path}" ]]; then
@@ -150,6 +151,8 @@ done
 "${project_dir}/tests/test-systemd.sh"
 "${project_dir}/tests/test-updaters.sh"
 "${project_dir}/tests/test-cache-age.sh"
+"${project_dir}/tests/test-network-tune.sh"
+"${project_dir}/tests/test-bwlimit.sh"
 "${project_dir}/tests/test-prerequisites.sh"
 "${project_dir}/tests/test-setup.sh"
 "${project_dir}/tests/test-reauth.sh"

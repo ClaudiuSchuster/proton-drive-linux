@@ -61,8 +61,8 @@ Keyring and provides a native GTK control center for the details that matter.
 - Active transfers, upload queue with a smoothed remaining-time estimate,
   service diagnostics, bounded health history and reviewable issue evidence.
 - Clear Proton cloud used/total/free, local free-space and VFS-cache values.
-- Fine-grained bandwidth plus guarded upload-slot, cache-retention,
-  metadata-refresh and restart controls.
+- Independent upload/download file-data limits, guided connection tuning and
+  guarded upload-slot, cache-retention, metadata-refresh and restart controls.
 - Conservative health monitoring with desktop notifications.
 - Guided first setup, native account reauthorization, encrypted credentials and
   signed rclone updates.
@@ -85,9 +85,12 @@ pdrive-ui
 
 The installer may request `sudo` once to create the owner-only `/pdrive`
 directory. On first launch, the setup wizard checks prerequisites, can install
-missing Debian/Ubuntu/Mint packages through Polkit, prepares a current
-Proton-capable rclone and guides you through username, password and optional
-2FA. Credentials never appear in command arguments or environment variables.
+missing Debian/Ubuntu/Mint packages through Polkit, prepares PDrive's verified
+Proton-capable rclone, offers automatic or manual connection headroom and then
+guides you through username, password and optional 2FA. Automatic tuning uses a
+bounded Cloudflare speed test and reserves capacity for browsing and other
+applications. Credentials never appear in command arguments or environment
+variables.
 
 If Proton later requires a fresh login, PDrive stops automatic service retries,
 shows one actionable notification and offers reauthorization directly in the
@@ -98,6 +101,13 @@ UI or manual service start can create another premature login attempt.
 
 Existing configuration, credentials, cache and state are preserved when the
 installer is run again.
+
+<p align="center">
+  <img src="docs/assets/pdrive-setup-wizard.png" width="700"
+       alt="PDrive first-run wizard with automatic, manual and unlimited connection policies">
+</p>
+
+<p align="center"><sub>Approachable automatic tuning, with independent expert controls when wanted.</sub></p>
 
 ## Start using PDrive
 
@@ -127,12 +137,14 @@ git pull --ff-only
 ./install.sh
 ```
 
-New installations temporarily use a pinned official rclone 1.76 beta containing
-the upstream fix for [rclone #9722](https://github.com/rclone/rclone/issues/9722).
-The weekly updater holds that tested build until stable rclone 1.76 or newer is
-available, then follows stable releases again. It never restarts an active
-mount. The optional official Proton Drive CLI is a separate client and is not
-required by this project.
+PDrive installs a pinned, checksum-verified rclone build published from its
+public source fork. It contains the upstream fix for
+[rclone #9722](https://github.com/rclone/rclone/issues/9722), a source-pinned API
+bridge fix and a Proton file-data limiter that leaves metadata browsing outside
+bulk transfer limits. The weekly updater stays on that reviewed PDrive build
+until this project publishes a replacement and never restarts an active mount.
+The optional official Proton Drive CLI is a separate client and is not required
+by this project.
 
 ## Uninstall
 

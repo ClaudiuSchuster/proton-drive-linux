@@ -51,6 +51,12 @@ project-specific; CI remains the authority for mechanical formatting rules.
 - Preserve rclone bandwidth semantics: `0`/`off` means unlimited. A UI
   near-pause must use the documented low nonzero rate and must never be
   presented as a native pause.
+- Apply upload and download limits only to Proton bulk file payloads through
+  the backend `data-bandwidth` runtime command. Never apply rclone's global
+  transport limiter to the managed mount because it also throttles metadata
+  requests. Never pass the backend limits as mount options: option changes alter
+  the VFS cache fingerprint. Mount first, then apply saved limits through the
+  owner-only RC socket so an existing Dirty queue remains in the same namespace.
 - Use “PDrive” for this project and local tooling; use “Proton Drive” or
   “Proton cloud” for Proton’s service and web destination.
 - An issue counter must lead to reviewable evidence before acknowledgment:
@@ -123,9 +129,11 @@ project-specific; CI remains the authority for mechanical formatting rules.
   pause, two separated idle probes and the same strict generation/namespace/
   queue validation. Persist at most six bridge-unwedge restarts per exact cache
   generation with a 30-minute gap; never reset that budget automatically.
-- New installations are temporarily pinned to the tested official fixed rclone
-  1.76 beta. The updater must hold it rather than downgrade to an older stable
-  release, then return to stable automatically once stable 1.76 or newer exists.
+- New installations use the checksum-pinned OSS Singularity rclone build whose
+  public source contains the tested retry, bridge-worker and backend file-data
+  limiter fixes. The updater must keep that reviewed build until the project
+  publishes a replacement; never overwrite it with an official binary that
+  lacks the backend command.
 - Avoid new runtime dependencies when Python's standard library, GTK 3, and the
   installed GI stack are sufficient. Do not add WebKit merely to render local
   documentation.

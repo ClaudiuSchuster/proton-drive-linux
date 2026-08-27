@@ -232,15 +232,17 @@ class UnixHTTPConnection(http.client.HTTPConnection):
         self.sock = connection
 
 
-def rc_call_cli(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
+def rc_call_cli(
+    endpoint: str,
+    params: dict[str, str] | None = None,
+) -> tuple[str, dict[str, Any] | None, str]:
     if not RCLONE_BIN.is_file() or not os.access(RCLONE_BIN, os.X_OK):
         return endpoint, None, f"rclone is missing: {RCLONE_BIN}"
     if not RC_SOCKET.exists():
         return endpoint, None, f"RC socket is missing: {RC_SOCKET}"
-    code, stdout, stderr = run(
-        [str(RCLONE_BIN), "rc", "--unix-socket", str(RC_SOCKET), endpoint],
-        timeout=4.0,
-    )
+    command = [str(RCLONE_BIN), "rc", "--unix-socket", str(RC_SOCKET), endpoint]
+    command.extend(f"{key}={value}" for key, value in (params or {}).items())
+    code, stdout, stderr = run(command, timeout=4.0)
     if code != 0:
         return endpoint, None, stderr.strip() or f"RC call exited with {code}"
     try:
@@ -252,12 +254,15 @@ def rc_call_cli(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
     return endpoint, payload, ""
 
 
-def rc_call(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
+def rc_call(
+    endpoint: str,
+    params: dict[str, str] | None = None,
+) -> tuple[str, dict[str, Any] | None, str]:
     # The CLI fallback exists for isolated fixture tests and unusual debugging.
     # Production polling talks HTTP directly over the already owner-only Unix
     # socket. This avoids starting five large Go processes on every UI refresh.
     if os.environ.get("PDRIVE_RC_TRANSPORT") == "cli":
-        return rc_call_cli(endpoint)
+        return rc_call_cli(endpoint, params)
     if not RC_SOCKET.exists():
         return endpoint, None, f"RC socket is missing: {RC_SOCKET}"
     connection = UnixHTTPConnection(RC_SOCKET, timeout=3.0)
@@ -265,7 +270,7 @@ def rc_call(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
         connection.request(
             "POST",
             f"/{endpoint}",
-            body=b"{}",
+            body=json.dumps(params or {}).encode("utf-8"),
             headers={"Content-Type": "application/json", "Accept": "application/json"},
         )
         response = connection.getresponse()
@@ -288,13 +293,19 @@ def rc_call(endpoint: str) -> tuple[str, dict[str, Any] | None, str]:
 
 
 def collect_rc(*, include_vfs: bool) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
-    endpoints = ["core/stats", "core/transferred", "core/bwlimit"]
+    requests = [
+        ("core/stats", None),
+        ("core/transferred", None),
+        ("backend/command", {"command": "data-bandwidth", "fs": "proton:"}),
+    ]
     if include_vfs:
-        endpoints.extend(["vfs/queue", "vfs/stats"])
+        requests.extend([("vfs/queue", None), ("vfs/stats", None)])
     payloads: dict[str, dict[str, Any]] = {}
     errors: dict[str, str] = {}
-    with concurrent.futures.ThreadPoolExecutor(max_workers=len(endpoints)) as pool:
-        for endpoint, payload, error in pool.map(rc_call, endpoints):
+    with concurrent.futures.ThreadPoolExecutor(max_workers=len(requests)) as pool:
+        futures = [pool.submit(rc_call, endpoint, params) for endpoint, params in requests]
+        for future in futures:
+            endpoint, payload, error = future.result()
             if payload is not None:
                 payloads[endpoint] = payload
             else:
@@ -1145,7 +1156,18 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
     vfs = rc_payloads.get("vfs/stats", {})
     disk_cache = vfs.get("diskCache", {}) if isinstance(vfs.get("diskCache"), dict) else {}
     vfs_options = vfs.get("opt", {}) if isinstance(vfs.get("opt"), dict) else {}
-    bandwidth = rc_payloads.get("core/bwlimit", {})
+    bandwidth_payload = rc_payloads.get("backend/command", {})
+    bandwidth = bandwidth_payload.get("result", {})
+    if not isinstance(bandwidth, dict):
+        bandwidth = {}
+    bandwidth_upload = str(bandwidth.get("upload") or "")
+    bandwidth_download = str(bandwidth.get("download") or "")
+    if bandwidth_upload == "off" and bandwidth_download == "off":
+        live_bandwidth = "off"
+    elif bandwidth_upload and bandwidth_download:
+        live_bandwidth = f"{bandwidth_upload}:{bandwidth_download}"
+    else:
+        live_bandwidth = "unavailable"
 
     components = []
     if not service["available"]:
@@ -1327,9 +1349,10 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
         },
         "bandwidth": {
             "configured": configured_bwlimit,
-            "live": str(bandwidth.get("rate") or "unavailable"),
-            "bytes_per_second": number(bandwidth.get("bytesPerSecond"), -1),
-            "upload_bytes_per_second": number(bandwidth.get("bytesPerSecondTx"), -1),
+            "live": live_bandwidth,
+            "bytes_per_second": -1,
+            "upload_bytes_per_second": number(bandwidth.get("uploadBytesPerSecond"), -1),
+            "download_bytes_per_second": number(bandwidth.get("downloadBytesPerSecond"), -1),
         },
         "configuration": {
             "transfers": configured_transfers,

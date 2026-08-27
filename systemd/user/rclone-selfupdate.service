@@ -1,6 +1,6 @@
 [Unit]
-Description=Update rclone from its signed official release channel
-Documentation=file:%h/.local/share/doc/proton-drive-linux/OPERATIONS.md https://rclone.org/commands/rclone_selfupdate/
+Description=Verify and refresh the pinned PDrive rclone build
+Documentation=file:%h/.local/share/doc/proton-drive-linux/OPERATIONS.md https://github.com/oss-singularity/rclone/releases
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=%h/.local/libexec/rclone-bin

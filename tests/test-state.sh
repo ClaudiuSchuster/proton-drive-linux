@@ -51,7 +51,10 @@ printf '%s\n' \
 # shellcheck disable=SC2016
 printf '%s\n' \
     '#!/usr/bin/env bash' \
-    'endpoint="${@: -1}"' \
+    'endpoint=""' \
+    'for argument in "$@"; do' \
+    '  case "${argument}" in core/*|vfs/*|backend/*) endpoint="${argument}" ;; esac' \
+    'done' \
     'if [[ "${PDRIVE_TEST_NO_VFS:-}" == 1 && "${endpoint}" == vfs/* ]]; then exit 99; fi' \
     'case "${endpoint}" in' \
     '  core/stats)' \
@@ -65,7 +68,7 @@ printf '%s\n' \
     '  core/transferred) printf "%s\\n" '\''{"transferred":[{"name":"done.txt","size":12,"bytes":12,"completedAt":"2026-08-24T10:00:00+00:00","srcFs":"/tmp/vfs/proton-test","dstFs":"proton-test:"},{"name":"Projects/demo.qcow2","size":1048576,"bytes":1048576,"completedAt":"2026-08-24T10:04:00+00:00","srcFs":"proton-test:","dstFs":"/tmp/vfs/proton-test"},{"name":"missing-direction.txt","size":24,"bytes":24,"completedAt":"2026-08-24T10:05:00+00:00"},{"name":"ambiguous-direction.txt","size":48,"bytes":48,"completedAt":"2026-08-24T10:06:00+00:00","srcFs":"proton-test:source","dstFs":"proton-test:destination"}]} '\'' ;;' \
     '  vfs/queue) printf "%s\\n" '\''{"queue":[{"name":"demo/file.iso","size":2097152,"tries":2,"uploading":true}]} '\'' ;;' \
     '  vfs/stats) printf "%s\\n" '\''{"diskCache":{"bytesUsed":3145728,"files":2,"uploadsQueued":1,"uploadsInProgress":1,"erroredFiles":0,"outOfSpace":false},"opt":{"CacheMaxAge":86400000000000}}'\'' ;;' \
-    '  core/bwlimit) printf "%s\\n" '\''{"rate":"4M:off","bytesPerSecondTx":4194304}'\'' ;;' \
+    '  backend/command) printf "%s\\n" '\''{"result":{"upload":"4M","download":"2M","uploadBytesPerSecond":4194304,"downloadBytesPerSecond":2097152}}'\'' ;;' \
     '  *) exit 2 ;;' \
     'esac' > "${fake_bin}/rclone-bin"
 chmod 0755 "${fake_bin}/systemctl" "${fake_bin}/ss" \
@@ -131,7 +134,7 @@ EOF
 printf '%s\n' \
     '2026-08-24T10:00:00+00:00 status=ready reason=mounted service=active/running pid=4242 mount=ready dns=ok tcp=established progress=yes success=1 queued=1 errors=7 notices=3 vfs_queue=1 vfs_queue_bytes=2097152 vfs_uploading=1 vfs_failed=0' \
     | tr ' ' '\t' > "${state_dir}/pdrive-watch-history.log"
-printf '%s\n' 'bwlimit=4M:off' > "${config_dir}/pdrive-bwlimit.conf"
+printf '%s\n' 'bwlimit=4M:2M' > "${config_dir}/pdrive-bwlimit.conf"
 printf '%s\n' 'cache_max_age_hours=24' > "${config_dir}/pdrive-cache.conf"
 printf '%s\n' 'transfers=4' > "${config_dir}/pdrive-transfers.conf"
 printf '%s\n' 'proton_metadata_cache=true' > "${config_dir}/pdrive-recovery.conf"
@@ -178,7 +181,10 @@ jq -e '
     and .vfs.cache_state == "pending"
     and .vfs.clean_files == 1
     and .vfs.pending_files == 1
-    and .bandwidth.live == "4M:off"
+    and .bandwidth.configured == "4M:2M"
+    and .bandwidth.live == "4M:2M"
+    and .bandwidth.upload_bytes_per_second == 4194304
+    and .bandwidth.download_bytes_per_second == 2097152
     and .configuration.metadata_cache == true
     and .configuration.cache_max_age_seconds == 86400
     and .configuration.running_cache_max_age_seconds == 86400

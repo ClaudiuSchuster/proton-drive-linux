@@ -104,10 +104,11 @@ if [[ -e "${transfers_config}" ]]; then
     fi
 fi
 
-# The helper writes a canonical single runtime bandwidth setting.  Never
-# source this file: accepting exactly one validated value keeps manual damage
-# from becoming shell code or silently changing unrelated mount arguments.
-bwlimit='off'
+# Validate the saved file-data limits before starting. ExecStartPost applies
+# them through the Proton backend after the RC socket is ready. They must not
+# be passed as backend flags here: doing that would change rclone's VFS cache
+# fingerprint and hide an existing pending-upload namespace from the new
+# process. Never source this file.
 if [[ -e "${bwlimit_config}" ]]; then
     if [[ ! -r "${bwlimit_config}" ]]; then
         echo "Bandwidth configuration is unreadable: ${bwlimit_config}" >&2
@@ -221,7 +222,6 @@ exec "${rclone_bin}" mount proton: "${mount_dir}" \
     --protondrive-enable-caching="${proton_metadata_cache}" \
     --protondrive-replace-existing-draft="${replace_existing_draft}" \
     --transfers="${transfers}" \
-    --bwlimit="${bwlimit}" \
     --low-level-retries=5 \
     --retries=2 \
     --umask=077 \

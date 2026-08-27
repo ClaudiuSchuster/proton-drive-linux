@@ -45,6 +45,14 @@ responses but excludes browsers and unrelated rclone mounts. Proton capacity
 may require a backend request and is therefore sampled only at startup, every
 15 minutes and on explicit refresh.
 
+Bandwidth mutation is backend-specific by design. `pdrive-bwlimit` calls the
+Proton backend's `data-bandwidth` runtime command; the backend wraps shared
+aggregate upload and download file readers while metadata HTTP requests bypass
+the limit. Never replace this with rclone's global `core/bwlimit` on the live
+mount. Saved limits are applied only after mount startup so backend option
+values cannot alter the VFS cache fingerprint and select a different Dirty
+queue namespace.
+
 ## Security model
 
 - The rclone configuration is encrypted with a random password stored in the
@@ -92,6 +100,24 @@ Run the full local suite before every commit:
 ```bash
 make verify
 ```
+
+### Pinned rclone dependency
+
+The installed binary comes from the public
+[`oss-singularity/rclone`](https://github.com/oss-singularity/rclone) release
+`pdrive-v1.76.0-beta.10204.1`. Its branch pins the exact
+[`oss-singularity/Proton-API-Bridge`](https://github.com/oss-singularity/Proton-API-Bridge)
+commit used to build the asset; the bridge worker-drain correction is proposed
+upstream in [Proton-API-Bridge PR #8](https://github.com/rclone/Proton-API-Bridge/pull/8).
+The Linux x86-64 asset is statically linked and its checksum is embedded in
+`pdrive-prerequisites` and published beside the release.
+
+Treat the release branch, annotated tag, source replace and checksum as one
+review unit. Updating only the executable or only the embedded digest is not a
+valid dependency upgrade. The binary intentionally retains its exact upstream
+rclone version string so VFS cache identity and minimum-version guards remain
+stable; detect the PDrive extension through `backend help protondrive` and the
+`data-bandwidth` command.
 
 `make help` lists action-free developer entry points. `make check-units` runs
 the focused systemd invariants and static verification, while
