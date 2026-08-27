@@ -109,6 +109,11 @@ The installed binary comes from the public
 [`oss-singularity/Proton-API-Bridge`](https://github.com/oss-singularity/Proton-API-Bridge)
 commit used to build the asset; the bridge worker-drain correction is proposed
 upstream in [Proton-API-Bridge PR #8](https://github.com/rclone/Proton-API-Bridge/pull/8).
+The independent Proton file-data limiter, its reproduction measurements and the
+public prototype are tracked in
+[rclone issue #9832](https://github.com/rclone/rclone/issues/9832). Keep these
+upstream efforts separate: one fixes leaked upload-worker slots after errors;
+the other limits only bulk file readers so API metadata remains responsive.
 The Linux x86-64 asset is statically linked and its checksum is embedded in
 `pdrive-prerequisites` and published beside the release.
 

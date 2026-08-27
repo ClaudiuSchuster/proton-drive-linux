@@ -838,9 +838,12 @@ rclone release. `pdrive-prerequisites` verifies the embedded SHA-256 digest,
 minimum upload-safe version and required Proton backend command before atomic
 installation. The updater invokes that same verifier and does not follow
 rclone's official stable channel, because an otherwise newer binary may lack
-PDrive's source-reviewed file-data limiter and bridge-worker fix. A newly
-installed binary is intentionally left for the next natural mount start; the
-updater never restarts an active transfer.
+PDrive's source-reviewed file-data limiter and bridge-worker fix. Their upstream
+review is tracked independently in
+[rclone #9832](https://github.com/rclone/rclone/issues/9832) and
+[Proton-API-Bridge #8](https://github.com/rclone/Proton-API-Bridge/pull/8).
+A newly installed binary is intentionally left for the next natural mount
+start; the updater never restarts an active transfer.
 
 The optional official Proton Drive CLI timer runs five minutes after boot when
 due and daily with up to four hours of randomized delay. Its updater accepts
