@@ -11,6 +11,7 @@ UMask=0077
 ExecCondition=%h/.local/libexec/pdrive-auth-failure-guard --start-allowed
 ExecStartPre=%h/.local/libexec/pdrive-auth-failure-guard --begin-start
 ExecStart=%h/.local/libexec/rclone-proton-mount
+ExecStartPost=%h/.local/bin/pdrive-bwlimit --apply-startup
 ExecStartPost=%h/.local/libexec/pdrive-auth-failure-guard --mark-healthy
 ExecStop=-%h/.local/libexec/rclone-proton-unmount
 ExecStopPost=%h/.local/libexec/pdrive-auth-failure-guard --after-service-exit

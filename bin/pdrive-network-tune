@@ -1,0 +1,226 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+umask 077
+
+readonly provider_url="${PDRIVE_TUNE_PROVIDER_URL:-https://speed.cloudflare.com}"
+readonly curl_bin="${PDRIVE_CURL_BIN:-$(command -v curl || true)}"
+readonly result_file="${HOME}/.config/pdrive-network-tune.json"
+readonly bulk_percent=60
+readonly reserve_percent=40
+readonly warmup_bytes=1000000
+readonly download_bytes=25000000
+readonly upload_bytes=10000000
+readonly approximate_total_bytes=72000000
+
+usage() {
+    printf '%s\n' \
+        'Usage: pdrive-network-tune [status|measure [--json]]' \
+        '' \
+        'status: show the last locally stored recommendation; never uses the network.' \
+        'measure: explicitly run a bounded connection test against speed.cloudflare.com.' \
+        '         About 72 MB are transferred and only local measurements are stored.' \
+        '         The recommendation reserves 40% for responsive browsing and other traffic.' \
+        '--json: emit the new measurement as JSON for the setup wizard.'
+}
+
+case "${1:-status}" in
+    -h|--help|help)
+        (( $# == 1 )) || {
+            printf 'Too many arguments.\n' >&2
+            exit 2
+        }
+        usage
+        exit 0
+        ;;
+esac
+
+valid_result_file() {
+    [[ -r "${result_file}" ]] \
+        && jq -e '
+            .schema == 1
+            and (.measured_at | type == "string")
+            and (.upload.recommended_mib_per_second | type == "number")
+            and (.download.recommended_mib_per_second | type == "number")
+            and .bulk_percent == 60
+            and .reserve_percent == 40
+        ' "${result_file}" >/dev/null 2>&1
+}
+
+show_status() {
+    if ! valid_result_file; then
+        printf 'No valid local network-tune result is available yet.\n'
+        printf 'Run pdrive-network-tune measure after reviewing pdrive-network-tune --help.\n'
+        return 1
+    fi
+    jq -r '
+        "Measured:       \(.measured_at)",
+        "Provider:       \(.provider)",
+        "Upload:         \(.upload.measured_mib_per_second) MiB/s measured; \(.upload.recommended_mib_per_second) MiB/s bulk limit",
+        "Download:       \(.download.measured_mib_per_second) MiB/s measured; \(.download.recommended_mib_per_second) MiB/s bulk limit",
+        "Reserved:       \(.reserve_percent)% for browsing and other traffic"
+    ' "${result_file}"
+}
+
+numeric_speed() {
+    [[ "${1:-}" =~ ^[0-9]+([.][0-9]+)?$ ]] && awk -v value="$1" 'BEGIN { exit !(value > 0) }'
+}
+
+download_sample() {
+    local bytes="$1"
+    local speed
+
+    speed="$("${curl_bin}" \
+        --silent --show-error --fail \
+        --connect-timeout 10 --max-time 45 \
+        --output /dev/null --write-out '%{speed_download}' \
+        "${provider_url}/__down?bytes=${bytes}")"
+    numeric_speed "${speed}" || {
+        printf 'The download measurement returned an invalid result.\n' >&2
+        return 1
+    }
+    printf '%s\n' "${speed}"
+}
+
+upload_sample() {
+    local bytes="$1"
+    local speed
+
+    speed="$(head -c "${bytes}" /dev/zero | "${curl_bin}" \
+        --silent --show-error --fail \
+        --connect-timeout 10 --max-time 45 \
+        --output /dev/null --write-out '%{speed_upload}' \
+        --header 'Content-Type: application/octet-stream' \
+        --data-binary @- \
+        "${provider_url}/__up?bytes=${bytes}")"
+    numeric_speed "${speed}" || {
+        printf 'The upload measurement returned an invalid result.\n' >&2
+        return 1
+    }
+    printf '%s\n' "${speed}"
+}
+
+lower_speed() {
+    awk -v first="$1" -v second="$2" 'BEGIN { print first < second ? first : second }'
+}
+
+to_mib() {
+    awk -v bytes_per_second="$1" 'BEGIN { printf "%.2f", bytes_per_second / 1048576 }'
+}
+
+recommend_mib() {
+    awk -v bytes_per_second="$1" -v percent="${bulk_percent}" '
+        BEGIN {
+            recommended = bytes_per_second / 1048576 * percent / 100
+            if (recommended < 0.02) recommended = 0.02
+            printf "%.2f", recommended
+        }
+    '
+}
+
+measure() {
+    local output_json="$1"
+    local download_first download_second upload_first upload_second
+    local download_speed upload_speed download_mib upload_mib
+    local download_recommended upload_recommended measured_at
+    local result_dir result_tmp
+
+    [[ -n "${curl_bin}" && -x "${curl_bin}" ]] || {
+        printf 'curl is required for the connection measurement.\n' >&2
+        return 69
+    }
+    command -v jq >/dev/null 2>&1 || {
+        printf 'jq is required for the connection measurement.\n' >&2
+        return 69
+    }
+
+    # Small warmups establish TLS and route state; only the two bounded full
+    # samples per direction feed the conservative recommendation.
+    download_sample "${warmup_bytes}" >/dev/null
+    download_first="$(download_sample "${download_bytes}")"
+    download_second="$(download_sample "${download_bytes}")"
+    upload_sample "${warmup_bytes}" >/dev/null
+    upload_first="$(upload_sample "${upload_bytes}")"
+    upload_second="$(upload_sample "${upload_bytes}")"
+
+    download_speed="$(lower_speed "${download_first}" "${download_second}")"
+    upload_speed="$(lower_speed "${upload_first}" "${upload_second}")"
+    download_mib="$(to_mib "${download_speed}")"
+    upload_mib="$(to_mib "${upload_speed}")"
+    download_recommended="$(recommend_mib "${download_speed}")"
+    upload_recommended="$(recommend_mib "${upload_speed}")"
+    measured_at="$(date --utc +'%Y-%m-%dT%H:%M:%SZ')"
+
+    result_dir="${result_file%/*}"
+    mkdir -p -- "${result_dir}"
+    result_tmp="$(mktemp "${result_dir}/pdrive-network-tune.json.XXXXXX")"
+    if ! jq -n \
+        --arg measured_at "${measured_at}" \
+        --arg provider "${provider_url}" \
+        --argjson transferred_bytes "${approximate_total_bytes}" \
+        --argjson bulk_percent "${bulk_percent}" \
+        --argjson reserve_percent "${reserve_percent}" \
+        --argjson upload_measured "${upload_mib}" \
+        --argjson upload_recommended "${upload_recommended}" \
+        --argjson download_measured "${download_mib}" \
+        --argjson download_recommended "${download_recommended}" \
+        '{
+            schema: 1,
+            measured_at: $measured_at,
+            provider: $provider,
+            approximate_transferred_bytes: $transferred_bytes,
+            bulk_percent: $bulk_percent,
+            reserve_percent: $reserve_percent,
+            upload: {
+                measured_mib_per_second: $upload_measured,
+                recommended_mib_per_second: $upload_recommended
+            },
+            download: {
+                measured_mib_per_second: $download_measured,
+                recommended_mib_per_second: $download_recommended
+            }
+        }' > "${result_tmp}"; then
+        rm -f -- "${result_tmp}"
+        return 1
+    fi
+    chmod 0600 "${result_tmp}"
+    mv -f -- "${result_tmp}" "${result_file}"
+
+    if [[ "${output_json}" == true ]]; then
+        cat -- "${result_file}"
+    else
+        show_status
+    fi
+}
+
+case "${1:-status}" in
+    status)
+        (( $# == 1 )) || {
+            printf 'Too many arguments (help: pdrive-network-tune --help).\n' >&2
+            exit 2
+        }
+        show_status
+        ;;
+    measure)
+        case "${2:-}" in
+            '') measure false ;;
+            --json)
+                (( $# == 2 )) || {
+                    printf 'Too many arguments (help: pdrive-network-tune --help).\n' >&2
+                    exit 2
+                }
+                measure true
+                ;;
+            *)
+                printf 'Unknown argument: %s\n' "${2}" >&2
+                exit 2
+                ;;
+        esac
+        ;;
+    *)
+        printf 'Unknown action: %s\n' "${1}" >&2
+        usage >&2
+        exit 2
+        ;;
+esac

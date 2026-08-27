@@ -5,9 +5,12 @@ set -euo pipefail
 umask 077
 
 readonly target_rclone="${PDRIVE_REAL_RCLONE:-${HOME}/.local/libexec/rclone-bin}"
-readonly safe_rclone_beta='v1.76.0-beta.10204.660144d31'
 readonly minimum_safe_rclone='v1.76.0'
 readonly minimum_safe_beta_build=10204
+readonly pdrive_rclone_release='pdrive-v1.76.0-beta.10204.1'
+readonly pdrive_rclone_url="${PDRIVE_RCLONE_URL:-https://github.com/oss-singularity/rclone/releases/download/${pdrive_rclone_release}/rclone-pdrive-linux-amd64}"
+readonly pdrive_rclone_sha256="${PDRIVE_RCLONE_SHA256:-77a1abfddd9b9badcdae866319ace9575db680486704d79d8d4f9c8b04c6c41e}"
+readonly curl_bin="${PDRIVE_CURL_BIN:-$(command -v curl || true)}"
 
 usage() {
     printf '%s\n' \
@@ -15,24 +18,12 @@ usage() {
         '' \
         'Without an option or with --help, this command only prints help.' \
         '--check           verify the user-local rclone and Proton backend' \
-        '--install-rclone  bootstrap the pinned official upload-safe rclone beta' \
-        '                  atomically from an installed distribution rclone;' \
-        '                  the updater returns to stable when 1.76 is released' \
+        '--install-rclone  download and verify the pinned PDrive rclone build' \
+        '                  atomically from the OSS Singularity release;' \
+        '                  its source and checksum are published with the asset' \
         '' \
         'System packages and /pdrive are intentionally prepared by trusted' \
         'system executables through Polkit, not by this user-writable helper.'
-}
-
-find_bootstrap_rclone() {
-    local candidate
-    for candidate in "${PDRIVE_BOOTSTRAP_RCLONE:-}" /usr/bin/rclone /usr/local/bin/rclone; do
-        [[ -n "${candidate}" ]] || continue
-        if [[ -x "${candidate}" && "${candidate}" != "${target_rclone}" ]]; then
-            printf '%s\n' "${candidate}"
-            return 0
-        fi
-    done
-    return 1
 }
 
 rclone_upload_retry_safe() {
@@ -54,7 +45,20 @@ rclone_upload_retry_safe() {
 check_rclone() {
     [[ -x "${target_rclone}" ]] || return 1
     rclone_upload_retry_safe "${target_rclone}" \
-        && "${target_rclone}" help backend protondrive >/dev/null 2>&1
+        && rclone_provides_data_limiter "${target_rclone}"
+}
+
+rclone_provides_data_limiter() {
+    local candidate="$1"
+
+    "${candidate}" help backend protondrive >/dev/null 2>&1 || return 1
+    "${candidate}" backend help protondrive 2>/dev/null \
+        | grep -q '^### data-bandwidth$'
+}
+
+installed_release_matches() {
+    [[ -x "${target_rclone}" ]] || return 1
+    [[ "$(sha256sum "${target_rclone}" | cut -d ' ' -f 1)" == "${pdrive_rclone_sha256}" ]]
 }
 
 case "${1:-}" in
@@ -74,29 +78,38 @@ case "${1:-}" in
         ;;
     --install-rclone)
         (( $# == 1 )) || { usage >&2; exit 2; }
-        if check_rclone; then
-            printf 'Already ready: %s\n' "${target_rclone}"
+        if installed_release_matches && check_rclone; then
+            printf 'Already current: %s provides %s.\n' "${target_rclone}" "${pdrive_rclone_release}"
             exit 0
         fi
-        bootstrap_rclone="$(find_bootstrap_rclone || true)"
-        if [[ -z "${bootstrap_rclone}" ]]; then
-            printf 'No distribution rclone was found in /usr/bin or /usr/local/bin.\n' >&2
+        if [[ "$(uname -m)" != 'x86_64' ]]; then
+            printf 'The pinned PDrive rclone build currently supports x86-64 Linux only.\n' >&2
+            exit 69
+        fi
+        if [[ -z "${curl_bin}" || ! -x "${curl_bin}" ]]; then
+            printf 'curl is required to download the pinned PDrive rclone build.\n' >&2
             exit 69
         fi
         mkdir -p -- "${target_rclone%/*}"
         temporary_rclone="$(mktemp "${target_rclone%/*}/.rclone-bin.XXXXXX")"
         cleanup() { rm -f -- "${temporary_rclone:-}"; }
         trap cleanup EXIT
-        install -m 0755 "${bootstrap_rclone}" "${temporary_rclone}"
-        "${temporary_rclone}" selfupdate --beta --version "${safe_rclone_beta}"
+        "${curl_bin}" --fail --location --silent --show-error \
+            --connect-timeout 15 --max-time 300 \
+            --output "${temporary_rclone}" "${pdrive_rclone_url}"
+        if [[ "$(sha256sum "${temporary_rclone}" | cut -d ' ' -f 1)" != "${pdrive_rclone_sha256}" ]]; then
+            printf 'The downloaded PDrive rclone checksum did not match.\n' >&2
+            exit 70
+        fi
+        chmod 0755 "${temporary_rclone}"
         if ! rclone_upload_retry_safe "${temporary_rclone}" \
-            || ! "${temporary_rclone}" help backend protondrive >/dev/null 2>&1; then
-            printf 'The downloaded rclone is not an upload-safe Proton Drive build.\n' >&2
+            || ! rclone_provides_data_limiter "${temporary_rclone}"; then
+            printf 'The downloaded rclone is not the required PDrive Proton build.\n' >&2
             exit 70
         fi
         mv -f -- "${temporary_rclone}" "${target_rclone}"
         trap - EXIT
-        printf 'Installed the pinned upload-safe rclone beta at %s.\n' "${target_rclone}"
+        printf 'Installed verified %s at %s.\n' "${pdrive_rclone_release}" "${target_rclone}"
         ;;
     -h|--help)
         (( $# == 1 )) || { usage >&2; exit 2; }

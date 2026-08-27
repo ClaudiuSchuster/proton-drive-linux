@@ -4,10 +4,10 @@
 set -uo pipefail
 umask 077
 
-readonly config_file="${HOME}/.config/pdrive-bwlimit.conf"
-readonly state_dir="${HOME}/.local/state/rclone"
-readonly rc_socket="${state_dir}/pdrive-rc.sock"
-readonly rclone_bin="${HOME}/.local/libexec/rclone-bin"
+readonly config_file="${PDRIVE_BWLIMIT_CONFIG:-${HOME}/.config/pdrive-bwlimit.conf}"
+readonly state_dir="${PDRIVE_RCLONE_STATE_DIR:-${HOME}/.local/state/rclone}"
+readonly rc_socket="${PDRIVE_RC_SOCKET:-${state_dir}/pdrive-rc.sock}"
+readonly rclone_bin="${PDRIVE_RCLONE_BIN:-${HOME}/.local/libexec/rclone-bin}"
 
 usage() {
     printf '%s\n' \
@@ -186,13 +186,46 @@ rc_call() {
     timeout --signal=TERM 10s "${rclone_bin}" rc --unix-socket "${rc_socket}" "$@"
 }
 
-query_live_rate() {
-    local response
+rc_endpoint_available() {
+    [[ -S "${rc_socket}" || "${PDRIVE_BWLIMIT_TEST_SOCKET_READY:-}" == '1' ]]
+}
 
-    [[ -S "${rc_socket}" ]] || return 1
-    response="$(rc_call core/bwlimit 2>/dev/null)" || return 1
-    live_rate="$(jq -r '.rate // empty' <<< "${response}" 2>/dev/null || true)"
+query_live_rate() {
+    local response upload download
+
+    rc_endpoint_available || return 1
+    response="$(rc_call backend/command \
+        'command=data-bandwidth' 'fs=proton:' 2>/dev/null)" || return 1
+    upload="$(jq -r '.result.upload // empty' <<< "${response}" 2>/dev/null || true)"
+    download="$(jq -r '.result.download // empty' <<< "${response}" 2>/dev/null || true)"
+    rate_is_safe "${upload}" || return 1
+    rate_is_safe "${download}" || return 1
+    if [[ "${upload}" == 'off' && "${download}" == 'off' ]]; then
+        live_rate='off'
+    else
+        live_rate="${upload}:${download}"
+    fi
     rate_is_safe "${live_rate}"
+}
+
+apply_live_rate() {
+    local rate="${1:-off}"
+    local upload='off' download='off' options response
+
+    if [[ "${rate}" == *:* ]]; then
+        upload="${rate%%:*}"
+        download="${rate#*:}"
+    elif [[ "${rate}" != 'off' ]]; then
+        upload="${rate}"
+        download="${rate}"
+    fi
+    options="$(jq -cn --arg upload "${upload}" --arg download "${download}" \
+        '{upload: $upload, download: $download}')" || return 1
+    response="$(rc_call backend/command \
+        'command=data-bandwidth' 'fs=proton:' "opt=${options}" 2>/dev/null)" || return 1
+    applied_upload="$(jq -r '.result.upload // empty' <<< "${response}" 2>/dev/null || true)"
+    applied_download="$(jq -r '.result.download // empty' <<< "${response}" 2>/dev/null || true)"
+    rate_is_safe "${applied_upload}" && rate_is_safe "${applied_download}"
 }
 
 mkdir -p -- "${state_dir}"
@@ -211,7 +244,7 @@ case "${1:-status}" in
         usage
         exit 0
         ;;
-    status)
+    status|--status)
         if (( $# > 1 )); then
             printf 'Too many arguments (help: pdrive-bwlimit --help).\n' >&2
             exit 2
@@ -236,6 +269,26 @@ case "${1:-status}" in
                 '               Runtime control becomes active at the next service start.'
         fi
         ;;
+    --apply-startup)
+        if (( $# != 1 )); then
+            printf 'Too many arguments for startup application.\n' >&2
+            exit 2
+        fi
+        load_configured_rate || {
+            printf 'Error: %s.\n' "${config_warning}" >&2
+            exit 78
+        }
+        for _attempt in {1..40}; do
+            if rc_endpoint_available && apply_live_rate "${configured_rate}"; then
+                printf 'Active:        %s\n' "$(describe_rate "${configured_rate}")"
+                printf 'Startup:       saved bulk file-data limits applied; Proton API traffic remains outside them.\n'
+                exit 0
+            fi
+            sleep 0.25
+        done
+        printf 'Error: the running Proton backend did not accept its saved file-data limits.\n' >&2
+        exit 1
+        ;;
     *)
         if (( $# != 1 )); then
             printf 'Provide exactly one limit (help: pdrive-bwlimit --help).\n' >&2
@@ -249,14 +302,18 @@ case "${1:-status}" in
         fi
 
         if query_live_rate; then
-            if ! response="$(rc_call core/bwlimit "rate=${canonical_rate}" 2>/dev/null)"; then
+            if ! apply_live_rate "${canonical_rate}"; then
                 printf 'Saved: %s\n' "$(describe_rate "${canonical_rate}")"
                 printf '%s\n' \
                     'Error: the running rclone process rejected the change.' \
                     'The saved value applies at the next service start at the latest.' >&2
                 exit 1
             fi
-            applied_rate="$(jq -r '.rate // empty' <<< "${response}" 2>/dev/null || true)"
+            if [[ "${applied_upload}" == 'off' && "${applied_download}" == 'off' ]]; then
+                applied_rate='off'
+            else
+                applied_rate="${applied_upload}:${applied_download}"
+            fi
             if ! rate_is_safe "${applied_rate}"; then
                 printf 'Error: rclone returned an unexpected runtime response.\n' >&2
                 exit 70

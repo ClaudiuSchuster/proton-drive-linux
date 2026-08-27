@@ -45,6 +45,10 @@ assert module.translate("GitHub project") == "GitHub-Projekt"
 assert module.translate("License") == "Lizenz"
 assert module.translate("Quick start") == "Schnellstart"
 assert module.translate("Everyday use") == "Tägliche Nutzung"
+assert module.translate("Download limit in MiB/s") == "Downloadlimit in MiB/s"
+assert module.translate(
+    "The logarithmic sliders give low everyday limits more precision. Leaving connection headroom can keep browsing and calls responsive; use pdrive-bwlimit for values above 100 MiB/s."
+).startswith("Die logarithmischen Regler")
 assert module.translate(
     "Fabian Schneider — comic relief, lively development chats and plenty of screenshots"
 ).startswith("Fabian Schneider — Quatschkomödie")
@@ -307,11 +311,23 @@ assert identity_tracker.upload_eta_samples == 1
 assert module.bandwidth_slider_position("off") == module.BANDWIDTH_SLIDER_UNLIMITED
 assert module.bandwidth_slider_position("0") == module.BANDWIDTH_SLIDER_UNLIMITED
 assert 60 < module.bandwidth_slider_position("4.200Mi:off") < 70
+assert module.bandwidth_slider_position("4.200Mi:off", "download") == module.BANDWIDTH_SLIDER_UNLIMITED
+assert abs(module.bandwidth_slider_rate(module.bandwidth_slider_position("4.200Mi:1Mi", "download")) - 1) < 0.001
+assert abs(module.bandwidth_slider_rate(module.bandwidth_slider_position("4.200Mi", "download")) - 4.2) < 0.001
 assert 40 < module.bandwidth_slider_position("800K:off") < 50
 assert abs(module.bandwidth_slider_rate(module.bandwidth_slider_position("4.2")) - 4.2) < 0.001
 assert module.bandwidth_slider_command(0) == "0.02"
 assert module.bandwidth_slider_command(module.bandwidth_slider_position("4.2")) == "4.2"
 assert module.bandwidth_slider_command(module.BANDWIDTH_SLIDER_UNLIMITED) == "off"
+assert module.bandwidth_slider_command(
+    module.bandwidth_slider_position("4.2"), module.BANDWIDTH_SLIDER_UNLIMITED
+) == "4.2:off"
+assert module.bandwidth_slider_command(
+    module.BANDWIDTH_SLIDER_UNLIMITED, module.bandwidth_slider_position("2")
+) == "off:2"
+assert module.bandwidth_slider_command(
+    module.BANDWIDTH_SLIDER_UNLIMITED, module.BANDWIDTH_SLIDER_UNLIMITED
+) == "off"
 assert "≈0" in module.bandwidth_slider_label(0)
 assert "4.2 MiB/s" in module.bandwidth_slider_label(module.bandwidth_slider_position("4.2"))
 assert "off/0" in module.bandwidth_slider_label(module.BANDWIDTH_SLIDER_UNLIMITED)

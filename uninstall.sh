@@ -95,7 +95,7 @@ systemctl --user disable --now \
     pdrive-watch.timer pdrive-draft-recovery.timer rclone-proton-drive.service \
     rclone-selfupdate.timer proton-drive-update.timer >/dev/null 2>&1 || true
 
-for file_name in pdrive-bwlimit pdrive-cache-age pdrive-doctor pdrive-draft-recovery pdrive-reauth \
+for file_name in pdrive-bwlimit pdrive-cache-age pdrive-doctor pdrive-draft-recovery pdrive-network-tune pdrive-reauth \
     pdrive-recovery pdrive-refresh pdrive-setup pdrive-state pdrive-transfers \
     pdrive-ui pdrive-watch rclone; do
     rm -f -- "${bin_dir}/${file_name}"
@@ -126,6 +126,7 @@ if [[ -d "${doc_dir}" ]]; then
         "${doc_dir}/docs/assets/pdrive-transfers.png" \
         "${doc_dir}/docs/assets/pdrive-history.png" \
         "${doc_dir}/docs/assets/pdrive-auth-cooldown.png" \
+        "${doc_dir}/docs/assets/pdrive-setup-wizard.png" \
         "${doc_dir}/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg"
     rmdir "${doc_dir}/docs/assets" "${doc_dir}/docs" 2>/dev/null || true
     rmdir "${doc_dir}/share/icons/hicolor/scalable/apps" \

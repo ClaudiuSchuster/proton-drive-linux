@@ -30,9 +30,21 @@ On first launch, PDrive Control Center guides you through these steps:
 
 1. Check the required Mint, GTK, FUSE and Keyring components.
 2. Install missing packages through the system Polkit prompt when needed.
-3. Prepare the tested Proton-capable rclone build.
-4. Enter your Proton username, password and optional fresh six-digit 2FA code.
-5. Wait until the wizard confirms that `/pdrive` is mounted.
+3. Prepare the checksum-verified PDrive rclone build.
+4. Choose **Auto-tune**, **Set manually** or **Unlimited** for file transfers.
+5. Enter your Proton username, password and optional fresh six-digit 2FA code.
+6. Wait until the wizard confirms that `/pdrive` is mounted.
+
+Auto-tune runs one disclosed, bounded Cloudflare test of about 72 MB, then
+assigns 60% of conservative measured upload and download rates to bulk file
+data. The remaining 40% stays available to Nemo metadata requests and other
+applications. Manual mode offers separate logarithmic upload and download
+controls; Unlimited leaves both directions open. These choices affect file
+payloads only, not Proton login, directory listing or other API metadata.
+
+<img src="assets/pdrive-setup-wizard.png"
+     width="700"
+     alt="PDrive setup wizard showing separate manual upload and download controls">
 
 Credentials travel through private anonymous pipes. They never appear in
 process arguments, environment variables or logs.

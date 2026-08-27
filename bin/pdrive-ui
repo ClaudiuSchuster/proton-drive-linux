@@ -72,7 +72,7 @@ ABOUT_CREDITS = (
 )
 DEFAULT_WINDOW_WIDTH = 820
 DEFAULT_WINDOW_HEIGHT = 824
-SETUP_WINDOW_HEIGHT = 720
+SETUP_WINDOW_HEIGHT = 780
 MIN_WINDOW_WIDTH = 640
 MIN_WINDOW_HEIGHT = 480
 MAX_WINDOW_DIMENSION = 16384
@@ -111,7 +111,6 @@ NOTIFICATION_POLICIES = {
 SUPPORTED_LANGUAGES = {"en": "English", "de": "Deutsch"}
 CURRENT_LANGUAGE = "en"
 SYSTEM_PACKAGES = (
-    "rclone",
     "fuse3",
     "libfuse3-3",
     "libsecret-tools",
@@ -431,11 +430,14 @@ GERMAN_TRANSLATIONS = {
     "Bandwidth limit": "Bandbreitenlimit",
     "Apply": "Übernehmen",
     "Upload limit in MiB/s": "Uploadlimit in MiB/s",
+    "Download limit in MiB/s": "Downloadlimit in MiB/s",
     "Near pause": "Nahezu pausiert",
     "Unlimited": "Unbegrenzt",
     "Near pause throttles uploads to 0.02 MiB/s; rclone has no true VFS pause. Full right removes the limit. Changes apply live without interrupting the active transfer.": "Nahezu pausiert drosselt Uploads auf 0,02 MiB/s; rclone besitzt keine echte VFS-Pause. Ganz rechts wird das Limit entfernt. Änderungen gelten live, ohne den aktiven Transfer zu unterbrechen.",
+    "Near pause throttles that direction to 0.02 MiB/s; rclone has no true VFS pause. Full right removes its limit. Changes apply live without interrupting active transfers.": "Nahezu pausiert drosselt diese Richtung auf 0,02 MiB/s; rclone besitzt keine echte VFS-Pause. Ganz rechts wird das jeweilige Limit entfernt. Änderungen gelten live, ohne aktive Transfers zu unterbrechen.",
     "The slider controls uploads up to 100 MiB/s. Use pdrive-bwlimit for separate upload/download values or higher limits.": "Der Regler steuert Uploads bis 100 MiB/s. Verwende pdrive-bwlimit für getrennte Upload-/Downloadwerte oder höhere Limits.",
     "The logarithmic slider gives low everyday limits more precision and controls uploads up to 100 MiB/s. Use pdrive-bwlimit for separate upload/download values or higher limits.": "Der logarithmische Regler gibt niedrigen Alltagslimits mehr Präzision und steuert Uploads bis 100 MiB/s. Verwende pdrive-bwlimit für getrennte Upload-/Downloadwerte oder höhere Limits.",
+    "The logarithmic sliders give low everyday limits more precision. Leaving connection headroom can keep browsing and calls responsive; use pdrive-bwlimit for values above 100 MiB/s.": "Die logarithmischen Regler geben niedrigen Alltagslimits mehr Präzision. Freie Leitungsreserve kann Browsing und Anrufe reaktionsschnell halten; verwende pdrive-bwlimit für Werte über 100 MiB/s.",
     "Parallel file uploads": "Parallele Datei-Uploads",
     "The saved value takes effect after the next controlled service start.": "Der gespeicherte Wert gilt nach dem nächsten kontrollierten Dienststart.",
     "Keep clean local cache files for": "Saubere lokale Cachedateien aufbewahren für",
@@ -492,6 +494,23 @@ GERMAN_TRANSLATIONS = {
     "The package manager may ask for your administrator password.": "Der Paketmanager fragt möglicherweise nach deinem Administratorpasswort.",
     "Preparation failed": "Vorbereitung fehlgeschlagen",
     "The prerequisites could not be prepared automatically. You can retry or use the manual instructions.": "Die Voraussetzungen konnten nicht automatisch vorbereitet werden. Du kannst es erneut versuchen oder die manuelle Anleitung verwenden.",
+    "Connection headroom": "Leitungsreserve",
+    "Choose how much of the connection PDrive bulk file transfers may use. Proton metadata requests remain outside rclone’s file-data limiter and can use the reserved capacity.": "Wähle, wie viel der Verbindung PDrive für große Dateiübertragungen verwenden darf. Proton-Metadatenanfragen bleiben außerhalb von rclones Dateidaten-Limiter und können die reservierte Kapazität nutzen.",
+    "Auto-tune (recommended)": "Auto-Tune (empfohlen)",
+    "Measure this connection against Cloudflare, then reserve 40% for responsive Nemo browsing, calls and other traffic. The bounded test transfers about 72 MB. Cloudflare receives the test requests; PDrive stores only the resulting rates locally.": "Miss diese Verbindung gegen Cloudflare und reserviere anschließend 40 % für reaktionsschnelles Browsing in Nemo, Anrufe und anderen Traffic. Der begrenzte Test überträgt etwa 72 MB. Cloudflare empfängt die Testanfragen; PDrive speichert nur die ermittelten Raten lokal.",
+    "Manual limits": "Manuelle Limits",
+    "Set separate upload and download ceilings. Leave meaningful headroom for other applications. Even a near-pause bulk limit keeps Proton metadata browsing responsive.": "Lege getrennte Obergrenzen für Upload und Download fest. Lass eine sinnvolle Reserve für andere Anwendungen. Selbst ein Datei-Limit nahe der Pause hält das Browsing von Proton-Metadaten reaktionsschnell.",
+    "Unlimited bulk transfers": "Unbegrenzte Dateiübertragungen",
+    "Use the entire available connection. Nemo and other applications may become less responsive while large transfers are active.": "Nutze die gesamte verfügbare Verbindung. Nemo und andere Anwendungen können während großer Übertragungen langsamer reagieren.",
+    "Configure connection": "Verbindung konfigurieren",
+    "Measuring upload and download …": "Upload und Download werden gemessen …",
+    "Applying bandwidth policy …": "Bandbreitenregel wird angewendet …",
+    "Auto-tune measured {upload_measured} MiB/s upload and {download_measured} MiB/s download. Bulk transfers are limited to {upload_limit} / {download_limit} MiB/s; 40% remains reserved.": "Auto-Tune maß {upload_measured} MiB/s Upload und {download_measured} MiB/s Download. Dateiübertragungen sind auf {upload_limit} / {download_limit} MiB/s begrenzt; 40 % bleiben reserviert.",
+    "Manual bulk limits saved: {upload_limit} MiB/s upload and {download_limit} MiB/s download.": "Manuelle Datei-Limits gespeichert: {upload_limit} MiB/s Upload und {download_limit} MiB/s Download.",
+    "Bulk transfers remain unlimited. No connection headroom is reserved.": "Dateiübertragungen bleiben unbegrenzt. Es wird keine Leitungsreserve reserviert.",
+    "Continue to Proton account": "Weiter zum Proton-Konto",
+    "Connection measurement failed": "Verbindungsmessung fehlgeschlagen",
+    "The connection policy could not be prepared. Retry auto-tune or choose a manual or unlimited policy.": "Die Verbindungsregel konnte nicht vorbereitet werden. Wiederhole Auto-Tune oder wähle eine manuelle beziehungsweise unbegrenzte Regel.",
     "Proton account": "Proton-Konto",
     "Username or email": "Benutzername oder E-Mail",
     "Password": "Passwort",
@@ -906,8 +925,19 @@ def verified_single_transfer_metrics(
     }
 
 
-def bandwidth_slider_position(rate: str) -> float:
-    component = rate.split(":", 1)[0].strip()
+def bandwidth_rate_components(rate: str) -> tuple[str, str]:
+    normalized = rate.strip()
+    if normalized.lower() in {"", "off", "0"}:
+        return "off", "off"
+    if ":" in normalized:
+        upload, download = normalized.split(":", 1)
+        return upload.strip(), download.strip()
+    return normalized, normalized
+
+
+def bandwidth_slider_position(rate: str, direction: str = "upload") -> float:
+    upload, download = bandwidth_rate_components(rate)
+    component = download if direction == "download" else upload
     if component.lower() in {"", "off", "0"}:
         return BANDWIDTH_SLIDER_UNLIMITED
     match = re.fullmatch(r"([0-9]+(?:\.[0-9]+)?)([bkmgtp]?)(?:i?b?)?", component, re.IGNORECASE)
@@ -950,7 +980,7 @@ def bandwidth_slider_label(position: float) -> str:
     return f"{rate:.{digits}f} MiB/s"
 
 
-def bandwidth_slider_command(position: float) -> str:
+def bandwidth_slider_component(position: float) -> str:
     if position >= BANDWIDTH_SLIDER_UNLIMITED - 0.05:
         return "off"
     if position <= 0.05:
@@ -958,6 +988,16 @@ def bandwidth_slider_command(position: float) -> str:
     rate = bandwidth_slider_rate(position)
     digits = 2 if rate < 1 else 1
     return f"{rate:.{digits}f}".rstrip("0").rstrip(".")
+
+
+def bandwidth_slider_command(position: float, download_position: float | None = None) -> str:
+    upload = bandwidth_slider_component(position)
+    if download_position is None:
+        return upload
+    download = bandwidth_slider_component(download_position)
+    if upload == "off" and download == "off":
+        return "off"
+    return f"{upload}:{download}"
 
 
 def autostart_contents() -> str:
@@ -1417,6 +1457,31 @@ def add_css(widget: Gtk.Widget, *classes: str) -> Gtk.Widget:
     for css_class in classes:
         context.add_class(css_class)
     return widget
+
+
+def create_bandwidth_scale(initial_position: float) -> Gtk.Scale:
+    adjustment = Gtk.Adjustment(
+        value=initial_position,
+        lower=0,
+        upper=BANDWIDTH_SLIDER_UNLIMITED,
+        step_increment=0.1,
+        page_increment=1,
+        page_size=0,
+    )
+    scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adjustment)
+    scale.set_digits(1)
+    scale.set_value_pos(Gtk.PositionType.TOP)
+    scale.set_hexpand(True)
+    scale.connect("format-value", lambda _scale, value: bandwidth_slider_label(value))
+    scale.add_mark(0, Gtk.PositionType.BOTTOM, "⏸ ≈0")
+    for rate in (0.1, 0.5, 1, 4, 10, 25, 50):
+        scale.add_mark(
+            bandwidth_slider_position(str(rate)),
+            Gtk.PositionType.BOTTOM,
+            f"{rate:g}",
+        )
+    scale.add_mark(BANDWIDTH_SLIDER_UNLIMITED, Gtk.PositionType.BOTTOM, translate("Unlimited"))
+    return scale
 
 
 def set_pointer_on_hover(widget: Gtk.Widget) -> None:
@@ -2248,12 +2313,15 @@ class SetupWizard(Gtk.Box):
         self.window = window
         self.preparing = False
         self.connecting = False
+        self.bandwidth_preparing = False
+        self.bandwidth_policy_ready = False
         self.readiness: dict[str, Any] = {}
         self.stack = Gtk.Stack()
         self.stack.set_transition_type(Gtk.StackTransitionType.SLIDE_LEFT_RIGHT)
         self.stack.set_transition_duration(220)
         self.pack_start(self.stack, True, True, 0)
         self.build_readiness_page()
+        self.build_bandwidth_page()
         self.build_account_page()
         self.build_progress_page()
         self.build_success_page()
@@ -2263,6 +2331,7 @@ class SetupWizard(Gtk.Box):
     def page_box(step: str, title: str, subtitle: str) -> Gtk.Box:
         page = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=OVERVIEW_GUTTER)
         add_css(page, "setup-page")
+        page.set_margin_bottom(12)
         page.pack_start(label(step.upper(), "setup-step"), False, False, 0)
         page.pack_start(label(title, "setup-hero"), False, False, 0)
         lead = label(subtitle, "setup-lead")
@@ -2277,9 +2346,18 @@ class SetupWizard(Gtk.Box):
         button.set_tooltip_text(translate(text))
         return button
 
+    def add_page(self, page: Gtk.Widget, name: str) -> None:
+        """Keep every setup step reachable on short displays and long translations."""
+
+        scroller = Gtk.ScrolledWindow()
+        scroller.set_policy(Gtk.PolicyType.NEVER, Gtk.PolicyType.AUTOMATIC)
+        scroller.set_shadow_type(Gtk.ShadowType.NONE)
+        scroller.add(page)
+        self.stack.add_named(scroller, name)
+
     def build_readiness_page(self) -> None:
         page = self.page_box(
-            "Step 1 of 2",
+            "Step 1 of 3",
             "Welcome to PDrive",
             "This guided setup checks the local tools, prepares a private mount and connects your Proton account.",
         )
@@ -2347,14 +2425,101 @@ class SetupWizard(Gtk.Box):
         check_button.connect("clicked", lambda _button: self.refresh_readiness())
         actions.pack_start(check_button, False, False, 0)
         self.continue_button = self.action_button("Continue", primary=True)
-        self.continue_button.connect("clicked", lambda _button: self.stack.set_visible_child_name("account"))
+        self.continue_button.connect("clicked", lambda _button: self.stack.set_visible_child_name("bandwidth"))
         actions.pack_end(self.continue_button, False, False, 0)
         page.pack_end(actions, False, False, 0)
-        self.stack.add_named(page, "readiness")
+        self.add_page(page, "readiness")
+
+    def build_bandwidth_page(self) -> None:
+        page = self.page_box(
+            "Step 2 of 3",
+            "Connection headroom",
+            "Choose how much of the connection PDrive bulk file transfers may use. Proton metadata requests remain outside rclone’s file-data limiter and can use the reserved capacity.",
+        )
+
+        self.bandwidth_auto = Gtk.RadioButton.new_with_label_from_widget(None, translate("Auto-tune (recommended)"))
+        self.bandwidth_manual = Gtk.RadioButton.new_with_label_from_widget(
+            self.bandwidth_auto, translate("Manual limits")
+        )
+        self.bandwidth_unlimited = Gtk.RadioButton.new_with_label_from_widget(
+            self.bandwidth_auto, translate("Unlimited bulk transfers")
+        )
+        for radio in (self.bandwidth_auto, self.bandwidth_manual, self.bandwidth_unlimited):
+            set_pointer_on_hover(radio)
+            radio.connect("toggled", self.on_bandwidth_mode_changed)
+
+        auto_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        auto_box.pack_start(self.bandwidth_auto, False, False, 0)
+        auto_note = label(
+            "Measure this connection against Cloudflare, then reserve 40% for responsive Nemo browsing, calls and other traffic. The bounded test transfers about 72 MB. Cloudflare receives the test requests; PDrive stores only the resulting rates locally.",
+            "section-subtitle",
+        )
+        auto_note.set_line_wrap(True)
+        auto_note.set_margin_start(24)
+        auto_box.pack_start(auto_note, False, False, 0)
+        page.pack_start(card(auto_box), False, False, 0)
+
+        manual_outer = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        manual_outer.pack_start(self.bandwidth_manual, False, False, 0)
+        manual_note = label(
+            "Set separate upload and download ceilings. Leave meaningful headroom for other applications. Even a near-pause bulk limit keeps Proton metadata browsing responsive.",
+            "section-subtitle",
+        )
+        manual_note.set_line_wrap(True)
+        manual_note.set_margin_start(24)
+        manual_outer.pack_start(manual_note, False, False, 0)
+        self.setup_manual_scales = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        self.setup_manual_scales.set_margin_start(24)
+        self.setup_manual_scales.pack_start(label("Upload limit in MiB/s"), False, False, 0)
+        self.setup_upload_scale = create_bandwidth_scale(bandwidth_slider_position("4"))
+        self.setup_manual_scales.pack_start(self.setup_upload_scale, False, False, 0)
+        self.setup_manual_scales.pack_start(label("Download limit in MiB/s"), False, False, 0)
+        self.setup_download_scale = create_bandwidth_scale(bandwidth_slider_position("20"))
+        self.setup_manual_scales.pack_start(self.setup_download_scale, False, False, 0)
+        manual_outer.pack_start(self.setup_manual_scales, False, False, 0)
+        page.pack_start(card(manual_outer), False, False, 0)
+
+        unlimited_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
+        unlimited_box.pack_start(self.bandwidth_unlimited, False, False, 0)
+        unlimited_note = label(
+            "Use the entire available connection. Nemo and other applications may become less responsive while large transfers are active.",
+            "section-subtitle",
+        )
+        unlimited_note.set_line_wrap(True)
+        unlimited_note.set_margin_start(24)
+        unlimited_box.pack_start(unlimited_note, False, False, 0)
+        page.pack_start(card(unlimited_box), False, False, 0)
+
+        self.bandwidth_progress = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        self.bandwidth_progress.set_no_show_all(True)
+        self.bandwidth_spinner = Gtk.Spinner()
+        self.bandwidth_progress.pack_start(self.bandwidth_spinner, False, False, 0)
+        self.bandwidth_progress_label = label("Measuring upload and download …", "section-subtitle")
+        self.bandwidth_progress.pack_start(self.bandwidth_progress_label, False, False, 0)
+        page.pack_start(self.bandwidth_progress, False, False, 0)
+        self.bandwidth_progress.hide()
+
+        self.bandwidth_result = label("", "setup-ready")
+        self.bandwidth_result.set_no_show_all(True)
+        self.bandwidth_result.set_line_wrap(True)
+        page.pack_start(self.bandwidth_result, False, False, 0)
+        self.bandwidth_result.hide()
+
+        actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        self.bandwidth_back_button = self.action_button("Back")
+        self.bandwidth_back_button.connect("clicked", lambda _button: self.stack.set_visible_child_name("readiness"))
+        actions.pack_start(self.bandwidth_back_button, False, False, 0)
+        self.bandwidth_continue_button = self.action_button("Configure connection", primary=True)
+        self.bandwidth_continue_button.connect("clicked", self.on_bandwidth_continue)
+        actions.pack_end(self.bandwidth_continue_button, False, False, 0)
+        page.pack_end(actions, False, False, 0)
+        self.add_page(page, "bandwidth")
+        self.bandwidth_auto.set_active(True)
+        self.on_bandwidth_mode_changed(self.bandwidth_auto)
 
     def build_account_page(self) -> None:
         page = self.page_box(
-            "Step 2 of 2",
+            "Step 3 of 3",
             "Proton account",
             "Credentials are sent through a private anonymous pipe, never through process arguments, environment variables or logs.",
         )
@@ -2403,13 +2568,13 @@ class SetupWizard(Gtk.Box):
         self.account_error.hide()
         actions = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
         back_button = self.action_button("Back")
-        back_button.connect("clicked", lambda _button: self.stack.set_visible_child_name("readiness"))
+        back_button.connect("clicked", lambda _button: self.stack.set_visible_child_name("bandwidth"))
         actions.pack_start(back_button, False, False, 0)
         connect_button = self.action_button("Connect securely", primary=True)
         connect_button.connect("clicked", self.on_connect)
         actions.pack_end(connect_button, False, False, 0)
         page.pack_end(actions, False, False, 0)
-        self.stack.add_named(page, "account")
+        self.add_page(page, "account")
 
     def build_progress_page(self) -> None:
         page = self.page_box(
@@ -2422,7 +2587,7 @@ class SetupWizard(Gtk.Box):
         spinner.set_halign(Gtk.Align.CENTER)
         spinner.start()
         page.pack_start(spinner, True, True, 20)
-        self.stack.add_named(page, "progress")
+        self.add_page(page, "progress")
 
     def build_success_page(self) -> None:
         page = self.page_box(
@@ -2443,7 +2608,7 @@ class SetupWizard(Gtk.Box):
         open_button.set_halign(Gtk.Align.END)
         open_button.connect("clicked", lambda _button: self.window.enter_dashboard())
         page.pack_end(open_button, False, False, 0)
-        self.stack.add_named(page, "success")
+        self.add_page(page, "success")
 
     def refresh_readiness(self) -> None:
         self.readiness = setup_readiness()
@@ -2576,6 +2741,136 @@ class SetupWizard(Gtk.Box):
                 "The prerequisites could not be prepared automatically. You can retry or use the manual instructions.",
                 Gtk.MessageType.ERROR,
             )
+        return GLib.SOURCE_REMOVE
+
+    def on_bandwidth_mode_changed(self, button: Gtk.RadioButton) -> None:
+        if not button.get_active():
+            return
+        manual = self.bandwidth_manual.get_active()
+        self.setup_manual_scales.set_visible(manual)
+        self.bandwidth_policy_ready = False
+        self.bandwidth_result.hide()
+        self.bandwidth_continue_button.set_label(translate("Configure connection"))
+        self.bandwidth_continue_button.set_tooltip_text(translate("Configure connection"))
+
+    def on_bandwidth_continue(self, _button: Gtk.Button) -> None:
+        if self.bandwidth_preparing:
+            return
+        if self.bandwidth_policy_ready:
+            self.stack.set_visible_child_name("account")
+            return
+
+        if self.bandwidth_auto.get_active():
+            mode = "auto"
+            command = ""
+            progress = "Measuring upload and download …"
+        elif self.bandwidth_manual.get_active():
+            mode = "manual"
+            command = bandwidth_slider_command(
+                self.setup_upload_scale.get_value(),
+                self.setup_download_scale.get_value(),
+            )
+            progress = "Applying bandwidth policy …"
+        else:
+            mode = "unlimited"
+            command = "off"
+            progress = "Applying bandwidth policy …"
+
+        self.bandwidth_preparing = True
+        self.bandwidth_result.hide()
+        self.bandwidth_progress_label.set_text(translate(progress))
+        self.bandwidth_progress.show_all()
+        self.bandwidth_spinner.start()
+        self.bandwidth_continue_button.set_sensitive(False)
+        self.bandwidth_back_button.set_sensitive(False)
+        for radio in (self.bandwidth_auto, self.bandwidth_manual, self.bandwidth_unlimited):
+            radio.set_sensitive(False)
+        threading.Thread(
+            target=self.bandwidth_worker,
+            args=(mode, command),
+            daemon=True,
+        ).start()
+
+    def bandwidth_worker(self, mode: str, command: str) -> None:
+        success = False
+        detail = "The connection policy could not be prepared. Retry auto-tune or choose a manual or unlimited policy."
+        try:
+            bandwidth_command = resolve_command("PDRIVE_BWLIMIT_BIN", "pdrive-bwlimit")
+            if mode == "auto":
+                tune_command = resolve_command("PDRIVE_NETWORK_TUNE_BIN", "pdrive-network-tune")
+                measured = subprocess.run(
+                    [tune_command, "measure", "--json"],
+                    check=True,
+                    capture_output=True,
+                    text=True,
+                    timeout=240,
+                )
+                payload = json.loads(measured.stdout)
+                upload_measured = float(payload["upload"]["measured_mib_per_second"])
+                download_measured = float(payload["download"]["measured_mib_per_second"])
+                upload_limit = float(payload["upload"]["recommended_mib_per_second"])
+                download_limit = float(payload["download"]["recommended_mib_per_second"])
+                if min(upload_measured, download_measured, upload_limit, download_limit) <= 0:
+                    raise ValueError("invalid network measurement")
+                command = f"{upload_limit:.2f}:{download_limit:.2f}"
+                detail = translate(
+                    "Auto-tune measured {upload_measured} MiB/s upload and {download_measured} MiB/s download. Bulk transfers are limited to {upload_limit} / {download_limit} MiB/s; 40% remains reserved."
+                ).format(
+                    upload_measured=f"{upload_measured:.2f}",
+                    download_measured=f"{download_measured:.2f}",
+                    upload_limit=f"{upload_limit:.2f}",
+                    download_limit=f"{download_limit:.2f}",
+                )
+            elif mode == "manual":
+                upload_limit, download_limit = command.split(":", 1)
+                detail = translate(
+                    "Manual bulk limits saved: {upload_limit} MiB/s upload and {download_limit} MiB/s download."
+                ).format(upload_limit=upload_limit, download_limit=download_limit)
+            else:
+                detail = translate("Bulk transfers remain unlimited. No connection headroom is reserved.")
+
+            subprocess.run(
+                [bandwidth_command, command],
+                check=True,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=30,
+            )
+            success = True
+        except (
+            KeyError,
+            OSError,
+            ValueError,
+            json.JSONDecodeError,
+            subprocess.CalledProcessError,
+            subprocess.TimeoutExpired,
+        ):
+            pass
+        GLib.idle_add(self.bandwidth_finished, success, detail)
+
+    def bandwidth_finished(self, success: bool, detail: str) -> bool:
+        self.bandwidth_preparing = False
+        self.bandwidth_spinner.stop()
+        self.bandwidth_progress.hide()
+        self.bandwidth_continue_button.set_sensitive(True)
+        self.bandwidth_back_button.set_sensitive(True)
+        for radio in (self.bandwidth_auto, self.bandwidth_manual, self.bandwidth_unlimited):
+            radio.set_sensitive(True)
+
+        context = self.bandwidth_result.get_style_context()
+        context.remove_class("setup-ready")
+        context.remove_class("setup-error")
+        if success:
+            self.bandwidth_policy_ready = True
+            context.add_class("setup-ready")
+            self.bandwidth_continue_button.set_label(translate("Continue to Proton account"))
+            self.bandwidth_continue_button.set_tooltip_text(translate("Continue to Proton account"))
+        else:
+            self.bandwidth_policy_ready = False
+            context.add_class("setup-error")
+            detail = translate(detail)
+        self.bandwidth_result.set_text(detail)
+        self.bandwidth_result.show()
         return GLib.SOURCE_REMOVE
 
     def on_show_passwords(self, button: Gtk.CheckButton) -> None:
@@ -5201,52 +5496,45 @@ class PDriveWindow(Gtk.ApplicationWindow):
         content.set_margin_bottom(15)
         content.set_margin_start(15)
         content.set_margin_end(15)
-        content.pack_start(label("Upload limit in MiB/s", "section-title"), False, False, 0)
         current = str(self.current_state.get("bandwidth", {}).get("configured", "off"))
-        initial_position = bandwidth_slider_position(current)
-        adjustment = Gtk.Adjustment(
-            value=initial_position,
-            lower=0,
-            upper=BANDWIDTH_SLIDER_UNLIMITED,
-            step_increment=0.1,
-            page_increment=1,
-            page_size=0,
-        )
-        scale = Gtk.Scale(orientation=Gtk.Orientation.HORIZONTAL, adjustment=adjustment)
-        scale.set_digits(1)
-        scale.set_value_pos(Gtk.PositionType.TOP)
-        scale.set_hexpand(True)
-        scale.connect("format-value", lambda _scale, value: bandwidth_slider_label(value))
-        scale.add_mark(0, Gtk.PositionType.BOTTOM, "⏸ ≈0")
-        for rate in (0.1, 0.5, 1, 4, 10, 25, 50, 100):
-            scale.add_mark(
-                bandwidth_slider_position(str(rate)),
-                Gtk.PositionType.BOTTOM,
-                f"{rate:g}",
-            )
-        scale.add_mark(BANDWIDTH_SLIDER_UNLIMITED, Gtk.PositionType.BOTTOM, translate("Unlimited"))
-        content.pack_start(scale, False, False, 0)
+        initial_upload = bandwidth_slider_position(current, "upload")
+        initial_download = bandwidth_slider_position(current, "download")
+
+        def add_scale(title: str, initial_position: float) -> Gtk.Scale:
+            content.pack_start(label(title, "section-title"), False, False, 0)
+            scale = create_bandwidth_scale(initial_position)
+            content.pack_start(scale, False, False, 0)
+            return scale
+
+        upload_scale = add_scale("Upload limit in MiB/s", initial_upload)
+        download_scale = add_scale("Download limit in MiB/s", initial_download)
         help_label = label(
-            "Near pause throttles uploads to 0.02 MiB/s; rclone has no true VFS pause. Full right removes the limit. Changes apply live without interrupting the active transfer.",
+            "Near pause throttles that direction to 0.02 MiB/s; rclone has no true VFS pause. Full right removes its limit. Changes apply live without interrupting active transfers.",
             "section-subtitle",
         )
         help_label.set_line_wrap(True)
         content.pack_start(help_label, False, False, 0)
         advanced_label = label(
-            "The logarithmic slider gives low everyday limits more precision and controls uploads up to 100 MiB/s. Use pdrive-bwlimit for separate upload/download values or higher limits.",
+            "The logarithmic sliders give low everyday limits more precision. Leaving connection headroom can keep browsing and calls responsive; use pdrive-bwlimit for values above 100 MiB/s.",
             "section-subtitle",
         )
         advanced_label.set_line_wrap(True)
         content.pack_start(advanced_label, False, False, 0)
         apply_button = dialog.get_widget_for_response(Gtk.ResponseType.OK)
         apply_button.set_sensitive(False)
-        scale.connect(
-            "value-changed",
-            lambda current_scale: apply_button.set_sensitive(abs(current_scale.get_value() - initial_position) >= 0.05),
-        )
+
+        def update_apply(_scale: Gtk.Scale) -> None:
+            changed = (
+                abs(upload_scale.get_value() - initial_upload) >= 0.05
+                or abs(download_scale.get_value() - initial_download) >= 0.05
+            )
+            apply_button.set_sensitive(changed)
+
+        upload_scale.connect("value-changed", update_apply)
+        download_scale.connect("value-changed", update_apply)
         dialog.show_all()
         response = dialog.run()
-        value = bandwidth_slider_command(scale.get_value())
+        value = bandwidth_slider_command(upload_scale.get_value(), download_scale.get_value())
         dialog.destroy()
         if response == Gtk.ResponseType.OK:
             self.run_helper(["pdrive-bwlimit", value], "Bandwidth limit")

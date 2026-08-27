@@ -3,7 +3,6 @@
 
 set -euo pipefail
 
-readonly safe_rclone_beta='v1.76.0-beta.10204.660144d31'
 readonly minimum_safe_rclone='v1.76.0'
 readonly minimum_safe_beta_build=10204
 umask 022
@@ -27,8 +26,8 @@ usage() {
         'Usage: ./install.sh [--with-proton-cli-updater]' \
         '' \
         'Installs or updates the user-local helpers, systemd units and docs.' \
-        'Bootstraps the pinned official upload-safe rclone beta when the local' \
-        'binary is missing or older than the fixed 1.76 baseline. Configuration,' \
+        'Installs the pinned, source-published PDrive rclone build when the local' \
+        'binary is missing or lacks the required Proton data limiter. Configuration,' \
         'cache, logs and a running mount are never overwritten or restarted.' \
         '' \
         '--with-proton-cli-updater  also enable the optional official Proton' \
@@ -75,8 +74,10 @@ rclone_upload_retry_safe() {
 
 rclone_ready() {
     local candidate="$1"
-    rclone_upload_retry_safe "${candidate}" \
-        && "${candidate}" help backend protondrive >/dev/null 2>&1
+    rclone_upload_retry_safe "${candidate}" || return 1
+    "${candidate}" help backend protondrive >/dev/null 2>&1 || return 1
+    "${candidate}" backend help protondrive 2>/dev/null \
+        | grep -q '^### data-bandwidth$'
 }
 
 missing_commands=()
@@ -103,17 +104,6 @@ if ! python3 -c \
     printf '%s\n' \
         'Missing Ayatana AppIndicator binding for the Cinnamon tray.' \
         'On Debian/Ubuntu install: gir1.2-ayatanaappindicator3-0.1' >&2
-    exit 69
-fi
-
-bootstrap_rclone=''
-if [[ -x "${real_rclone}" ]]; then
-    bootstrap_rclone="${real_rclone}"
-elif command -v rclone >/dev/null 2>&1; then
-    bootstrap_rclone="$(command -v rclone)"
-fi
-if [[ -z "${bootstrap_rclone}" || ! -x "${bootstrap_rclone}" ]]; then
-    printf 'No bootstrap rclone found. Install the distribution rclone package first.\n' >&2
     exit 69
 fi
 
@@ -145,17 +135,8 @@ mkdir -p -- "${bin_dir}" "${libexec_dir}" "${unit_dir}" "${doc_dir}" \
     "${applications_dir}" "${icons_dir}" "${config_dir}"
 
 if ! rclone_ready "${real_rclone}"; then
-    temporary_rclone="$(mktemp "${libexec_dir}/.rclone-bin.XXXXXX")"
-    cleanup_rclone() { rm -f -- "${temporary_rclone:-}"; }
-    trap cleanup_rclone EXIT
-    install -m 0755 "${bootstrap_rclone}" "${temporary_rclone}"
-    "${temporary_rclone}" selfupdate --beta --version "${safe_rclone_beta}"
-    if ! rclone_ready "${temporary_rclone}"; then
-        printf 'The downloaded rclone is not an upload-safe Proton Drive build.\n' >&2
-        exit 70
-    fi
-    mv -f -- "${temporary_rclone}" "${real_rclone}"
-    trap - EXIT
+    PDRIVE_REAL_RCLONE="${real_rclone}" \
+        "${project_dir}/bin/pdrive-prerequisites" --install-rclone
 fi
 
 for source_file in "${project_dir}"/bin/*; do
@@ -193,6 +174,9 @@ install -m 0644 \
 install -m 0644 \
     "${project_dir}/docs/assets/pdrive-auth-cooldown.png" \
     "${doc_assets_dir}/pdrive-auth-cooldown.png"
+install -m 0644 \
+    "${project_dir}/docs/assets/pdrive-setup-wizard.png" \
+    "${doc_assets_dir}/pdrive-setup-wizard.png"
 install -m 0644 \
     "${project_dir}/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg" \
     "${doc_icon_dir}/io.github.claudiuschuster.PDriveControl.svg"

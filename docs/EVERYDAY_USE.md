@@ -49,14 +49,15 @@ web client before removing the independent local copy.
 ## Bandwidth and responsiveness
 
 Open **Bandwidth limit** from the Configuration card or hamburger menu. The
-left side of the limit controls upload; download remains unlimited unless an
-explicit terminal pair is used. Full right is **Unlimited**. The far-left
-position is a documented low nonzero rate, not a true pause.
+dialog has separate logarithmic Upload and Download controls. Full right is
+**Unlimited**. The far-left Upload position is a documented low nonzero rate,
+not a true pause.
 
-Very small upload limits can also make uncached Proton directory requests feel
-slow. Increase the limit temporarily when browsing becomes impractical. See
-[Troubleshooting](TROUBLESHOOTING.md) for measured diagnosis before changing
-recovery settings.
+PDrive applies these limits only to bulk file payloads. Directory listings,
+login and other small Proton API requests stay outside them, so a deliberate
+near-pause does not make uncached Nemo navigation wait behind a large upload.
+The first-run wizard can estimate both limits automatically and reserves 40%
+of the conservative measured connection for browsing and other applications.
 
 ## Cache and external clients
 

@@ -4,20 +4,9 @@
 set -euo pipefail
 
 readonly rclone_bin="${HOME}/.local/libexec/rclone-bin"
+readonly prerequisite_bin="${PDRIVE_PREREQUISITES_BIN:-${HOME}/.local/bin/pdrive-prerequisites}"
 before="$(${rclone_bin} version | head -n 1)"
-current_version="${before#rclone }"
-if [[ "${current_version}" == *-beta.* ]]; then
-    beta_base="${current_version%%-beta.*}"
-    stable_check="$(${rclone_bin} selfupdate --stable --check)"
-    stable_version="$(sed -nE 's/.*install rclone version (v[^ ]+).*/\1/p' <<< "${stable_check}" | head -n 1)"
-    if [[ -z "${stable_version}" \
-        || "$(printf '%s\n%s\n' "${beta_base}" "${stable_version}" | sort -V | tail -n 1)" != "${stable_version}" ]]; then
-        printf 'Keeping %s until a stable rclone release reaches %s.\n' \
-            "${before}" "${beta_base}"
-        exit 0
-    fi
-fi
-"${rclone_bin}" selfupdate --stable
+"${prerequisite_bin}" --install-rclone
 after="$(${rclone_bin} version | head -n 1)"
 
 if [[ "${before}" != "${after}" ]]; then

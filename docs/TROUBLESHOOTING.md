@@ -150,7 +150,7 @@ No traffic is normal when:
 - rclone is listing or decrypting many small metadata objects;
 - an upload is in bounded API retry/backoff;
 - another process still holds a write-open file;
-- the bandwidth limit is unexpectedly low.
+- the file-data bandwidth limit is unexpectedly low.
 
 Check:
 
@@ -225,6 +225,21 @@ this helper deliberately treats every unitless component as MiB/s:
 
 The left side is upload and the right side is download. The units are bytes per
 second. A stale value can be corrected live without restarting the mount.
+PDrive's limiter applies only to bulk file payloads, so even a near-paused
+upload must not hold a small directory-listing request behind it.
+
+If uncached Nemo navigation still takes roughly as long as the global byte rate
+would need for a tiny request, verify the managed build:
+
+```bash
+pdrive-prerequisites --check
+```
+
+An incompatible or official rclone replacement does not provide the required
+backend command. Repair it with `pdrive-prerequisites --install-rclone`, then
+perform one controlled service restart after checking that the queue and Dirty
+cache are preserved. Do not add rclone's global `--bwlimit` to the mount: that
+transport-level limiter also throttles Proton metadata writes.
 
 ## Nemo is slow or shows stale folders
 
@@ -380,8 +395,11 @@ that finalization path can be followed by 422 and 404 responses. The retry could
 reuse an already consumed stream, so blindly repeating the operation is unsafe.
 The upstream correction is tracked in
 [rclone #9722](https://github.com/rclone/rclone/issues/9722). New toolkit
-installations use a pinned official fixed beta until stable rclone 1.76 or newer
-is available; the weekly updater then returns to stable automatically.
+installations use a pinned, checksum-verified PDrive rclone build based on the
+fixed beta. Its source also pins the API bridge worker-drain correction and adds
+the file-data-only limiter. The weekly updater keeps this reviewed build until
+PDrive publishes a replacement instead of replacing it with an incompatible
+official binary.
 
 The guarded helper does not treat an ordinary 100% transfer as stalled. It
 requires a terminal backend error in the completion window, a fixed rclone,

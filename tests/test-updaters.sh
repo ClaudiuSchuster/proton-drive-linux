@@ -99,48 +99,26 @@ printf 'rclone v1.0.0\n' > "${rclone_state}"
 # shellcheck disable=SC2016
 printf '%s\n' \
     '#!/usr/bin/env bash' \
-    'printf "%s\n" "$*" >> "${PDRIVE_TEST_RCLONE_LOG}"' \
-    'case "${1:-}" in' \
-    '  version) cat "${PDRIVE_TEST_RCLONE_STATE}" ;;' \
-    '  selfupdate) printf "rclone v1.0.1\n" > "${PDRIVE_TEST_RCLONE_STATE}" ;;' \
-    '  *) exit 2 ;;' \
-    'esac' > "${rclone_home}/.local/libexec/rclone-bin"
+    '[[ "${1:-}" == version ]]' \
+    'cat "${PDRIVE_TEST_RCLONE_STATE}"' > "${rclone_home}/.local/libexec/rclone-bin"
 chmod 0755 "${rclone_home}/.local/libexec/rclone-bin"
-HOME="${rclone_home}" \
-    PDRIVE_TEST_RCLONE_LOG="${rclone_home}/rclone.log" \
-    PDRIVE_TEST_RCLONE_STATE="${rclone_state}" \
-    "${project_dir}/libexec/rclone-selfupdate" > "${rclone_home}/stdout"
-grep -qFx 'selfupdate --stable' "${rclone_home}/rclone.log"
-grep -qF 'Updated rclone v1.0.0 to rclone v1.0.1.' "${rclone_home}/stdout"
 
-printf 'rclone v1.76.0-beta.10204.660144d31\n' > "${rclone_state}"
+# The expansions belong to the generated prerequisite fixture.
 # shellcheck disable=SC2016
 printf '%s\n' \
     '#!/usr/bin/env bash' \
     'printf "%s\n" "$*" >> "${PDRIVE_TEST_RCLONE_LOG}"' \
-    'case "${1:-}" in' \
-    '  version) cat "${PDRIVE_TEST_RCLONE_STATE}" ;;' \
-    '  selfupdate)' \
-    '    if [[ "${2:-}" == --stable && "${3:-}" == --check ]]; then' \
-    '      printf "Without --check this would install rclone version v1.75.0 at test-bin\n"' \
-    '    else' \
-    '      printf "Unexpected beta transition\n" >&2; exit 2' \
-    '    fi' \
-    '    ;;' \
-    '  *) exit 2 ;;' \
-    'esac' > "${rclone_home}/.local/libexec/rclone-bin"
-chmod 0755 "${rclone_home}/.local/libexec/rclone-bin"
-: > "${rclone_home}/rclone.log"
+    '[[ "$*" == --install-rclone ]]' \
+    'printf "rclone v1.76.0-beta.10204.660144d31\n" > "${PDRIVE_TEST_RCLONE_STATE}"' \
+    > "${rclone_home}/pdrive-prerequisites"
+chmod 0755 "${rclone_home}/pdrive-prerequisites"
 HOME="${rclone_home}" \
     PDRIVE_TEST_RCLONE_LOG="${rclone_home}/rclone.log" \
     PDRIVE_TEST_RCLONE_STATE="${rclone_state}" \
+    PDRIVE_PREREQUISITES_BIN="${rclone_home}/pdrive-prerequisites" \
     "${project_dir}/libexec/rclone-selfupdate" > "${rclone_home}/stdout"
-grep -qFx 'selfupdate --stable --check' "${rclone_home}/rclone.log"
-grep -qF 'Keeping rclone v1.76.0-beta.10204.660144d31 until a stable rclone release reaches v1.76.0.' \
+grep -qFx -- '--install-rclone' "${rclone_home}/rclone.log"
+grep -qF 'Updated rclone v1.0.0 to rclone v1.76.0-beta.10204.660144d31.' \
     "${rclone_home}/stdout"
-if grep -qFx 'selfupdate --stable' "${rclone_home}/rclone.log"; then
-    printf 'The updater downgraded the upload-safe beta to an older stable release.\n' >&2
-    exit 1
-fi
 
 printf 'PDrive updater integrity checks passed.\n'
