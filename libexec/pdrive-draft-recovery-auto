@@ -46,6 +46,7 @@ POST_FINALIZATION_ERROR_LOOKBACK_SECONDS = 15 * 60
 POST_FINALIZATION_RESTART_GAP_SECONDS = 30 * 60
 POST_FINALIZATION_RESTART_LIMIT = 1
 POST_BRIDGE_FAILURE_CYCLES_REQUIRED = 3
+POST_BRIDGE_FAILURE_CYCLES_WITH_TERMINAL_REMOVAL = 2
 POST_BRIDGE_FAILURE_MIN_SEPARATION_SECONDS = 30
 POST_BRIDGE_STALL_RESTART_GAP_SECONDS = 30 * 60
 POST_BRIDGE_STALL_RESTART_LIMIT = 6
@@ -791,10 +792,15 @@ def post_recovery_decision(previous: dict[str, Any], observation: dict[str, Any]
         state["last_bridge_stall_epoch"] = 0
         return result("network-deferred", "Recovery restart checks are deferred until DNS connectivity is healthy.")
 
+    bridge_failure_cycles = int(state.get("bridge_failure_cycles") or 0)
     bridge_failure_epoch = max(0, int(state.get("last_bridge_failure_epoch") or 0))
-    bridge_stall = (
-        int(state.get("bridge_failure_cycles") or 0) >= POST_BRIDGE_FAILURE_CYCLES_REQUIRED
-        and bridge_failure_epoch > last_progress_epoch
+    terminal_error_after_bridge = (
+        str(state.get("last_error_category") or "none") == "remote-file-removed"
+        and max(0, int(state.get("last_error_epoch") or 0)) >= bridge_failure_epoch
+    )
+    bridge_stall = bridge_failure_epoch > last_progress_epoch and (
+        bridge_failure_cycles >= POST_BRIDGE_FAILURE_CYCLES_REQUIRED
+        or (bridge_failure_cycles >= POST_BRIDGE_FAILURE_CYCLES_WITH_TERMINAL_REMOVAL and terminal_error_after_bridge)
     )
     if bridge_stall:
         if not observation.get("upload_retry_safe", False):

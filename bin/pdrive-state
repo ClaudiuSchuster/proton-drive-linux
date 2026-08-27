@@ -1141,6 +1141,7 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
     queue = normalize_queue(rc_payloads.get("vfs/queue"))
     mark_finalizing_transfers(queue, active)
     queue["remaining_bytes"] = queue_remaining_bytes(queue, active)
+    network_io = process_tcp_counters(service["pid"])
     vfs = rc_payloads.get("vfs/stats", {})
     disk_cache = vfs.get("diskCache", {}) if isinstance(vfs.get("diskCache"), dict) else {}
     vfs_options = vfs.get("opt", {}) if isinstance(vfs.get("opt"), dict) else {}
@@ -1156,6 +1157,25 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
         )
     for endpoint, message in rc_errors.items():
         components.append({"component": endpoint, "message": message})
+
+    recovery_terminal_status = draft_recovery["status"] in {
+        "bridge-restart-limited",
+        "error",
+        "finalization-restart-limited",
+        "restart-failed",
+        "restart-limited",
+        "upgrade-required",
+    }
+    recovery_stalled = (
+        recovery_terminal_status
+        and 0 <= draft_recovery["age_seconds"] <= 10800
+        and draft_recovery["progress_proven"]
+        and draft_recovery["error_category"] != "none"
+        and queue["count"] > 0
+        and number(stats.get("speed")) < 1
+        and network_io["available"]
+        and network_io["connections"] == 0
+    )
 
     if authentication["status"] == "rate-limited":
         health_status = "critical"
@@ -1181,6 +1201,12 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
         health_status = "warning"
         health_summary = "The mount is ready, but some live values are temporarily unavailable."
         health_reason = "rc-unavailable"
+    elif recovery_stalled:
+        health_status = "warning"
+        health_summary = (
+            "The protected upload is stalled after guarded recovery attempts. Local cache data remains protected."
+        )
+        health_reason = "recovery-limited"
     elif (
         draft_recovery["status"]
         in {
@@ -1264,7 +1290,7 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
         "authentication": authentication,
         "remote_capacity": remote_capacity(include_capacity, mount["ready"]),
         "network": {"dns": latest["dns"], "tcp": latest["tcp"]},
-        "network_io": process_tcp_counters(service["pid"]),
+        "network_io": network_io,
         "stats": {
             "available": "core/stats" in rc_payloads,
             "bytes": integer(stats.get("bytes")),

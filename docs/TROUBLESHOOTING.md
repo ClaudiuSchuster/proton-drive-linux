@@ -427,8 +427,12 @@ The mount uses five low-level attempts and two high-level attempts to recover
 without endless loops. If aggregate bytes continue to move, leave it alone.
 
 Three separated, same-process HTTP 502 block-upload failures after proven
-payload progress activate a dedicated bridge-stall guard. It still requires
-healthy DNS, bandwidth above near pause and two separated idle probes before a
+payload progress activate a dedicated bridge-stall guard. Two separated 502
+cycles are also sufficient when Proton immediately follows them with a terminal
+`This file has been removed` response: after removing that draft, the stalled
+worker may be unable to emit a third cycle. One 502, an older 404 or two ordinary
+server errors never satisfy this shortcut. The guard still requires healthy
+DNS, bandwidth above near pause and two separated idle probes before a
 controlled restart. The restart stays inside the existing recovery namespace,
 preserves the exact Dirty cache generation and validates that the same queue
 returns under a new PID.
