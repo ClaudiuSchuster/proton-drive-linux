@@ -139,12 +139,15 @@ git pull --ff-only
 
 PDrive installs a pinned, checksum-verified rclone build published from its
 public source fork. It contains the upstream fix for
-[rclone #9722](https://github.com/rclone/rclone/issues/9722), a source-pinned API
-bridge fix and a Proton file-data limiter that leaves metadata browsing outside
-bulk transfer limits. The weekly updater stays on that reviewed PDrive build
-until this project publishes a replacement and never restarts an active mount.
-The optional official Proton Drive CLI is a separate client and is not required
-by this project.
+[rclone #9722](https://github.com/rclone/rclone/issues/9722), the API bridge
+worker fix proposed in
+[Proton-API-Bridge #8](https://github.com/rclone/Proton-API-Bridge/pull/8) and the
+Proton file-data limiter tracked in
+[rclone #9832](https://github.com/rclone/rclone/issues/9832). The limiter leaves
+metadata browsing outside bulk transfer limits. The weekly updater stays on
+that reviewed PDrive build until this project publishes a replacement and never
+restarts an active mount. The optional official Proton Drive CLI is a separate
+client and is not required by this project.
 
 ## Uninstall
 
