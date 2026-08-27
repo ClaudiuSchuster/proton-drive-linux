@@ -12,17 +12,17 @@ readonly auto_helper="${HOME}/.local/libexec/pdrive-draft-recovery-auto"
 
 usage() {
     printf '%s\n' \
-        'Aufruf: pdrive-draft-recovery [OPTION]' \
+        'Usage: pdrive-draft-recovery [OPTION]' \
         '' \
-        'Ohne Option: konfigurierten und laufenden Draft-Recovery-Modus anzeigen.' \
-        '--enable:  unvollständige Proton-Upload-Drafts beim nächsten Upload ersetzen.' \
-        '--disable: konservatives Verhalten wiederherstellen; nur bei leerer Dirty-Queue.' \
-        '--recover-now: bestätigten Draft-Konflikt sofort mit allen Cache-Schutzprüfungen behandeln.' \
-        '-h, --help: nur diese Hilfe anzeigen.' \
+        'No option: show the configured and running draft-recovery mode.' \
+        '--enable: replace incomplete Proton upload drafts on the next upload.' \
+        '--disable: restore conservative behavior; requires an empty Dirty queue.' \
+        '--recover-now: handle a confirmed draft conflict through every cache guard.' \
+        '-h, --help: show only this action-free help.' \
         '' \
-        "Konfiguration: ${draft_config}" \
-        'Die Umschaltung startet rclone absichtlich nicht selbst neu.' \
-        'WARNUNG: Aktivieren verändert beim nächsten Upload serverseitige Drafts.'
+        "Configuration: ${draft_config}" \
+        'Changing the mode deliberately does not restart rclone.' \
+        'WARNING: Enabling changes server-side drafts during the next upload.'
 }
 
 read_configured_mode() {
@@ -33,7 +33,7 @@ read_configured_mode() {
         return 0
     fi
     if [[ ! -r "${draft_config}" ]]; then
-        printf 'Konfiguration ist nicht lesbar: %s\n' "${draft_config}" >&2
+        printf 'Configuration is not readable: %s\n' "${draft_config}" >&2
         return 78
     fi
     entries="$(awk '
@@ -44,7 +44,7 @@ read_configured_mode() {
         printf '%s\n' "${BASH_REMATCH[1]}"
         return 0
     fi
-    printf 'Ungültige Draft-Recovery-Konfiguration: %s\n' "${draft_config}" >&2
+    printf 'Invalid draft-recovery configuration: %s\n' "${draft_config}" >&2
     return 78
 }
 
@@ -67,9 +67,9 @@ write_configured_mode() {
     mkdir -p -- "${config_dir}"
     config_tmp="$(mktemp "${config_dir}/pdrive-draft-recovery.conf.XXXXXX")"
     printf '%s\n' \
-        '# Verwaltet mit pdrive-draft-recovery; niemals als Shellcode einlesen.' \
-        '# true löscht beim Upload unvollständige serverseitige Drafts am Ziel.' \
-        '# Nur ohne parallele Proton-Clients und vorübergehend verwenden.' \
+        '# Managed by pdrive-draft-recovery; never evaluate as shell code.' \
+        '# true replaces incomplete server-side drafts at the upload destination.' \
+        '# Use temporarily and only without parallel Proton clients.' \
         "replace_existing_draft=${value}" > "${config_tmp}"
     mv -f -- "${config_tmp}" "${draft_config}"
 }
@@ -79,14 +79,14 @@ running_mode() {
 
     pid="$(systemctl --user show "${service_name}" -p MainPID --value --no-pager 2>/dev/null || printf '0')"
     if [[ ! "${pid}" =~ ^[1-9][0-9]*$ ]]; then
-        printf 'Dienst läuft nicht'
+        printf 'service is not running'
         return 0
     fi
     args="$(ps -ww -p "${pid}" -o args= 2>/dev/null || true)"
     case "${args}" in
-        *--protondrive-replace-existing-draft=true*) printf 'AKTIV (PID %s)' "${pid}" ;;
-        *--protondrive-replace-existing-draft=false*) printf 'aus (PID %s)' "${pid}" ;;
-        *) printf 'nicht ermittelbar (PID %s)' "${pid}" ;;
+        *--protondrive-replace-existing-draft=true*) printf 'ENABLED (PID %s)' "${pid}" ;;
+        *--protondrive-replace-existing-draft=false*) printf 'disabled (PID %s)' "${pid}" ;;
+        *) printf 'unknown (PID %s)' "${pid}" ;;
     esac
 }
 
@@ -105,28 +105,28 @@ show_status() {
 
     configured="$(read_configured_mode)"
     if [[ "${configured}" == 'true' ]]; then
-        configured_text='AKTIV – unvollständige Remote-Drafts werden ersetzt'
+        configured_text='ENABLED – incomplete remote drafts are replaced'
     else
-        configured_text='aus – konservatives Backend-Verhalten'
+        configured_text='disabled – conservative backend behavior'
     fi
     running="$(running_mode)"
     read -r count bytes < <(dirty_stats)
 
-    printf 'Proton-Drive-Draft-Recovery\n\n'
-    printf 'Konfiguriert: %s\n' "${configured_text}"
-    printf 'Laufend:      %s\n' "${running}"
-    printf 'Dirty-Queue:  %s Datei(en), %s Byte\n' "${count}" "${bytes}"
-    printf 'Datei:        %s\n' "${draft_config}"
+    printf 'Proton Drive draft recovery\n\n'
+    printf 'Configured: %s\n' "${configured_text}"
+    printf 'Running:    %s\n' "${running}"
+    printf 'Dirty queue: %s file(s), %s bytes\n' "${count}" "${bytes}"
+    printf 'File:        %s\n' "${draft_config}"
     if [[ "${configured}" == 'true' ]]; then
         printf '%s\n' \
-            'ACHTUNG: Keine parallelen Änderungen über Proton Web, Mobil-App,' \
-            'offizielle CLI oder einen zweiten rclone-Client durchführen.'
+            'CAUTION: Do not write through Proton Web, the mobile app, the official' \
+            'CLI or a second rclone client.'
     fi
-    if { [[ "${configured}" == 'true' && "${running}" != AKTIV* ]] \
-        || [[ "${configured}" == 'false' && "${running}" == AKTIV* ]]; }; then
+    if { [[ "${configured}" == 'true' && "${running}" != ENABLED* ]] \
+        || [[ "${configured}" == 'false' && "${running}" == ENABLED* ]]; }; then
         printf '%s\n' \
-            'Hinweis: Die Konfiguration gilt erst nach kontrollierter Cachezuordnung' \
-            'und einem Dienstneustart; nicht blind nur rclone neu starten.'
+            'Note: The configuration applies only after guarded cache reassignment' \
+            'and a service restart; do not blindly restart only rclone.'
     fi
 }
 
@@ -138,14 +138,14 @@ case "${1:-}" in
         (( $# == 1 )) || { usage >&2; exit 2; }
         if ! metadata_recovery_is_enabled; then
             printf '%s\n' \
-                'Abgelehnt: Der Proton-Metadatencache-Recovery-Modus ist nicht aktiv.' \
-                'Draft-Recovery nur innerhalb des kontrollierten Recovery-Betriebs verwenden.' >&2
+                'Refused: Proton metadata-cache recovery mode is not enabled.' \
+                'Use draft recovery only inside the controlled recovery workflow.' >&2
             exit 75
         fi
         write_configured_mode true
         printf '%s\n' \
-            'Draft-Recovery wurde atomar aktiviert; der laufende Dienst blieb unangetastet.' \
-            'Vor dem Neustart muss der VFS-Cache dem neuen Namensraum zugeordnet werden.'
+            'Draft recovery was enabled atomically; the running service was left untouched.' \
+            'The VFS cache must be assigned to the new namespace before restart.'
         show_status
         ;;
     --disable)
@@ -155,14 +155,14 @@ case "${1:-}" in
             read -r dirty_count dirty_bytes < <(dirty_stats)
             if [[ "${dirty_count}" != '0' ]]; then
                 printf '%s\n' \
-                    "Abgelehnt: Noch ${dirty_count} Dirty-Datei(en) mit ${dirty_bytes} Byte im Proton-VFS-Cache." \
-                    'Draft-Recovery bleibt aktiv, damit die lokale Restqueue nicht übersehen wird.' >&2
+                    "Refused: ${dirty_count} Dirty file(s) with ${dirty_bytes} bytes remain in the Proton VFS cache." \
+                    'Draft recovery remains enabled so the local residual queue cannot be missed.' >&2
                 exit 75
             fi
         fi
         write_configured_mode false
         printf '%s\n' \
-            'Konservatives Draft-Verhalten wurde atomar konfiguriert; der Dienst blieb unangetastet.'
+            'Conservative draft behavior was saved atomically; the service was left untouched.'
         show_status
         ;;
     --recover-now)
@@ -178,7 +178,7 @@ case "${1:-}" in
         usage
         ;;
     *)
-        printf 'Unbekannte Option: %s\n\n' "$1" >&2
+        printf 'Unknown option: %s\n\n' "$1" >&2
         usage >&2
         exit 2
         ;;

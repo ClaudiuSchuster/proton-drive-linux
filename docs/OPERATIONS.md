@@ -2,9 +2,9 @@
 
 This document describes the installed runtime, safe daily operation and every
 helper command. Public documentation and the default graphical interface use
-English; the GUI additionally provides a complete German translation. Some
-legacy terminal helpers still have German output while their English migration
-is tracked separately.
+English; terminal helpers and diagnostics are English-first. The GUI
+additionally provides a complete German translation, and desktop notifications
+follow its saved language preference when available.
 
 ## Runtime architecture
 
@@ -154,7 +154,9 @@ states plus an issued guarded recovery are announced, while routine ready
 transitions stay quiet. **Critical only** reports only critical states, **All**
 also reports ready transitions, and **Off** suppresses desktop notifications.
 The policy changes delivery only; detection, history and recovery safety gates
-continue unchanged.
+continue unchanged. Notifications default to English and follow the saved
+English or German Control Center language. Terminal reports remain English so
+commands, diagnostics and support instructions stay consistent.
 
 ### Reading counters correctly
 

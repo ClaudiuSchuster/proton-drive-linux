@@ -90,6 +90,21 @@ jq -e '
 ' "${state_dir}/pdrive-auth-state.json" >/dev/null
 run_guard --start-allowed
 
+cat > "${preferences}" <<'EOF'
+{
+  "language": "en",
+  "notification_policy": "important"
+}
+EOF
+run_guard --begin-start
+printf '%s\n' \
+    "2026/08/27 02:22:18 CRITICAL: Failed to create file system: this account requires a 2FA code. Can be provided with --protondrive-2fa=000000" \
+    >> "${mount_log}"
+run_guard --after-service-exit
+grep -qF 'PDrive needs reauthorization' "${events}"
+run_guard --mark-healthy
+run_guard --start-allowed
+
 rate_limit_started="$(date +%s)"
 run_guard --mark-rate-limited
 jq -e '

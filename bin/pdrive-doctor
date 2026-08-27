@@ -11,17 +11,15 @@ readonly mount_log="${HOME}/.local/state/rclone/proton-mount.log"
 
 usage() {
     printf '%s\n' \
-        'Aufruf: pdrive-doctor [--online]' \
+        'Usage: pdrive-doctor [--online]' \
         '' \
-        'Ohne Option: ausführliche, rein lokale Proton-Drive-Diagnose.' \
-        '             Liest Dienst, Mount, Keyring-Verfügbarkeit, redigierte' \
-        '             rclone-Konfiguration, Pakete, Timer, Speicher und Logs.' \
-        '             Kein Proton-Login, kein API-Aufruf, kein Neustart und' \
-        '             keine Änderung an Mount, Konfiguration oder Dateien.' \
-        '--online:    zusätzlich genau einen auf 60 Sekunden begrenzten' \
-        '             Proton-API-Verzeichnistest ausführen.' \
-        '             Während einer HTTP-429-Sperre niemals verwenden.' \
-        '-h, --help:  nur diese Hilfe anzeigen; garantiert aktionsfrei.'
+        'No option: detailed, entirely local Proton Drive diagnostics.' \
+        '           Reads service, mount, Keyring availability, redacted rclone' \
+        '           configuration, packages, timers, storage and logs.' \
+        '           No Proton login, API call, restart or file/configuration change.' \
+        '--online:  add exactly one directory check bounded to 60 seconds.' \
+        '           Never use it during an HTTP 429 cooldown.' \
+        '-h, --help: show only this guaranteed action-free help.'
 }
 
 online_mode=false
@@ -30,19 +28,19 @@ case "${1:-}" in
     --online) online_mode=true ;;
     -h|--help)
         if (( $# != 1 )); then
-            printf 'Zu viele Argumente (Hilfe: pdrive-doctor --help).\n' >&2
+            printf 'Too many arguments (help: pdrive-doctor --help).\n' >&2
             exit 2
         fi
         usage
         exit 0
         ;;
     *)
-        printf 'Unbekannte Option: %s (Hilfe: pdrive-doctor --help)\n' "$1" >&2
+        printf 'Unknown option: %s (help: pdrive-doctor --help)\n' "$1" >&2
         exit 2
         ;;
 esac
 if (( $# > 1 )); then
-    printf 'Es ist höchstens eine Option erlaubt (Hilfe: pdrive-doctor --help).\n' >&2
+    printf 'At most one option is allowed (help: pdrive-doctor --help).\n' >&2
     exit 2
 fi
 
@@ -50,19 +48,19 @@ section() {
     printf '\n== %s ==\n' "$1"
 }
 
-section 'Basis'
+section 'Basics'
 date --iso-8601=seconds
-printf 'Benutzer: %s (UID %s)\n' "${USER:-unknown}" "$(id -u)"
+printf 'User: %s (UID %s)\n' "${USER:-unknown}" "$(id -u)"
 pretty_name="$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release 2>/dev/null | tr -d '"')"
 version_codename="$(sed -n 's/^VERSION_CODENAME=//p' /etc/os-release 2>/dev/null | tr -d '"')"
 printf 'System: %s %s; Kernel %s\n' "${pretty_name:-unknown}" "${version_codename}" "$(uname -r)"
 if [[ -x "${rclone_real}" ]]; then
     "${rclone_real}" version | sed -n '1,5p'
 else
-    echo 'FEHLT: ~/.local/libexec/rclone-bin'
+    echo 'MISSING: ~/.local/libexec/rclone-bin'
 fi
 
-section 'Mount und Dienst'
+section 'Mount and service'
 printf 'enabled: %s\n' "$(systemctl --user is-enabled rclone-proton-drive.service 2>&1 || true)"
 printf 'active:  %s\n' "$(systemctl --user is-active rclone-proton-drive.service 2>&1 || true)"
 systemctl --user show rclone-proton-drive.service \
@@ -71,18 +69,18 @@ if mountpoint -q -- "${mount_dir}"; then
     printf 'Mountpoint: OK (%s)\n' "${mount_dir}"
     findmnt -M "${mount_dir}" -o TARGET,SOURCE,FSTYPE,OPTIONS
 else
-    echo 'Mountpoint: NICHT gemountet'
+    echo 'Mountpoint: NOT mounted'
 fi
 
-section 'Keyring und verschlüsselte Konfiguration'
+section 'Keyring and encrypted configuration'
 if timeout --signal=TERM 5s secret-tool lookup service rclone account proton-drive >/dev/null 2>&1; then
-    echo 'GNOME-Keyring-Eintrag: OK'
+    echo 'GNOME Keyring entry: OK'
 else
-    echo 'GNOME-Keyring-Eintrag: NICHT verfügbar/gesperrt'
+    echo 'GNOME Keyring entry: unavailable or locked'
 fi
 if [[ -r "${config_file}" ]] && timeout --signal=TERM 10s "${rclone_bin}" \
     --config="${config_file}" listremotes 2>/dev/null | grep -qx 'proton:'; then
-    echo 'rclone-Konfiguration: entschlüsselbar, Remote proton: vorhanden'
+    echo 'rclone configuration: decryptable, proton: remote present'
     "${rclone_bin}" --config="${config_file}" config redacted 2>/dev/null \
         | awk '
             /^\[proton\]/ { in_remote=1; next }
@@ -94,54 +92,54 @@ if [[ -r "${config_file}" ]] && timeout --signal=TERM 10s "${rclone_bin}" \
                 gsub(/[[:space:]]/, "", key)
                 value=line
                 sub(/^[^=]*=[[:space:]]*/, "", value)
-                printf "%s: %s\n", key, (length(value) ? "vorhanden" : "leer")
+                printf "%s: %s\n", key, (length(value) ? "present" : "empty")
             }
         '
 else
-    echo 'rclone-Konfiguration: FEHLT oder nicht entschlüsselbar'
+    echo 'rclone configuration: MISSING or not decryptable'
 fi
 
-section 'Benötigte Pakete'
+section 'Required packages'
 for package in fuse3 libfuse3-3 libsecret-tools gnome-keyring libpam-gnome-keyring \
     jq curl openssl iproute2 libnotify-bin python3-gi python3-gi-cairo \
     gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1 librsvg2-common; do
     status="$(dpkg-query -W -f='${db:Status-Abbrev} ${Version}' "${package}" 2>/dev/null || true)"
-    printf '%-24s %s\n' "${package}" "${status:-FEHLT}"
+    printf '%-24s %s\n' "${package}" "${status:-MISSING}"
 done
 
-section 'Update-Timer'
+section 'Update timers'
 systemctl --user list-timers --all --no-pager 2>/dev/null \
     | grep -E 'rclone-selfupdate|proton-drive-update|NEXT|^-' || true
 
-section 'Speicher und lokale Caches'
+section 'Storage and local caches'
 df -h --output=target,size,used,avail,pcent "${HOME}" | sed -n '1,2p'
-du -sh "${HOME}/.cache/rclone" 2>/dev/null || echo "${HOME}/.cache/rclone: nicht vorhanden"
+du -sh "${HOME}/.cache/rclone" 2>/dev/null || echo "${HOME}/.cache/rclone: not present"
 if command -v pdrive-cache-age >/dev/null 2>&1; then
     pdrive-cache-age status || true
 fi
 
-section 'Letzte Dienstmeldungen'
+section 'Latest service messages'
 journalctl --user -u rclone-proton-drive.service -n 25 --no-pager -o short-iso 2>/dev/null || true
 
-section 'Letzte relevante rclone-Meldungen'
+section 'Latest relevant rclone messages'
 if [[ -r "${mount_log}" ]]; then
     tr -d '\000' < "${mount_log}" \
         | grep -E 'NOTICE|ERROR|CRITICAL|429|422|CAPTCHA|timeout|rate|password|credentials' \
         | tail -n 25 || true
 else
-    echo 'Noch kein Mount-Log vorhanden.'
+    echo 'No mount log exists yet.'
 fi
 
 if [[ "${online_mode}" == true ]]; then
-    section 'Expliziter Online-Test'
-    echo 'Ein einzelner, auf 60 Sekunden begrenzter API-Test wird ausgeführt.'
+    section 'Explicit online check'
+    echo 'Running one API check bounded to 60 seconds.'
     if timeout --signal=TERM 60s "${rclone_bin}" \
         --config="${config_file}" --low-level-retries=0 --retries=1 \
         lsd proton: --max-depth 1 >/dev/null; then
-        echo 'Proton-API und gespeicherte Sitzung: OK'
+        echo 'Proton API and saved session: OK'
     else
-        echo 'Online-Test: FEHLGESCHLAGEN (bei HTTP 429 nicht wiederholen)'
+        echo 'Online check: FAILED (do not repeat after HTTP 429)'
     fi
 fi
 
-printf '\nHinweis: Ohne --online führt dieses Werkzeug keinen Proton-Loginversuch aus.\n'
+printf '\nNote: Without --online this tool makes no Proton login attempt.\n'

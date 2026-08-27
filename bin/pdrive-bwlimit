@@ -11,19 +11,19 @@ readonly rclone_bin="${HOME}/.local/libexec/rclone-bin"
 
 usage() {
     printf '%s\n' \
-        'Aufruf: pdrive-bwlimit [LIMIT|off|status]' \
+        'Usage: pdrive-bwlimit [LIMIT|off|status]' \
         '' \
-        'Ohne Argument oder mit status: persistentes und laufendes Limit anzeigen.' \
-        'LIMIT: Nur Upload begrenzen; Download bleibt unbegrenzt.' \
-        '       Beispiel: 4.2 = 4,2 MiB/s Upload, Download unbegrenzt.' \
-        'UP:DOWN: Links steht Upload, rechts Download.' \
-        '         Beispiel: 4:1 = 4 MiB/s Upload und 1 MiB/s Download.' \
-        'Zahlen ohne Einheit werden an jeder Stelle automatisch als MiB/s behandelt.' \
-        'Explizite Einheiten sind weiterhin möglich, z. B. 800K oder 0.625M.' \
-        'off: Limit live und persistent vollständig entfernen.' \
-        '0: wie off; rclone versteht Null als unbegrenzt, nicht als Pause.' \
+        'No argument or status: show the saved and live limits.' \
+        'LIMIT: Limit uploads only; downloads remain unlimited.' \
+        '       Example: 4.2 = 4.2 MiB/s upload, unlimited download.' \
+        'UP:DOWN: upload is on the left and download is on the right.' \
+        '         Example: 4:1 = 4 MiB/s upload and 1 MiB/s download.' \
+        'Unitless numbers are always interpreted as MiB/s.' \
+        'Explicit units remain available, for example 800K or 0.625M.' \
+        'off: remove the live and saved limit completely.' \
+        '0: same as off; rclone treats zero as unlimited, not paused.' \
         '' \
-        'Die Einheiten sind Byte pro Sekunde, nicht Bit pro Sekunde.'
+        'Units are bytes per second, not bits per second.'
 }
 
 # Help must be completely action-free, including in a fresh HOME. In
@@ -31,7 +31,7 @@ usage() {
 case "${1:-}" in
     -h|--help|help)
         if (( $# != 1 )); then
-            printf 'Zu viele Argumente.\n' >&2
+            printf 'Too many arguments.\n' >&2
             exit 2
         fi
         usage
@@ -50,7 +50,7 @@ component_human() {
     local component="${1:-off}"
 
     if [[ "${component}" == 'off' ]]; then
-        printf 'unbegrenzt'
+        printf 'unlimited'
     elif [[ "${component}" == *B ]]; then
         printf '%s/s' "${component}"
     else
@@ -63,34 +63,34 @@ describe_rate() {
     local upload download
 
     if [[ "${rate}" == 'off' ]]; then
-        printf 'kein Limit (Upload und Download unbegrenzt)'
+        printf 'no limit (upload and download unlimited)'
     elif [[ "${rate}" == *:* ]]; then
         upload="${rate%%:*}"
         download="${rate#*:}"
-        printf 'Upload %s, Download %s' \
+        printf 'upload %s, download %s' \
             "$(component_human "${upload}")" "$(component_human "${download}")"
     else
-        printf 'Upload und Download jeweils %s' "$(component_human "${rate}")"
+        printf 'upload and download both %s' "$(component_human "${rate}")"
     fi
 }
 
 load_configured_rate() {
     configured_rate='off'
-    configured_source='Standard (keine Konfigurationsdatei)'
+    configured_source='default (no configuration file)'
     config_warning=''
 
     if [[ ! -e "${config_file}" ]]; then
         return 0
     fi
     if [[ ! -r "${config_file}" ]]; then
-        config_warning="${config_file} ist nicht lesbar"
+        config_warning="${config_file} is not readable"
         return 78
     fi
 
     configured_rate="$(awk -F= '$1 == "bwlimit" { print $2; exit }' "${config_file}")"
     configured_source="${config_file}"
     if ! rate_is_safe "${configured_rate}"; then
-        config_warning="${config_file} enthält keinen gültigen Einzelwert"
+        config_warning="${config_file} does not contain one valid value"
         return 78
     fi
 }
@@ -140,18 +140,18 @@ canonicalize_requested_rate() {
     esac
 
     if [[ ! -x "${rclone_bin}" ]]; then
-        printf 'Fehler: rclone-Binärdatei fehlt: %s\n' "${rclone_bin}" >&2
+        printf 'Error: rclone binary is missing: %s\n' "${rclone_bin}" >&2
         return 69
     fi
     response="$(timeout --signal=TERM 10s "${rclone_bin}" rc --loopback \
         core/bwlimit "rate=${runtime_rate}" 2>/dev/null)" || {
-        printf 'Ungültiges Limit: %s\n' "${requested:-<leer>}" >&2
-        printf 'Beispiele: 4.2, 800K, 2M, 5M, 0.625M, 5M:1M oder off.\n' >&2
+        printf 'Invalid limit: %s\n' "${requested:-<empty>}" >&2
+        printf 'Examples: 4.2, 800K, 2M, 5M, 0.625M, 5M:1M or off.\n' >&2
         return 2
     }
     canonical="$(jq -r '.rate // empty' <<< "${response}" 2>/dev/null || true)"
     if ! rate_is_safe "${canonical}"; then
-        printf 'Fehler: rclone lieferte einen unerwarteten Bandbreitenwert.\n' >&2
+        printf 'Error: rclone returned an unexpected bandwidth value.\n' >&2
         return 70
     fi
     printf '%s\n' "${canonical}"
@@ -162,16 +162,16 @@ write_configured_rate() {
     local config_dir config_tmp
 
     if ! rate_is_safe "${rate}"; then
-        printf 'Fehler: unsicherer interner Bandbreitenwert: %s\n' "${rate}" >&2
+        printf 'Error: unsafe internal bandwidth value: %s\n' "${rate}" >&2
         return 2
     fi
     config_dir="${config_file%/*}"
     mkdir -p -- "${config_dir}" || return 1
     config_tmp="$(mktemp "${config_dir}/pdrive-bwlimit.conf.XXXXXX")" || return 1
     if ! printf '%s\n' \
-        '# Verwaltet mit: pdrive-bwlimit LIMIT|off' \
-        '# Ein einzelner Wert begrenzt Upload; Download bleibt unbegrenzt.' \
-        '# Rein numerische Eingaben interpretiert der Helfer immer als MiB/s.' \
+        '# Managed by: pdrive-bwlimit LIMIT|off' \
+        '# One value limits upload while download remains unlimited.' \
+        '# The helper always interprets unitless numbers as MiB/s.' \
         "bwlimit=${rate}" > "${config_tmp}"; then
         rm -f -- "${config_tmp}"
         return 1
@@ -198,14 +198,14 @@ query_live_rate() {
 mkdir -p -- "${state_dir}"
 exec 9>"${state_dir}/pdrive-bwlimit.lock"
 if ! flock -w 15 9; then
-    printf 'Ein anderer pdrive-bwlimit-Lauf ist noch aktiv; bitte kurz erneut versuchen.\n' >&2
+    printf 'Another pdrive-bwlimit run is active; please retry shortly.\n' >&2
     exit 75
 fi
 
 case "${1:-status}" in
     -h|--help|help)
         if (( $# != 1 )); then
-            printf 'Zu viele Argumente.\n' >&2
+            printf 'Too many arguments.\n' >&2
             exit 2
         fi
         usage
@@ -213,61 +213,61 @@ case "${1:-status}" in
         ;;
     status)
         if (( $# > 1 )); then
-            printf 'Zu viele Argumente (Hilfe: pdrive-bwlimit --help).\n' >&2
+            printf 'Too many arguments (help: pdrive-bwlimit --help).\n' >&2
             exit 2
         fi
         config_valid=true
         if ! load_configured_rate; then
             config_valid=false
         fi
-        printf 'Persistiert:   %s\n' "$(describe_rate "${configured_rate}")"
-        printf 'Konfiguration: %s\n' "${configured_source}"
+        printf 'Saved:         %s\n' "$(describe_rate "${configured_rate}")"
+        printf 'Configuration: %s\n' "${configured_source}"
         if [[ "${config_valid}" != true ]]; then
-            printf 'WARNUNG:       %s; der nächste Mountstart würde sicherheitshalber abbrechen.\n' \
+            printf 'WARNING:       %s; the next mount start would stop safely.\n' \
                 "${config_warning}"
         fi
         if query_live_rate; then
-            printf 'Laufender rclone: %s\n' "$(describe_rate "${live_rate}")"
-            printf 'Runtime:       aktiv; Änderungen sind ohne Neustart und Transferabbruch möglich.\n'
+            printf 'Running rclone: %s\n' "$(describe_rate "${live_rate}")"
+            printf 'Runtime:        active; changes need no restart and do not interrupt transfers.\n'
         else
-            printf 'Laufender rclone: Runtime-Steuerung noch nicht verfügbar.\n'
+            printf 'Running rclone: runtime control is not available yet.\n'
             printf '%s\n' \
-                'Runtime:       Der aktuelle Prozess wurde vor dieser Funktion gestartet und bleibt' \
-                '               unangetastet. Die Steuerung wird beim nächsten Dienststart aktiv.'
+                'Runtime:       The current process predates this feature and remains untouched.' \
+                '               Runtime control becomes active at the next service start.'
         fi
         ;;
     *)
         if (( $# != 1 )); then
-            printf 'Genau ein Limit angeben (Hilfe: pdrive-bwlimit --help).\n' >&2
+            printf 'Provide exactly one limit (help: pdrive-bwlimit --help).\n' >&2
             exit 2
         fi
         requested_rate="${1}"
         canonical_rate="$(canonicalize_requested_rate "${requested_rate}")" || exit $?
         if ! write_configured_rate "${canonical_rate}"; then
-            printf 'Fehler: Bandbreitenkonfiguration konnte nicht atomar gespeichert werden.\n' >&2
+            printf 'Error: bandwidth configuration could not be saved atomically.\n' >&2
             exit 1
         fi
 
         if query_live_rate; then
             if ! response="$(rc_call core/bwlimit "rate=${canonical_rate}" 2>/dev/null)"; then
-                printf 'Persistiert: %s\n' "$(describe_rate "${canonical_rate}")"
+                printf 'Saved: %s\n' "$(describe_rate "${canonical_rate}")"
                 printf '%s\n' \
-                    'Fehler: Der laufende rclone nahm die Änderung nicht an.' \
-                    'Der gespeicherte Wert gilt spätestens beim nächsten Dienststart.' >&2
+                    'Error: the running rclone process rejected the change.' \
+                    'The saved value applies at the next service start at the latest.' >&2
                 exit 1
             fi
             applied_rate="$(jq -r '.rate // empty' <<< "${response}" 2>/dev/null || true)"
             if ! rate_is_safe "${applied_rate}"; then
-                printf 'Fehler: Laufzeitantwort von rclone war unerwartet.\n' >&2
+                printf 'Error: rclone returned an unexpected runtime response.\n' >&2
                 exit 70
             fi
-            printf 'Aktiv:         %s\n' "$(describe_rate "${applied_rate}")"
-            printf 'Persistiert:   ja; laufender Transfer wurde nicht unterbrochen.\n'
+            printf 'Active:        %s\n' "$(describe_rate "${applied_rate}")"
+            printf 'Saved:         yes; the running transfer was not interrupted.\n'
         else
-            printf 'Gespeichert:   %s\n' "$(describe_rate "${canonical_rate}")"
+            printf 'Saved:         %s\n' "$(describe_rate "${canonical_rate}")"
             printf '%s\n' \
-                'Aktueller rclone: unverändert; dieser ältere Prozess besitzt noch keinen RC-Socket.' \
-                'Wirksamkeit:      automatisch ab dem nächsten Dienststart, ohne zusätzlichen Neustart.'
+                'Current rclone: unchanged; this older process has no RC socket.' \
+                'Effective:      automatically at the next service start, without an extra restart.'
         fi
         ;;
 esac

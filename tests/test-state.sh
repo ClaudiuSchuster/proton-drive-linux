@@ -67,20 +67,20 @@ chmod 0755 "${fake_bin}/systemctl" "${fake_bin}/ss" \
 touch "${state_dir}/pdrive-rc.sock"
 
 cat > "${state_dir}/pdrive-watch-latest.txt" <<'EOF'
-Zeit=2026-08-24T10:08:00+00:00
-Status=ready
-Grundcode=mounted
-Grund=Proton Drive ist gemountet und bereit.
-Hinweis=Der Mount ist nutzbar.
-DNS=ok
-TCP=established
-FehlerImLog=7
-HinweiseImLog=3
-DeltaFehler=+0
-DeltaHinweise=+0
-MetadatenCacheLaufend=true
-UploadslotsLaufend=4
-CooldownDauerSekunden=43200
+generated_at=2026-08-24T10:08:00+00:00
+status=ready
+reason_code=mounted
+reason=Proton Drive is mounted and ready.
+hint=The mount is ready for use.
+dns=ok
+tcp=established
+errors_in_log=7
+notices_in_log=3
+delta_errors=+0
+delta_notices=+0
+metadata_cache_running=true
+upload_slots_running=4
+cooldown_seconds=43200
 EOF
 cat > "${state_dir}/pdrive-draft-recovery-latest.json" <<'EOF'
 {
@@ -225,10 +225,44 @@ jq -e '
 ' "${state_json}" >/dev/null
 
 cp -- "${state_dir}/pdrive-watch-latest.txt" "${state_dir}/pdrive-watch-latest.ready"
+cat > "${state_dir}/pdrive-watch-latest.txt" <<'EOF'
+Zeit=2026-08-24T10:08:00+00:00
+Modus=Timer-Aufzeichnung
+Status=warning
+Grundcode=stale-log
+DNS=ok
+TCP=established
+FehlerImLog=9
+HinweiseImLog=4
+LetzteProblemkategorie=Hinweis
+EOF
+legacy_watchdog_json="${test_root}/legacy-watchdog.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+    "${project_dir}/bin/pdrive-state" --compact > "${legacy_watchdog_json}"
+jq -e '
+    .watchdog.mode == "timer-record"
+    and .watchdog.status == "warning"
+    and .watchdog.reason_code == "stale-log"
+    and .watchdog.errors == 9
+    and .watchdog.notices == 4
+    and .watchdog.last_problem_category == "notice"
+' "${legacy_watchdog_json}" >/dev/null
+mv -f -- "${state_dir}/pdrive-watch-latest.ready" \
+    "${state_dir}/pdrive-watch-latest.txt"
+
+cp -- "${state_dir}/pdrive-watch-latest.txt" "${state_dir}/pdrive-watch-latest.ready"
 sed -i \
-    -e "s|^Zeit=.*|Zeit=$(date --iso-8601=seconds)|" \
-    -e 's/^Status=ready$/Status=critical/' \
-    -e 's/^Grundcode=mounted$/Grundcode=service-down/' \
+    -e "s|^generated_at=.*|generated_at=$(date --iso-8601=seconds)|" \
+    -e 's/^status=ready$/status=critical/' \
+    -e 's/^reason_code=mounted$/reason_code=service-down/' \
     "${state_dir}/pdrive-watch-latest.txt"
 stale_watchdog_json="${test_root}/stale-watchdog.json"
 HOME="${test_home}" \
