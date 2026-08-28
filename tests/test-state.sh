@@ -296,6 +296,8 @@ jq -e '
     and .issues.events[0].level == "notice"
     and .issues.events[0].lifecycle == "resolved"
     and .issues.events[0].title == "Proton session refresh recovered"
+    and .issues.events[0].resolved_at == "2026-08-24T10:07:00+00:00"
+    and .issues.events[0].resolved_at == .issues.events[0].last_seen
     and .issues.events[0].occurrences == 1
     and .issues.events[0].raw_events == 2
     and (.issues.events[0].subject | contains("private-share") | not)
@@ -328,6 +330,7 @@ jq -e '
     and .issues.events[0].level == "error"
     and .issues.events[0].lifecycle == "active"
     and .issues.events[0].title == "Proton session refresh was rejected"
+    and .issues.events[0].resolved_at == ""
 ' "${session_refresh_unhealthy_json}" >/dev/null
 mv -f -- "${state_dir}/proton-mount.log.full" "${state_dir}/proton-mount.log"
 

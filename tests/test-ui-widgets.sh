@@ -292,6 +292,21 @@ recovering_labels = [
 ]
 assert "Upload retry is progressing" in recovering_labels
 assert any(text.startswith("Recent log contains 3 related records") for text in recovering_labels)
+resolved_event = dict(recovering_event)
+resolved_event.update(
+    {
+        "lifecycle": "resolved",
+        "resolved_at": "2026-08-25T11:07:00+00:00",
+    }
+)
+resolved_row = window.issue_row(resolved_event)
+resolved_labels = [
+    widget.get_text()
+    for widget in descendants(resolved_row)
+    if isinstance(widget, module.Gtk.Label)
+]
+assert module.local_time(resolved_event["resolved_at"]) in resolved_labels
+assert module.local_time(resolved_event["timestamp"]) not in resolved_labels
 module.CURRENT_LANGUAGE = "de"
 recovering_row_de = window.issue_row(recovering_event)
 recovering_labels_de = [
