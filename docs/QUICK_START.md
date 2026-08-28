@@ -88,6 +88,12 @@ If Proton rate-limits login attempts, wait until the displayed retry time. Do
 not bypass the cooldown with manual service starts. The encrypted configuration
 and local upload cache remain untouched while login is paused.
 
+Reauthorization keeps the same account. To intentionally move `/pdrive` to a
+different Proton account, first wait for zero Active transfers, an empty Queue
+and no pending VFS data, then use **Preferences → Account → Change Proton
+account …**. PDrive gives the candidate a separate cache namespace; it never
+relabels the previous account's cached files as belonging to the new account.
+
 ## Where to go next
 
 - [Everyday use](EVERYDAY_USE.md) explains Nemo, transfers, cache and routine

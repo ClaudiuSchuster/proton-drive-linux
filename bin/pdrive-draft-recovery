@@ -7,8 +7,26 @@ umask 077
 readonly draft_config="${HOME}/.config/pdrive-draft-recovery.conf"
 readonly recovery_config="${HOME}/.config/pdrive-recovery.conf"
 readonly service_name='rclone-proton-drive.service'
-readonly vfs_meta_root="${HOME}/.cache/rclone/vfsMeta"
 readonly auto_helper="${HOME}/.local/libexec/pdrive-draft-recovery-auto"
+source_account_cache_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../libexec" && pwd)/pdrive-account-cache"
+readonly source_account_cache_helper
+readonly account_cache_helper="${PDRIVE_ACCOUNT_CACHE_HELPER:-${HOME}/.local/libexec/pdrive-account-cache}"
+
+resolve_cache_dir() {
+    local helper="${account_cache_helper}"
+    if [[ ! -x "${helper}" && -x "${source_account_cache_helper}" ]]; then
+        helper="${source_account_cache_helper}"
+    fi
+    if [[ ! -x "${helper}" ]]; then
+        printf 'Account cache resolver is missing: %s\n' "${helper}" >&2
+        return 69
+    fi
+    "${helper}" --path
+}
+
+cache_dir="$(resolve_cache_dir)"
+readonly cache_dir
+readonly vfs_meta_root="${cache_dir}/vfsMeta"
 
 usage() {
     printf '%s\n' \

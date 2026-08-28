@@ -175,6 +175,12 @@ install -m 0644 \
     "${project_dir}/docs/assets/pdrive-auth-cooldown.png" \
     "${doc_assets_dir}/pdrive-auth-cooldown.png"
 install -m 0644 \
+    "${project_dir}/docs/assets/pdrive-account-settings.png" \
+    "${doc_assets_dir}/pdrive-account-settings.png"
+install -m 0644 \
+    "${project_dir}/docs/assets/pdrive-account-switch.png" \
+    "${doc_assets_dir}/pdrive-account-switch.png"
+install -m 0644 \
     "${project_dir}/docs/assets/pdrive-setup-wizard.png" \
     "${doc_assets_dir}/pdrive-setup-wizard.png"
 install -m 0644 \

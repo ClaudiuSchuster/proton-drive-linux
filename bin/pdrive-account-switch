@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+umask 077
+
+readonly installed_backend="${PDRIVE_ACCOUNT_SWITCH_BACKEND:-${HOME}/.local/libexec/switch-rclone-proton-account}"
+source_backend="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../libexec" && pwd)/switch-rclone-proton-account"
+readonly source_backend
+
+usage() {
+    printf '%s\n' \
+        'Usage: pdrive-account-switch' \
+        '       pdrive-account-switch --switch' \
+        '       pdrive-account-switch --help' \
+        '' \
+        'Guarded migration of the managed /pdrive mount to another Proton account.' \
+        '' \
+        'No option and --help show only this action-free guidance.' \
+        '--switch starts one interactive, transactional account change.' \
+        '' \
+        'Safety workflow:' \
+        '  1. refuses active uploads, downloads, queued writes or Dirty VFS data;' \
+        '  2. reads the candidate username, password and optional 2FA privately;' \
+        '  3. authenticates the candidate in an isolated encrypted configuration;' \
+        '  4. rechecks the preflight before stopping the current mount;' \
+        '  5. assigns a new anonymous cache namespace and activates atomically;' \
+        '  6. restores the previous configuration and namespace if validation fails.' \
+        '' \
+        'Previous cache namespaces and encrypted rollback data are retained.' \
+        'Credentials never enter argv, environment variables, logs or diagnostics.'
+}
+
+case "${1:-}" in
+    '')
+        (( $# == 0 )) || { usage >&2; exit 2; }
+        usage
+        exit 0
+        ;;
+    --switch)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        ;;
+    -h|--help)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        usage
+        exit 0
+        ;;
+    *)
+        printf 'Unknown option: %s (help: pdrive-account-switch --help)\n' "$1" >&2
+        exit 2
+        ;;
+esac
+
+backend="${installed_backend}"
+if [[ ! -x "${backend}" && -x "${source_backend}" ]]; then
+    backend="${source_backend}"
+fi
+if [[ ! -x "${backend}" ]]; then
+    printf 'Account-switch backend is missing: %s\n' "${backend}" >&2
+    exit 69
+fi
+if [[ ! -t 0 || ! -t 1 ]]; then
+    printf 'Run this command in a normal interactive terminal.\n' >&2
+    exit 64
+fi
+
+printf '%s\n' \
+    'PDrive Proton account change' \
+    '============================' \
+    '' \
+    'This changes the remote account mounted at /pdrive. The current account' \
+    'configuration and cache stay separate and are retained for rollback.' \
+    'Pending or active work blocks the change without modifying anything.' \
+    ''
+
+"${backend}" --preflight
+printf '\nType CHANGE ACCOUNT to confirm this intentional migration: '
+IFS= read -r confirmation
+if [[ "${confirmation}" != 'CHANGE ACCOUNT' ]]; then
+    printf 'Cancelled; nothing was changed.\n'
+    exit 0
+fi
+
+read -r -p 'New Proton username or email address: ' proton_username
+read -r -s -p 'New Proton password: ' proton_password
+printf '\n'
+read -r -s -p 'Repeat password: ' proton_password_confirm
+printf '\n'
+if [[ -z "${proton_username}" || -z "${proton_password}" \
+    || "${proton_password}" != "${proton_password_confirm}" ]]; then
+    unset proton_password proton_password_confirm
+    printf 'Username is empty or passwords do not match.\n' >&2
+    exit 65
+fi
+unset proton_password_confirm
+read -r -s -p 'Fresh 6-digit 2FA code (empty when disabled): ' proton_2fa
+printf '\n'
+if [[ -n "${proton_2fa}" && ! "${proton_2fa}" =~ ^[0-9]{6}$ ]]; then
+    unset proton_password proton_2fa
+    printf 'The 2FA code must be empty or exactly six digits.\n' >&2
+    exit 65
+fi
+
+set +e
+printf '%s\0' "${proton_username}" "${proton_password}" "${proton_2fa}" \
+    | "${backend}" --switch-from-stdin
+switch_rc=$?
+set -e
+unset proton_username proton_password proton_2fa
+exit "${switch_rc}"

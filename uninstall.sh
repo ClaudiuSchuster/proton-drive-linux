@@ -60,13 +60,13 @@ if [[ -S "${rc_socket}" && -x "${rclone_bin}" ]] && command -v jq >/dev/null 2>&
 fi
 
 dirty_count=0
-if [[ -d "${HOME}/.cache/rclone/vfsMeta" ]]; then
+if [[ -d "${HOME}/.cache/rclone" ]]; then
     if ! command -v jq >/dev/null 2>&1; then
         printf 'Cannot safely inspect VFS metadata without jq; uninstall refused.\n' >&2
         exit 75
     fi
-    dirty_count="$(find "${HOME}/.cache/rclone/vfsMeta" -mindepth 2 -type f \
-        -path '*/proton*/*' -print0 2>/dev/null \
+    dirty_count="$(find "${HOME}/.cache/rclone" -type f \
+        -path '*/vfsMeta/proton*/*' -print0 2>/dev/null \
         | xargs -0 -r jq -r 'select(.Dirty == true) | 1' 2>/dev/null \
         | awk '{ count += $1 } END { print count + 0 }')"
 fi
@@ -95,7 +95,7 @@ systemctl --user disable --now \
     pdrive-watch.timer pdrive-draft-recovery.timer rclone-proton-drive.service \
     rclone-selfupdate.timer proton-drive-update.timer >/dev/null 2>&1 || true
 
-for file_name in pdrive-bwlimit pdrive-cache-age pdrive-doctor pdrive-draft-recovery pdrive-network-tune pdrive-reauth \
+for file_name in pdrive-account-switch pdrive-bwlimit pdrive-cache-age pdrive-doctor pdrive-draft-recovery pdrive-network-tune pdrive-reauth \
     pdrive-recovery pdrive-refresh pdrive-setup pdrive-state pdrive-transfers \
     pdrive-ui pdrive-watch rclone; do
     rm -f -- "${bin_dir}/${file_name}"
@@ -110,8 +110,9 @@ fi
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "${applications_dir}" >/dev/null 2>&1 || true
 fi
-for file_name in pdrive-draft-recovery-auto proton-drive-update rclone-bin rclone-proton-mount \
-    rclone-proton-unmount rclone-selfupdate reauth-rclone-proton setup-rclone-proton; do
+for file_name in pdrive-account-cache pdrive-draft-recovery-auto proton-drive-update rclone-bin rclone-proton-mount \
+    rclone-proton-unmount rclone-selfupdate reauth-rclone-proton setup-rclone-proton \
+    switch-rclone-proton-account; do
     rm -f -- "${libexec_dir}/${file_name}"
 done
 for file_name in pdrive-watch.service pdrive-watch.timer \
@@ -126,6 +127,8 @@ if [[ -d "${doc_dir}" ]]; then
         "${doc_dir}/docs/assets/pdrive-transfers.png" \
         "${doc_dir}/docs/assets/pdrive-history.png" \
         "${doc_dir}/docs/assets/pdrive-auth-cooldown.png" \
+        "${doc_dir}/docs/assets/pdrive-account-settings.png" \
+        "${doc_dir}/docs/assets/pdrive-account-switch.png" \
         "${doc_dir}/docs/assets/pdrive-setup-wizard.png" \
         "${doc_dir}/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg"
     rmdir "${doc_dir}/docs/assets" "${doc_dir}/docs" 2>/dev/null || true

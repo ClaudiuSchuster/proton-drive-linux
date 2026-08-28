@@ -325,6 +325,9 @@ a native documentation window with Quick start, Everyday use, Operations,
 Troubleshooting, Security and License pages. Account reauthorization appears
 there only while PDrive has detected that the configured account requires it;
 the same contextual action is shown in the Overview status banner.
+Intentional account migration is separate: **Preferences → Account → Change
+Proton account …** is always available on a configured installation and opens a
+full native login plus explicit migration confirmation.
 The About dialog reports the
 installed PDrive Control Center version, project authors, GPL license and
 canonical GitHub project link.
@@ -381,6 +384,18 @@ with `X-PDrive-Control-Center=true`, whose command is `pdrive-ui --background`.
 The application refuses to overwrite a same-named unmarked file and removes
 only its own marked autostart file. A manual menu launch remains visible.
 
+The Preferences **Account** section is a guarded action rather than a saved UI
+preference. **Change Proton account …** accepts a new Proton username or email,
+password, repeated password and an optional fresh six-digit 2FA code. It has no
+default credential value and stores none of those inputs in the UI preference
+file. Activation occurs only after isolated authentication, a repeated clean
+preflight and validated remounting. Its persistent effects are the encrypted
+`~/.config/rclone/rclone.conf`, the mode-0600 opaque namespace selector
+`~/.config/pdrive-account.conf`, a new owner-only cache root below
+`~/.cache/rclone/accounts/`, and an encrypted rollback bundle below
+`~/.config/rclone/backups/`. The complete safety and rollback contract is in
+**Guarded Proton account switching** below.
+
 #### Operational settings
 
 These dialogs delegate to the same strict `pdrive-*` helpers available in a
@@ -407,16 +422,17 @@ format, CLI equivalent and refusal conditions:
 
 #### One-shot actions
 
-| Action                                                               | Protection and result                                                                                                                                                    |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Header **Refresh**                                                   | Re-reads local state immediately and refreshes Proton capacity; it changes no configuration.                                                                             |
-| **Restart cooldown → Reset restart cooldown**                        | Clears only the current automatic-restart cooldown through `pdrive-watch --clear-cooldown`; the configured duration is unchanged.                                        |
-| **Refresh metadata**                                                 | Checks uploads, queue and Dirty cache first, then requires terminal confirmation before a controlled restart.                                                            |
-| **Safely restart service**                                           | Warns that an active upload would be interrupted, requires terminal confirmation and validates the new PID and mount.                                                    |
-| **Mark issues reviewed**                                             | Advances only the local issue watermark; it does not delete logs, history or unresolved health evidence.                                                                 |
-| **Open Proton Drive web**                                            | Opens the official web client for account-wide settings; it makes no local PDrive change.                                                                                |
-| **Open PDrive folder**                                               | Opens `/pdrive` in the file manager; reads and writes then follow normal mounted-filesystem semantics.                                                                   |
-| Overview banner or conditional menu **Reauthorize Proton account …** | Appears only when PDrive reports `reauthorization-required`; runs one isolated same-account login and replaces the encrypted configuration only after Proton accepts it. |
+| Action                                                               | Protection and result                                                                                                                                                                                 |
+| -------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Header **Refresh**                                                   | Re-reads local state immediately and refreshes Proton capacity; it changes no configuration.                                                                                                          |
+| **Restart cooldown → Reset restart cooldown**                        | Clears only the current automatic-restart cooldown through `pdrive-watch --clear-cooldown`; the configured duration is unchanged.                                                                     |
+| **Refresh metadata**                                                 | Checks uploads, queue and Dirty cache first, then requires terminal confirmation before a controlled restart.                                                                                         |
+| **Safely restart service**                                           | Warns that an active upload would be interrupted, requires terminal confirmation and validates the new PID and mount.                                                                                 |
+| **Mark issues reviewed**                                             | Advances only the local issue watermark; it does not delete logs, history or unresolved health evidence.                                                                                              |
+| **Open Proton Drive web**                                            | Opens the official web client for account-wide settings; it makes no local PDrive change.                                                                                                             |
+| **Open PDrive folder**                                               | Opens `/pdrive` in the file manager; reads and writes then follow normal mounted-filesystem semantics.                                                                                                |
+| Overview banner or conditional menu **Reauthorize Proton account …** | Appears only when PDrive reports `reauthorization-required`; runs one isolated same-account login and replaces the encrypted configuration only after Proton accepts it.                              |
+| **Preferences → Account → Change Proton account …**                  | Always-distinct intentional migration; refuses active or pending work, authenticates in isolation, selects a new cache namespace and rolls back all live selectors if the new mount fails validation. |
 
 Metadata refresh and service restart deliberately finish their final safety
 checks in a terminal so the user sees the exact queue state and confirmation
@@ -689,6 +705,76 @@ client/session tokens are deliberately not copied into the candidate.
 After HTTP 429, leave the service stopped until the retry time shown by PDrive.
 If Proton states a longer backoff, that longer interval remains authoritative.
 Repeated “tests” can extend the block.
+
+## Guarded Proton account switching
+
+Same-account reauthorization and account switching are intentionally separate.
+Reauthorization preserves the existing account identity and VFS namespace;
+`pdrive-account-switch --switch` deliberately changes both. The Control Center
+access path is **hamburger menu → Preferences → Account → Change Proton account
+…**. Its full native form accepts the candidate username or email, password,
+repeated password and optional fresh six-digit 2FA code. The explicit checkbox
+confirms that `/pdrive` and the Proton remote namespace will change while old
+local cache data remains separate.
+
+The no-option and `--help` terminal forms are action-free:
+
+```bash
+pdrive-account-switch
+pdrive-account-switch --switch
+```
+
+Before presenting terminal credentials, and again immediately after the
+bounded candidate login, the backend requires all of these facts:
+
+- no active upload or download in `core/stats`;
+- an empty live `vfs/queue` whenever the managed service is active;
+- no Dirty VFS metadata anywhere below the retained legacy or account-specific
+  cache roots;
+- a coherent service/mount/owner-only RC state that can be inspected safely.
+
+An unavailable queue, malformed metadata, an unexpected mount, a changing
+service state or any pending work is a refusal, not permission to guess. The
+current service, configuration, authentication state and every cache file stay
+untouched. This repeated preflight closes the race in which a transfer begins
+while Proton validates the candidate login.
+
+Credentials cross one anonymous NUL-delimited stdin pipe. They never enter
+process arguments, environment variables, persistent logs, state JSON,
+fixtures, diagnostics or screenshots. The candidate configuration is encrypted
+with the existing GNOME-Keyring-backed rclone configuration password and tested
+once with retries bounded and a dedicated temporary cache. Account-specific
+mailbox secrets, session tokens and current-account backend credentials are not
+copied. The one-time 2FA field is removed before any candidate can become live.
+A rejected or rate-limited candidate does not change the same-account
+reauthorization guard or its saved cooldown.
+
+Only after authentication and the second preflight does PDrive stop the managed
+service. It saves the final encrypted `rclone.conf`, the prior opaque account
+selector and the credential-free authentication state in a mode-0700 rollback
+bundle. The candidate receives a random `account-` plus 32-hex namespace; the
+identifier contains no username, email, Proton ID or remote path. The selector
+is written atomically to mode-0600 `~/.config/pdrive-account.conf`, and
+`rclone-proton-mount` resolves it to
+`~/.cache/rclone/accounts/<opaque-namespace>`. An installation without the
+selector continues using the legacy `~/.cache/rclone` root, so an upgrade never
+hides existing Dirty data.
+
+Success requires the user service to be active, `/pdrive` to be a writable
+rclone FUSE mount, the owner-only RC socket PID to match systemd, and `vfs/stats`
+to report both data and metadata paths below the new cache root. If any gate
+times out, PDrive stops the candidate, atomically restores the previous
+encrypted configuration, account selector and authentication state, and—when
+it was previously active—validates the old mount again. It never merges,
+renames, deletes or reassigns either cache namespace. A rollback whose old mount
+also cannot become ready leaves both namespaces intact and directs the user to
+`pdrive-doctor`.
+
+Previous account cache roots and rollback bundles are deliberately retained.
+They can contain the only local copy of important data even after a clean
+preflight. Do not delete them merely to reclaim space; first identify the exact
+namespace, prove it has no Dirty metadata, verify important remote files in the
+corresponding account and maintain an independent backup.
 
 ## Advanced draft recovery
 

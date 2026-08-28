@@ -53,6 +53,16 @@ mount. Saved limits are applied only after mount startup so backend option
 values cannot alter the VFS cache fingerprint and select a different Dirty
 queue namespace.
 
+Intentional account switching is a separate transaction from reauthorization.
+`switch-rclone-proton-account` performs read-only queue, transfer and Dirty-file
+preflights before and after isolated candidate authentication. The opaque
+`pdrive-account.conf` selector is resolved only by `pdrive-account-cache`; an
+absent selector preserves the legacy cache root. Mount, refresh and recovery
+helpers must use that resolver so every operation addresses the currently
+selected account namespace without scanning another account's cached files as
+live state. Whole-installation destructive guards such as uninstall still scan
+all retained namespaces.
+
 ## Security model
 
 - The rclone configuration is encrypted with a random password stored in the
@@ -180,7 +190,7 @@ changed and disable again when the original values are restored.
 ## CI and release process
 
 `make check` covers syntax, ShellCheck, action-free help behavior, setup safety,
-transactional reauthentication, terminal-authentication retry suppression,
+transactional reauthentication and account switching, terminal-authentication retry suppression,
 systemd semantics, state fixtures, version consistency, desktop validation and
 GTK checks when the display stack is available. GitHub Actions also runs
 Super-Linter for Bash, Python, Markdown, YAML, action security and secret

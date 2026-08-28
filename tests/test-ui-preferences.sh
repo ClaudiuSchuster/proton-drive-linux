@@ -68,6 +68,8 @@ assert module.translate(
 ).startswith("Fabian Schneider — Quatschkomödie")
 assert module.translate("Keep running in the tray when the window closes").startswith("Beim Schließen")
 assert module.translate("Keep live metrics updating while hidden in the tray").startswith("Live-Metriken")
+assert module.translate("Change Proton account …") == "Proton-Konto wechseln …"
+assert module.translate("Previous account restored") == "Vorheriges Konto wiederhergestellt"
 module.CURRENT_LANGUAGE = "en"
 project_root = pathlib.Path(sys.argv[1]).resolve().parent.parent
 assert module.documentation_path("QUICK_START.md", "docs/QUICK_START.md") == project_root.joinpath(

@@ -40,7 +40,7 @@ case "${1:-}" in
         ;;
 esac
 
-for command_name in systemctl mountpoint; do
+for command_name in flock systemctl mountpoint; do
     if ! command -v "${command_name}" >/dev/null 2>&1; then
         printf 'Missing required command: %s\n' "${command_name}" >&2
         exit 69
@@ -63,6 +63,14 @@ if [[ "$(stat -c %u -- "${config_file}" 2>/dev/null || true)" != "$(id -u)" ]]; 
     printf 'Refusing a configuration not owned by the current user: %s\n' \
         "${config_file}" >&2
     exit 73
+fi
+
+mkdir -p -- "${state_dir}"
+exec 9> "${state_dir}/pdrive-auth-transaction.lock"
+if ! flock -n 9; then
+    printf '%s\n' 'PDRIVE_REAUTH_ERROR=already-running' >&2
+    printf '%s\n' 'Another PDrive authentication transaction is already running.' >&2
+    exit 75
 fi
 
 # Preserve only documented, non-session backend options. The decrypted config
@@ -111,11 +119,11 @@ if [[ -n "${two_factor}" && ! "${two_factor}" =~ ^[0-9]{6}$ ]]; then
     exit 65
 fi
 
-mkdir -p -- "${config_file%/*}" "${state_dir}" "${backup_dir}"
+mkdir -p -- "${config_file%/*}" "${backup_dir}"
 temporary_config="$(mktemp "${config_file%/*}/rclone.conf.reauth.XXXXXX")"
 test_cache="$(mktemp -d "${state_dir}/reauth-cache.XXXXXX")"
 # Invoked indirectly by the EXIT trap below.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 cleanup() {
     unset password two_factor obscured_password preserved_options username
     rm -f -- "${temporary_config:-}"

@@ -162,6 +162,39 @@ assert documentation_button.get_sensitive()
 assert button_with_label("Preferences …").get_sensitive()
 about_button = button_with_label("About …")
 assert about_button.get_sensitive()
+
+original_dialog_run = module.Gtk.Dialog.run
+preferences_checked = []
+
+def inspect_preferences(dialog):
+    labels = [
+        widget.get_text()
+        for widget in descendants(dialog)
+        if isinstance(widget, module.Gtk.Label)
+    ]
+    buttons = [
+        widget
+        for widget in descendants(dialog)
+        if isinstance(widget, module.Gtk.Button)
+    ]
+    account_button = next(
+        button
+        for button in buttons
+        if button.get_tooltip_text() == "Change Proton account …"
+    )
+    assert "Account" in labels
+    assert account_button.get_visible()
+    assert account_button.get_sensitive()
+    assert account_button.get_halign() == module.Gtk.Align.START
+    assert account_button.get_events() & module.Gdk.EventMask.ENTER_NOTIFY_MASK
+    preferences_checked.append(True)
+    return module.Gtk.ResponseType.CANCEL
+
+module.Gtk.Dialog.run = inspect_preferences
+window.on_preferences(None)
+module.Gtk.Dialog.run = original_dialog_run
+assert preferences_checked == [True]
+
 menu_buttons[0].set_active(True)
 while module.Gtk.events_pending():
     module.Gtk.main_iteration_do(False)
@@ -576,6 +609,57 @@ assert reauth_dialog.reauthorize_button.get_label() == "Close"
 assert not reauth_dialog.form.get_sensitive()
 assert reauth_dialog.hero_title.get_text() == "Login temporarily paused"
 reauth_dialog.destroy()
+
+account_dialog = module.AccountSwitchDialog(window, demo=True)
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
+assert account_dialog.get_title() == "Change Proton account"
+assert account_dialog.preflight_ready
+assert "no active transfers" in account_dialog.preflight_label.get_text()
+assert len(
+    [
+        widget
+        for widget in descendants(account_dialog.form)
+        if isinstance(widget, module.Gtk.Entry)
+    ]
+) == 4
+assert not account_dialog.switch_button.get_sensitive()
+account_dialog.username_entry.set_text("candidate-user")
+account_dialog.password_entry.set_text("generated-test-password")
+account_dialog.password_confirm_entry.set_text("generated-test-password")
+account_dialog.two_factor_entry.set_text("123")
+account_dialog.confirmation.set_active(True)
+assert not account_dialog.switch_button.get_sensitive()
+account_dialog.two_factor_entry.set_text("123456")
+assert account_dialog.switch_button.get_sensitive()
+account_dialog.confirmation.set_active(False)
+assert not account_dialog.switch_button.get_sensitive()
+account_dialog.confirmation.set_active(True)
+account_dialog.begin_busy_state()
+assert account_dialog.busy
+assert not account_dialog.form.get_sensitive()
+assert not account_dialog.confirmation.get_sensitive()
+assert account_dialog.progress.get_visible()
+account_dialog.account_switch_finished(
+    75,
+    "PDRIVE_ACCOUNT_SWITCH_ERROR=activation-failed-rolled-back",
+)
+assert account_dialog.completed
+assert account_dialog.switch_button.get_label() == "Close"
+assert account_dialog.hero_title.get_text() == "Previous account restored"
+assert "No cache data" in account_dialog.result_detail.get_text()
+account_dialog.destroy()
+
+module.CURRENT_LANGUAGE = "de"
+german_account_dialog = module.AccountSwitchDialog(window, demo=True)
+while module.Gtk.events_pending():
+    module.Gtk.main_iteration_do(False)
+assert german_account_dialog.get_title() == "Proton-Konto wechseln"
+assert german_account_dialog.hero_title.get_text() == "/pdrive zu einem anderen Konto verschieben"
+assert german_account_dialog.switch_button.get_label() == "Konto sicher wechseln"
+assert german_account_dialog.confirmation.get_label().startswith("Ich verstehe")
+german_account_dialog.destroy()
+module.CURRENT_LANGUAGE = "en"
 
 rate_limited_state = copy.deepcopy(auth_state)
 rate_limited_state["authentication"].update(

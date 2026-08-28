@@ -18,7 +18,7 @@ snapshot() {
 }
 
 before="$(snapshot)"
-for helper in pdrive-bwlimit pdrive-cache-age pdrive-doctor pdrive-draft-recovery pdrive-network-tune pdrive-reauth \
+for helper in pdrive-account-switch pdrive-bwlimit pdrive-cache-age pdrive-doctor pdrive-draft-recovery pdrive-network-tune pdrive-reauth \
     pdrive-prerequisites pdrive-recovery pdrive-refresh pdrive-setup pdrive-state pdrive-transfers \
     pdrive-ui pdrive-watch; do
     helper_help="$(HOME="${test_home}" "${project_dir}/bin/${helper}" --help 2>&1)"
@@ -52,6 +52,8 @@ HOME="${test_home}" bash "${project_dir}/install.sh" --help >/dev/null
 HOME="${test_home}" bash "${project_dir}/uninstall.sh" --help >/dev/null
 HOME="${test_home}" bash "${project_dir}/libexec/setup-rclone-proton" >/dev/null
 HOME="${test_home}" bash "${project_dir}/libexec/reauth-rclone-proton" --help >/dev/null
+HOME="${test_home}" bash "${project_dir}/libexec/pdrive-account-cache" --help >/dev/null
+HOME="${test_home}" bash "${project_dir}/libexec/switch-rclone-proton-account" --help >/dev/null
 HOME="${test_home}" "${project_dir}/libexec/pdrive-auth-failure-guard" >/dev/null
 HOME="${test_home}" "${project_dir}/libexec/pdrive-auth-failure-guard" --help >/dev/null
 HOME="${test_home}" make -s -C "${project_dir}" help >/dev/null
