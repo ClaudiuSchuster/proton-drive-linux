@@ -67,7 +67,7 @@ printf '%s\n' \
     '    fi ;;' \
     '  core/transferred)' \
     '    if [[ "${PDRIVE_TEST_NO_TRANSFERRED:-}" == 1 ]]; then printf "%s\\n" '\''{"transferred":[]}'\''; else' \
-    '      recent_time="$(date --iso-8601=seconds)"' \
+    '      recent_time="${PDRIVE_TEST_RECENT_TIME:?PDRIVE_TEST_RECENT_TIME is required}"' \
     '      printf '\''{"transferred":[{"name":"done.txt","size":12,"bytes":12,"completedAt":"%s","srcFs":"/tmp/vfs/proton-test","dstFs":"proton-test:"},{"name":"Projects/demo.qcow2","size":1048576,"bytes":1048576,"completedAt":"%s","srcFs":"proton-test:","dstFs":"/tmp/vfs/proton-test"},{"name":"missing-direction.txt","size":24,"bytes":24,"completedAt":"%s"},{"name":"ambiguous-direction.txt","size":48,"bytes":48,"completedAt":"%s","srcFs":"proton-test:source","dstFs":"proton-test:destination"}]}\n'\'' "${recent_time}" "${recent_time}" "${recent_time}" "${recent_time}"' \
     '    fi ;;' \
     '  vfs/queue) printf "%s\\n" '\''{"queue":[{"name":"demo/file.iso","size":2097152,"tries":2,"uploading":true}]} '\'' ;;' \
@@ -78,6 +78,11 @@ printf '%s\n' \
 chmod 0755 "${fake_bin}/systemctl" "${fake_bin}/ss" \
     "${fake_bin}/findmnt" "${fake_bin}/rclone-bin"
 touch "${state_dir}/pdrive-rc.sock"
+
+recent_epoch="$(TZ=UTC date '+%s')"
+recent_log_time="$(TZ=UTC date --date="@${recent_epoch}" '+%Y/%m/%d %H:%M:%S')"
+recent_rc_time="$(TZ=UTC date --date="@${recent_epoch}" --iso-8601=seconds)"
+export PDRIVE_TEST_RECENT_TIME="${recent_rc_time}"
 
 cat > "${state_dir}/pdrive-watch-latest.txt" <<'EOF'
 generated_at=2026-08-24T10:08:00+00:00
@@ -139,7 +144,6 @@ cat > "${state_dir}/proton-mount.log" <<'EOF'
 2026/08/24 10:06:30 ERROR : proton drive root link ID 'private-share': 502 POST https://storage.proton.me/storage/blocks 502 Bad Gateway (Code=0, Status=502)
 2026/08/24 10:07:00 ERROR : dial tcp: lookup drive-api.proton.me: temporary failure in name resolution
 EOF
-recent_log_time="$(TZ=UTC date '+%Y/%m/%d %H:%M:%S')"
 printf '%s INFO  : done.txt: vfs cache: upload succeeded try #2\n' \
     "${recent_log_time}" >> "${state_dir}/proton-mount.log"
 printf '%s\n' \
@@ -541,8 +545,10 @@ jq -e '
 ' "${persistent_recent_json}" >/dev/null
 
 expired_log_time="$(TZ=UTC date --date='2 days ago' '+%Y/%m/%d %H:%M:%S')"
-printf 'truncated\000line\n%s ERROR : current.bin: vfs cache: failed to upload try #3\n%s INFO  : old.bin: vfs cache: upload succeeded try #1\n' \
-    "${recent_log_time}" "${expired_log_time}" > "${state_dir}/proton-mount.log"
+future_log_time="$(TZ=UTC date --date='1 minute' '+%Y/%m/%d %H:%M:%S')"
+printf 'truncated\000line\n%s ERROR : current.bin: vfs cache: failed to upload try #3\n%s INFO  : old.bin: vfs cache: upload succeeded try #1\n%s INFO  : future.bin: vfs cache: upload succeeded try #1\n' \
+    "${recent_log_time}" "${expired_log_time}" "${future_log_time}" \
+    > "${state_dir}/proton-mount.log"
 expired_recent_json="${test_root}/expired-recent.json"
 HOME="${test_home}" \
 TZ=UTC \
