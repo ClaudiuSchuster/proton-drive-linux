@@ -44,7 +44,7 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.7.1"
+VERSION = "0.7.2"
 REFRESH_INTERVAL_SECONDS = 2
 REFRESH_INTERVAL_OPTIONS = (1, 2, 5, 10)
 GRAPH_WINDOW_SECONDS = 5 * 60
@@ -184,6 +184,7 @@ GERMAN_TRANSLATIONS = {
     "Metadata cache …": "Metadaten-Cache …",
     "Restart cooldown …": "Neustart-Cooldown …",
     "Reset restart cooldown": "Neustart-Cooldown zurücksetzen",
+    "Reset the active cooldown without changing its configured duration.": "Setzt den aktiven Cooldown zurück, ohne seine konfigurierte Dauer zu ändern.",
     "Refresh metadata …": "Metadaten neu laden …",
     "Safely restart service …": "Dienst sicher neu starten …",
     "Reauthorize Proton account …": "Proton-Konto neu autorisieren …",
@@ -1784,6 +1785,40 @@ class SpeedGraph(Gtk.DrawingArea):
         return False
 
 
+def demo_traffic_rates(elapsed_seconds: float) -> tuple[float, float]:
+    """Return continuous, privacy-safe traffic with realistic variation."""
+
+    elapsed = max(0.0, float(elapsed_seconds))
+
+    def interpolated_jitter(period: float, salt: int) -> float:
+        position = elapsed / period
+        lower = math.floor(position)
+        fraction = position - lower
+
+        def sample(index: int) -> float:
+            mixed = (index * 1_103_515_245 + salt * 2_654_435_761 + 12_345) & 0x7FFFFFFF
+            return mixed / 0x7FFFFFFF - 0.5
+
+        return sample(lower) + (sample(lower + 1) - sample(lower)) * fraction
+
+    upload_dip = max(0.0, 1.0 - abs((elapsed % 137.0) - 82.0) / 11.0)
+    download_burst = max(0.0, 1.0 - abs((elapsed % 89.0) - 26.0) / 10.0)
+    upload = (
+        3_850_000
+        + math.sin(elapsed / 26.0) * 470_000
+        + math.sin(elapsed / 8.1) * 230_000
+        + interpolated_jitter(7.5, 3) * 480_000
+        - upload_dip * 1_250_000
+    )
+    download = (
+        1_250_000
+        + math.sin(elapsed / 19.0 + 1.4) * 300_000
+        + interpolated_jitter(6.0, 11) * 340_000
+        + download_burst * 820_000
+    )
+    return max(0.0, upload), max(0.0, download)
+
+
 class EmptyState(Gtk.Box):
     def __init__(self, icon_name: str, title: str, detail: str) -> None:
         super().__init__(orientation=Gtk.Orientation.VERTICAL, spacing=8)
@@ -3287,6 +3322,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
     def __init__(self, application: Gtk.Application, demo: bool = False) -> None:
         super().__init__(application=application)
         self.demo = demo
+        self.demo_started_at = time.monotonic()
         self.refreshing = False
         self.closed = False
         self.content_fit_source = 0
@@ -3499,11 +3535,6 @@ class PDriveWindow(Gtk.ApplicationWindow):
             ("drive-harddisk-symbolic", "Cache retention …", self.on_cache_retention),
             ("folder-remote-symbolic", "Metadata cache …", self.on_metadata_cache),
             ("alarm-symbolic", "Restart cooldown …", self.on_cooldown),
-            (
-                "edit-clear-all-symbolic",
-                "Reset restart cooldown",
-                self.on_clear_cooldown,
-            ),
             ("view-refresh-symbolic", "Refresh metadata …", self.on_metadata_refresh),
             ("system-reboot-symbolic", "Safely restart service …", self.on_restart),
             ("dialog-password-symbolic", "Reauthorize Proton account …", self.on_reauthorize),
@@ -3662,9 +3693,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         end = time.monotonic()
         for elapsed in range(0, GRAPH_WINDOW_SECONDS + 1, 5):
             observed = end - GRAPH_WINDOW_SECONDS + elapsed
-            phase = elapsed / GRAPH_WINDOW_SECONDS
-            upload = 3_900_000 + math.sin(phase * math.pi * 5) * 620_000
-            download = 1_400_000 + math.cos(phase * math.pi * 4) * 420_000
+            upload, download = demo_traffic_rates(elapsed)
             self.speed_graph.push(upload, observed)
             self.download_graph.push(download, observed)
         self.update_graph_axis(self.speed_graph)
@@ -4301,7 +4330,8 @@ class PDriveWindow(Gtk.ApplicationWindow):
     def load_state(self, include_capacity: bool = False) -> None:
         if self.demo:
             GLib.usleep(120000)
-            GLib.idle_add(self.apply_state, demo_state())
+            elapsed = GRAPH_WINDOW_SECONDS + time.monotonic() - self.demo_started_at
+            GLib.idle_add(self.apply_state, demo_state(elapsed))
             return
         try:
             command = [self.state_command, "--compact"]
@@ -5682,6 +5712,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
 
     def on_cooldown(self, _button: Gtk.Button) -> None:
         dialog = Gtk.Dialog(title=translate("Restart cooldown"), transient_for=self, modal=True)
+        dialog.add_button(translate("Reset restart cooldown"), Gtk.ResponseType.REJECT)
         dialog.add_buttons(
             translate("Cancel"),
             Gtk.ResponseType.CANCEL,
@@ -5711,6 +5742,12 @@ class PDriveWindow(Gtk.ApplicationWindow):
         )
         note.set_line_wrap(True)
         content.pack_start(note, False, False, 0)
+        reset_note = label(
+            "Reset the active cooldown without changing its configured duration.",
+            "section-subtitle",
+        )
+        reset_note.set_line_wrap(True)
+        content.pack_start(reset_note, False, False, 0)
         save_button = dialog.get_widget_for_response(Gtk.ResponseType.OK)
         save_button.set_sensitive(False)
         spinner.connect(
@@ -5723,6 +5760,8 @@ class PDriveWindow(Gtk.ApplicationWindow):
         dialog.destroy()
         if response == Gtk.ResponseType.OK:
             self.run_helper(["pdrive-watch", "--set-cooldown", f"{value}h"], "Restart cooldown")
+        elif response == Gtk.ResponseType.REJECT:
+            self.run_helper(["pdrive-watch", "--clear-cooldown"], "Restart cooldown")
 
     def on_cache_retention(self, _button: Gtk.Button) -> None:
         dialog = Gtk.Dialog(title=translate("Cache retention"), transient_for=self, modal=True)
@@ -5770,9 +5809,6 @@ class PDriveWindow(Gtk.ApplicationWindow):
         dialog.destroy()
         if response == Gtk.ResponseType.OK:
             self.run_helper(["pdrive-cache-age", str(value)], "Cache retention")
-
-    def on_clear_cooldown(self, _button: Gtk.Button) -> None:
-        self.run_helper(["pdrive-watch", "--clear-cooldown"], "Restart cooldown")
 
     def on_metadata_refresh(self, _button: Gtk.Button) -> None:
         if self.confirm(
@@ -6131,12 +6167,12 @@ class PDriveApplication(Gtk.Application):
             path.unlink()
 
 
-def demo_state() -> dict[str, Any]:
+def demo_state(elapsed_seconds: float = GRAPH_WINDOW_SECONDS) -> dict[str, Any]:
     now = dt.datetime.now().astimezone().isoformat(timespec="seconds")
-    phase = (dt.datetime.now().timestamp() % 20) / 20
+    phase = (elapsed_seconds % 20) / 20
     size = 24_923_023_360
     done = int(size * (0.38 + phase * 0.12))
-    speed = 4_404_019 + math.sin(phase * math.pi * 2) * 380_000
+    speed, download_speed = demo_traffic_rates(elapsed_seconds)
     active = {
         "name": "Projects/Linux Mint VM/disks/system.qcow2",
         "size": size,
@@ -6260,7 +6296,7 @@ def demo_state() -> dict[str, Any]:
             "available": True,
             "connections": 2,
             "send_speed": speed,
-            "receive_speed": 1_835_008,
+            "receive_speed": download_speed,
         },
         "network": {"dns": "ok", "tcp": "established"},
         "stats": {"speed": speed},
