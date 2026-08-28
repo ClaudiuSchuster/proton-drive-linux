@@ -259,6 +259,43 @@ assert window.documentation_window is None
 assert window.problem_card.get_tooltip_text() == "Review issue details"
 assert window.mark_issues_reviewed_button.get_label() == "Mark issues reviewed"
 
+recovering_event = {
+    "timestamp": "2026-08-24T10:06:30+00:00",
+    "level": "notice",
+    "category": "http-5xx",
+    "title": "Upload retry is progressing",
+    "subject": "demo/file.iso",
+    "message": "502 POST <Proton API URL> 502 Bad Gateway",
+    "guidance": "No action is required while the same upload continues to make progress.",
+    "first_seen": "2026-08-24T10:00:00+00:00",
+    "occurrences": 3,
+    "lifecycle": "recovering",
+}
+recovering_row = window.issue_row(recovering_event)
+recovering_images = [
+    widget
+    for widget in descendants(recovering_row)
+    if isinstance(widget, module.Gtk.Image)
+]
+assert recovering_images[0].get_icon_name()[0] == "emblem-synchronizing-symbolic"
+recovering_labels = [
+    widget.get_text()
+    for widget in descendants(recovering_row)
+    if isinstance(widget, module.Gtk.Label)
+]
+assert "Upload retry is progressing" in recovering_labels
+assert any(text.startswith("Recent log contains 3 related records") for text in recovering_labels)
+module.CURRENT_LANGUAGE = "de"
+recovering_row_de = window.issue_row(recovering_event)
+recovering_labels_de = [
+    widget.get_text()
+    for widget in descendants(recovering_row_de)
+    if isinstance(widget, module.Gtk.Label)
+]
+assert "Upload-Wiederholungsversuch macht Fortschritt" in recovering_labels_de
+assert any(text.startswith("Aktuelles Protokoll enthält 3") for text in recovering_labels_de)
+module.CURRENT_LANGUAGE = "en"
+
 window.apply_state(module.demo_state())
 window.apply_state(module.demo_state())
 window.apply_state(module.demo_state())

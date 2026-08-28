@@ -117,6 +117,7 @@ cat > "${state_dir}/pdrive-auth-state.json" <<'EOF'
 }
 EOF
 cat > "${state_dir}/proton-mount.log" <<'EOF'
+2026/08/24 09:54:00 ERROR : Failed to create file system for "proton:": couldn't initialize a new proton drive instance: 503 POST https://drive-api.proton.me/auth 503 Service Unavailable (Code=0, Status=503)
 2026/08/24 09:57:58 ERROR : rc: "vfs/queue": error: no VFS active and "fs" parameter not supplied
 2026/08/24 09:58:00 NOTICE: proton drive root link ID 'private-share': 422 POST https://drive-api.proton.me/drive/shares/private-share/files?token=private: A file already exists
 2026/08/24 09:58:00 ERROR : Projects/demo.qcow2: a draft exist - usually this means a failed upload attempt
@@ -126,9 +127,11 @@ cat > "${state_dir}/proton-mount.log" <<'EOF'
 2026/08/24 10:03:00 ERROR : Projects/demo.qcow2: vfs cache: failed to upload try #5, will retry in 5m0s
 2026/08/24 09:55:00 ERROR : unrelated backend failure
 2026/08/24 10:05:00 NOTICE: Bandwidth limit set to {235.520Ki off}
+2026/08/24 10:05:01 NOTICE: Bandwidth limit reset to unlimited
 2026/08/24 10:06:00 ERROR : demo/file.iso: vfs cache: failed to upload try #2, will retry in 5m0s
 2026/08/24 10:06:10 ERROR : Another/file.bin: a draft exist - usually this means a failed upload attempt
 2026/08/24 10:06:11 ERROR : Another/file.bin: vfs cache: failed to upload try #3, will retry in 5m0s
+2026/08/24 10:06:30 ERROR : proton drive root link ID 'private-share': 502 POST https://storage.proton.me/storage/blocks 502 Bad Gateway (Code=0, Status=502)
 2026/08/24 10:07:00 ERROR : dial tcp: lookup drive-api.proton.me: temporary failure in name resolution
 EOF
 printf '%s\n' \
@@ -202,37 +205,52 @@ jq -e '
     and .draft_recovery.bridge_unwedge_restart_attempts == 1
     and .draft_recovery.bridge_failure_cycles == 3
     and .issues.available == true
-    and (.issues.events | length) == 5
+    and (.issues.events | length) == 7
     and .issues.events[0].category == "dns"
     and .issues.events[0].lifecycle == "resolved"
     and .issues.events[0].title == "Network resolution recovered"
-    and .issues.events[1].subject == "Another/file.bin"
-    and .issues.events[1].category == "draft-conflict"
-    and .issues.events[1].lifecycle == "active"
-    and .issues.events[1].raw_events == 2
-    and .issues.events[2].category == "upload-retry"
-    and .issues.events[2].lifecycle == "recovering"
-    and .issues.events[3].category == "draft-conflict"
+    and .issues.events[1].subject == "proton drive root link ID '\''<redacted>'\''"
+    and .issues.events[1].category == "http-5xx"
+    and .issues.events[1].level == "notice"
+    and .issues.events[1].lifecycle == "recovering"
+    and .issues.events[1].title == "Upload retry is progressing"
+    and .issues.events[2].subject == "Another/file.bin"
+    and .issues.events[2].category == "draft-conflict"
+    and .issues.events[2].lifecycle == "active"
+    and .issues.events[2].raw_events == 2
+    and .issues.events[3].category == "upload-retry"
     and .issues.events[3].level == "notice"
-    and .issues.events[3].lifecycle == "resolved"
-    and .issues.events[3].title == "Upload recovered automatically"
-    and .issues.events[3].resolved_at == "2026-08-24T10:04:00+00:00"
-    and .issues.events[3].occurrences == 2
-    and .issues.events[3].raw_events == 6
-    and .issues.events[4].message == "unrelated backend failure"
-    and .issues.events[4].lifecycle == "active"
+    and .issues.events[3].lifecycle == "recovering"
+    and .issues.events[3].title == "Upload retry is progressing"
+    and .issues.events[4].category == "draft-conflict"
+    and .issues.events[4].level == "notice"
+    and .issues.events[4].lifecycle == "resolved"
+    and .issues.events[4].title == "Upload recovered automatically"
+    and .issues.events[4].resolved_at == "2026-08-24T10:04:00+00:00"
+    and .issues.events[4].occurrences == 2
+    and .issues.events[4].raw_events == 6
+    and .issues.events[5].message == "unrelated backend failure"
+    and .issues.events[5].lifecycle == "active"
+    and .issues.events[6].category == "http-5xx"
+    and .issues.events[6].level == "notice"
+    and .issues.events[6].lifecycle == "resolved"
+    and .issues.events[6].title == "Proton service recovered"
+    and .issues.events[6].resolved_at == "2026-08-24T10:08:45+00:00"
     and .issues.events[0].last_seen > .issues.events[1].last_seen
     and .issues.events[1].last_seen > .issues.events[2].last_seen
     and .issues.events[2].last_seen > .issues.events[3].last_seen
     and .issues.events[3].last_seen > .issues.events[4].last_seen
-    and .issues.raw_events == 12
-    and .issues.errors == 3
-    and .issues.notices == 0
+    and .issues.events[4].last_seen > .issues.events[5].last_seen
+    and .issues.events[5].last_seen > .issues.events[6].last_seen
+    and .issues.raw_events == 14
+    and .issues.errors == 2
+    and .issues.notices == 2
     and .issues.active == 2
-    and .issues.recovering == 1
-    and .issues.resolved == 2
-    and (.issues.events[3].subject | contains("private-share") | not)
-    and (.issues.events[3].message | contains("private-share") | not)
+    and .issues.recovering == 2
+    and .issues.resolved == 3
+    and (.issues.events[1].subject | contains("private-share") | not)
+    and (.issues.events[4].subject | contains("private-share") | not)
+    and (.issues.events[4].message | contains("private-share") | not)
     and .history[0].vfs_queue == 1
 ' "${state_json}" >/dev/null
 
