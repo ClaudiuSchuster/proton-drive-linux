@@ -22,6 +22,9 @@ from typing import Any
 
 SCHEMA_VERSION = 1
 TOOL_VERSION = "0.7.0"
+RECENT_TRANSFER_WINDOW_SECONDS = 24 * 60 * 60
+RECENT_TRANSFER_LIMIT = 24
+MOUNT_LOG_TAIL_BYTES = 512 * 1024
 
 
 def env_path(name: str, default: pathlib.Path) -> pathlib.Path:
@@ -354,7 +357,7 @@ def normalize_transfer(
         percentage = min(100.0, done * 100.0 / size)
     speed = number(item.get("speed") or item.get("speedAvg"))
     error = str(item.get("error") or "")
-    return {
+    normalized = {
         "name": transfer_name(item),
         "size": size,
         "bytes": done,
@@ -369,6 +372,103 @@ def normalize_transfer(
         "group": str(item.get("group") or ""),
         "direction": transfer_direction(item, proton_source),
     }
+    if completed:
+        normalized["history_source"] = "rclone"
+    return normalized
+
+
+def completed_transfer_epoch(value: Any) -> int:
+    try:
+        parsed = dt.datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+    except (TypeError, ValueError):
+        return -1
+    if parsed.tzinfo is None:
+        parsed = parsed.astimezone()
+    return int(parsed.timestamp())
+
+
+def recent_vfs_uploads(log_lines: list[str], now_epoch: int) -> list[dict[str, Any]]:
+    """Return successful VFS uploads retained in the bounded mount-log tail."""
+
+    pattern = re.compile(
+        r"^(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})\s+INFO\s*:\s*"
+        r"(.+):\s+vfs cache: upload succeeded try #\d+(?:\s|$)"
+    )
+    uploads: list[dict[str, Any]] = []
+    seen: set[tuple[str, int]] = set()
+    for raw_line in log_lines:
+        match = pattern.match(raw_line)
+        if match is None:
+            continue
+        try:
+            completed = dt.datetime.strptime(
+                f"{match.group(1)} {match.group(2)}",
+                "%Y/%m/%d %H:%M:%S",
+            ).astimezone()
+        except ValueError:
+            continue
+        completed_epoch = int(completed.timestamp())
+        age_seconds = now_epoch - completed_epoch
+        if age_seconds < 0 or age_seconds > RECENT_TRANSFER_WINDOW_SECONDS:
+            continue
+        name = match.group(3).strip()
+        if not name or (name, completed_epoch) in seen:
+            continue
+        seen.add((name, completed_epoch))
+        uploads.append(
+            {
+                "name": name,
+                "size": 0,
+                "bytes": 0,
+                "percentage": 100.0,
+                "speed": 0.0,
+                "eta_seconds": -1,
+                "started_at": "",
+                "completed_at": completed.isoformat(timespec="seconds"),
+                "checked": False,
+                "completed": True,
+                "error": "",
+                "group": "",
+                "direction": "upload",
+                "history_source": "mount-log",
+            }
+        )
+    return uploads
+
+
+def merge_recent_transfers(
+    transferred: list[Any],
+    log_lines: list[str],
+    proton_source: Any,
+    now_epoch: int,
+) -> list[dict[str, Any]]:
+    """Merge current-process transfers with reboot-persistent upload evidence."""
+
+    live: list[dict[str, Any]] = []
+    for raw in transferred:
+        if not isinstance(raw, dict):
+            continue
+        item = normalize_transfer(raw, completed=True, proton_source=proton_source)
+        completed_epoch = completed_transfer_epoch(item.get("completed_at"))
+        if completed_epoch >= 0:
+            age_seconds = now_epoch - completed_epoch
+            if age_seconds < 0 or age_seconds > RECENT_TRANSFER_WINDOW_SECONDS:
+                continue
+        live.append(item)
+
+    merged = list(live)
+    for upload in recent_vfs_uploads(log_lines, now_epoch):
+        upload_epoch = completed_transfer_epoch(upload.get("completed_at"))
+        duplicate = any(
+            str(item.get("name") or "") == str(upload.get("name") or "")
+            and abs(completed_transfer_epoch(item.get("completed_at")) - upload_epoch) <= 10
+            for item in live
+        )
+        if not duplicate:
+            merged.append(upload)
+
+    merged.sort(key=lambda item: completed_transfer_epoch(item.get("completed_at")))
+    return merged[-RECENT_TRANSFER_LIMIT:]
 
 
 def normalize_queue(payload: dict[str, Any] | None) -> dict[str, Any]:
@@ -828,8 +928,8 @@ def enrich_issue_lifecycles(
     return enriched
 
 
-def recent_issues(limit: int = 200, maximum_bytes: int = 512 * 1024) -> dict[str, Any]:
-    """Return recent sanitized ERROR/NOTICE/CRITICAL events without remote I/O."""
+def recent_mount_log(maximum_bytes: int = MOUNT_LOG_TAIL_BYTES) -> dict[str, Any]:
+    """Read one bounded tail shared by transfer and issue aggregation."""
 
     try:
         with MOUNT_LOG.open("rb") as stream:
@@ -839,12 +939,31 @@ def recent_issues(limit: int = 200, maximum_bytes: int = 512 * 1024) -> dict[str
             stream.seek(start)
             payload = stream.read(maximum_bytes)
     except OSError as error:
-        return {"available": False, "events": [], "error": str(error)[:300]}
+        return {"available": False, "lines": [], "error": str(error)[:300]}
     if start:
         _discarded, _separator, payload = payload.partition(b"\n")
+    return {
+        "available": True,
+        "lines": payload.decode("utf-8", errors="replace").replace("\x00", "").splitlines(),
+        "error": "",
+    }
+
+
+def recent_issues(log: dict[str, Any] | None = None, limit: int = 200) -> dict[str, Any]:
+    """Return recent sanitized ERROR/NOTICE/CRITICAL events without remote I/O."""
+
+    snapshot = log if log is not None else recent_mount_log()
+    if not snapshot.get("available"):
+        return {
+            "available": False,
+            "events": [],
+            "error": str(snapshot.get("error") or "Mount log is unavailable")[:300],
+        }
     events: list[dict[str, Any]] = []
     pattern = re.compile(r"^(\d{4}/\d{2}/\d{2})\s+(\d{2}:\d{2}:\d{2})\s+(NOTICE|ERROR|CRITICAL)\s*:\s*(.*)$")
-    for raw_line in payload.decode("utf-8", errors="replace").replace("\x00", "").splitlines():
+    for raw_line in snapshot.get("lines", []):
+        if not isinstance(raw_line, str):
+            continue
         match = pattern.match(raw_line)
         if match is None:
             continue
@@ -1191,15 +1310,22 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
     # the RC socket is up but the mount has not registered its VFS yet. Avoid
     # manufacturing user-visible issues during this normal startup window.
     rc_payloads, rc_errors = collect_rc(include_vfs=mount["ready"])
+    mount_log = recent_mount_log()
     stats = rc_payloads.get("core/stats", {})
     transferred = rc_payloads.get("core/transferred", {}).get("transferred", [])
     if not isinstance(transferred, list):
         transferred = []
-    recent_transfers = [
+    completed_transfers = [
         normalize_transfer(item, completed=True, proton_source=mount["source"])
-        for item in transferred[-24:]
+        for item in transferred
         if isinstance(item, dict)
     ]
+    recent_transfers = merge_recent_transfers(
+        transferred,
+        mount_log.get("lines", []),
+        mount["source"],
+        now_epoch,
+    )
     active_raw = stats.get("transferring", [])
     if not isinstance(active_raw, list):
         active_raw = []
@@ -1385,6 +1511,7 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
         "transfers": {
             "active": active,
             "recent": recent_transfers,
+            "recent_window_seconds": RECENT_TRANSFER_WINDOW_SECONDS,
         },
         "queue": queue,
         "vfs": {
@@ -1419,9 +1546,9 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
             "cooldown_seconds": latest["cooldown_seconds"],
         },
         "issues": enrich_issue_lifecycles(
-            recent_issues(),
+            recent_issues(mount_log),
             queue,
-            recent_transfers,
+            completed_transfers + [item for item in recent_transfers if item.get("history_source") == "mount-log"],
             active,
             latest,
             authentication,
