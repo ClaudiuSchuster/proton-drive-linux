@@ -21,7 +21,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
-TOOL_VERSION = "0.7.3"
+TOOL_VERSION = "0.7.4"
 RECENT_TRANSFER_WINDOW_SECONDS = 24 * 60 * 60
 RECENT_TRANSFER_LIMIT = 24
 MOUNT_LOG_TAIL_BYTES = 512 * 1024
@@ -847,7 +847,6 @@ def enrich_issue_lifecycles(
     service: dict[str, Any],
     mount: dict[str, Any],
     rc_errors: dict[str, str],
-    runtime_observed_at: str,
 ) -> dict[str, Any]:
     """Resolve log incidents only when current runtime evidence proves recovery."""
 
@@ -897,7 +896,7 @@ def enrich_issue_lifecycles(
             event["guidance"] = "No further action is required while the mount remains ready."
         elif category == "session-refresh" and runtime_ready:
             lifecycle = "resolved"
-            resolved_at = runtime_observed_at
+            resolved_at = str(event.get("last_seen") or event.get("timestamp") or "")
             resolution = "The authenticated mount and its local control channel are healthy after the rejected refresh."
             event["level"] = "notice"
             event["title"] = "Proton session refresh recovered"
@@ -1592,7 +1591,6 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
             service,
             mount,
             rc_errors,
-            now.isoformat(timespec="seconds"),
         ),
         "watchdog": latest,
         "draft_recovery": draft_recovery,

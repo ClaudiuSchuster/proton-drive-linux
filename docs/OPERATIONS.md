@@ -253,8 +253,10 @@ file-operation incidents and does not remain unreviewed after current runtime
 checks prove authentication, mount and RC health. Routine bandwidth-control
 notices do not enter issue review.
 Automatically resolved incidents remain visible as a single informational
-recovery record. An old message or a path merely disappearing from the queue is
-never enough to declare success.
+recovery record. A recovered root-level session refresh keeps its displayed time
+anchored to the final related 401 log event instead of changing with each status
+poll. An old message or a path merely disappearing from the queue is never enough
+to declare success.
 
 Each retained incident shows its local timestamp, severity, category, affected
 path or component, sanitized rclone context and a suggested next step. Its
