@@ -396,9 +396,12 @@ reuse an already consumed stream, so blindly repeating the operation is unsafe.
 The upstream correction is tracked in
 [rclone #9722](https://github.com/rclone/rclone/issues/9722). New toolkit
 installations use a pinned, checksum-verified PDrive rclone build based on the
-fixed beta. Its source also pins the API bridge worker-drain correction and adds
-the file-data-only limiter. The bridge correction is proposed upstream in
+fixed beta. Its source also pins the API bridge worker-drain correction, retries
+only transiently failed encrypted blocks within the current batch and adds the
+file-data-only limiter. The bridge correction is proposed upstream in
 [Proton-API-Bridge #8](https://github.com/rclone/Proton-API-Bridge/pull/8), while
+the dependent retry is tracked in
+[PDrive #42](https://github.com/oss-singularity/proton-drive-linux/issues/42) and
 the limiter's measurements and proposed backend contract are tracked in
 [rclone #9832](https://github.com/rclone/rclone/issues/9832). The weekly updater
 keeps this reviewed build until PDrive publishes a replacement instead of

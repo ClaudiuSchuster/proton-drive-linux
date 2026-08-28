@@ -841,15 +841,17 @@ systemctl --user status rclone-selfupdate.timer proton-drive-update.timer
 The rclone timer runs ten minutes after boot when due and every Sunday at 04:00,
 with up to two hours of randomized delay. `Persistent=true` catches up after the
 computer was off. New installations currently download the pinned
-`pdrive-v1.76.0-beta.10204.1` x86-64 asset from the public OSS Singularity
+`pdrive-v1.76.0-beta.10204.2` x86-64 asset from the public OSS Singularity
 rclone release. `pdrive-prerequisites` verifies the embedded SHA-256 digest,
 minimum upload-safe version and required Proton backend command before atomic
 installation. The updater invokes that same verifier and does not follow
 rclone's official stable channel, because an otherwise newer binary may lack
-PDrive's source-reviewed file-data limiter and bridge-worker fix. Their upstream
-review is tracked independently in
+PDrive's source-reviewed file-data limiter, bridge-worker fix and bounded
+failed-block retry. Their upstream review and dependency order are tracked in
 [rclone #9832](https://github.com/rclone/rclone/issues/9832) and
-[Proton-API-Bridge #8](https://github.com/rclone/Proton-API-Bridge/pull/8).
+[Proton-API-Bridge #8](https://github.com/rclone/Proton-API-Bridge/pull/8), with
+the retry follow-up recorded in
+[PDrive #42](https://github.com/oss-singularity/proton-drive-linux/issues/42).
 A newly installed binary is intentionally left for the next natural mount
 start; the updater never restarts an active transfer.
 

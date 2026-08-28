@@ -7,9 +7,9 @@ umask 077
 readonly target_rclone="${PDRIVE_REAL_RCLONE:-${HOME}/.local/libexec/rclone-bin}"
 readonly minimum_safe_rclone='v1.76.0'
 readonly minimum_safe_beta_build=10204
-readonly pdrive_rclone_release='pdrive-v1.76.0-beta.10204.1'
+readonly pdrive_rclone_release='pdrive-v1.76.0-beta.10204.2'
 readonly pdrive_rclone_url="${PDRIVE_RCLONE_URL:-https://github.com/oss-singularity/rclone/releases/download/${pdrive_rclone_release}/rclone-pdrive-linux-amd64}"
-readonly pdrive_rclone_sha256="${PDRIVE_RCLONE_SHA256:-77a1abfddd9b9badcdae866319ace9575db680486704d79d8d4f9c8b04c6c41e}"
+readonly pdrive_rclone_sha256="${PDRIVE_RCLONE_SHA256:-85da18d19fd5e4a0969ed0fcc1ec43d00a90dfa7a06ce5483fd681c619db390d}"
 readonly curl_bin="${PDRIVE_CURL_BIN:-$(command -v curl || true)}"
 
 usage() {
