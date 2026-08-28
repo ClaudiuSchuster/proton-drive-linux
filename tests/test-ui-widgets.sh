@@ -829,6 +829,22 @@ app.update_indicator(window.current_state, 0)
 assert app.status_icon is None or "0 B/s" in app.status_icon.get_tooltip_text()
 assert len(window.issue_list.get_children()) == 5
 assert not window.mark_issues_reviewed_button.get_sensitive()
+window.demo = False
+app.preferences["issues_reviewed_at"] = (
+    module.dt.datetime.now().astimezone() - module.dt.timedelta(minutes=5)
+).isoformat(timespec="seconds")
+window.update_issue_card(window.current_state["issues"])
+window.update_issues(window.current_state["issues"])
+assert window.mark_issues_reviewed_button.get_sensitive()
+assert len(window.issue_list.get_children()) == 1
+assert "1 recent recovery record" in window.issue_summary.get_text()
+app.preferences["issues_reviewed_at"] = window.current_state["generated_at"]
+window.update_issue_card(window.current_state["issues"])
+window.update_issues(window.current_state["issues"])
+assert not window.mark_issues_reviewed_button.get_sensitive()
+assert len(window.issue_list.get_children()) == 1
+assert window.issue_summary.get_text() == "There are no new rclone errors or notices since your last review."
+window.demo = True
 assert isinstance(window.problem_card, module.Gtk.EventBox)
 assert window.problem_card.get_above_child()
 problem_frame_context = window.problem_card.frame.get_style_context()

@@ -164,7 +164,8 @@ issue_events = [
     {"timestamp": "2026-08-24T13:00:00+02:00", "level": "error", "message": "new error"},
     {"timestamp": "2026-08-24T13:15:00+02:00", "level": "notice", "message": "new notice"},
     {
-        "timestamp": "2026-08-24T13:30:00+02:00",
+        "timestamp": "2026-08-24T11:45:00+02:00",
+        "resolved_at": "2026-08-24T13:30:00+02:00",
         "level": "notice",
         "lifecycle": "resolved",
         "message": "automatic recovery",
@@ -180,6 +181,9 @@ selected, missing = module.unreviewed_issue_events(
 assert [event["message"] for event in selected] == ["new error", "new notice"]
 assert missing == 0
 assert [event["message"] for event in module.resolved_events(issue_payload)] == ["automatic recovery"]
+assert [event["message"] for event in module.unreviewed_recovery_events(reviewed, issue_payload)] == [
+    "automatic recovery"
+]
 selected, missing = module.unreviewed_issue_events(
     reviewed,
     {"available": True, "events": issue_events[3:4]},
@@ -368,6 +372,7 @@ reviewed_again = module.load_preferences()
 assert reviewed_again["issues_reviewed_errors"] == 2
 assert reviewed_again["issues_reviewed_notices"] == 1
 assert reviewed_again["issues_reviewed_at"] == "2026-08-24T13:30:00+02:00"
+assert module.unreviewed_recovery_events(reviewed_again, issue_payload) == []
 
 module.PDriveApplication.sync_autostart(False)
 assert not autostart.exists()

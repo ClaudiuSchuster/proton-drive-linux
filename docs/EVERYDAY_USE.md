@@ -96,8 +96,10 @@ the default Important policy.
 
 Select **Unreviewed issues** to inspect timestamps, severity, sanitized context,
 affected paths and suggested next steps. Opening the list does not acknowledge
-anything; mark it reviewed only after reading the evidence. Automatically
-recovered incidents remain visible as resolved context.
+anything; mark it reviewed only after reading the evidence. The button is also
+available when only informational recovery records are waiting. Marking them
+reviewed removes them from this list while their history and log evidence remain
+available.
 
 ## Before shutdown, update or uninstall
 
