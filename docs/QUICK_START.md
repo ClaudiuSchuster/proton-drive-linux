@@ -65,7 +65,8 @@ not belong to the mount.
 1. Copy one small test file into `/pdrive` with Nemo.
 2. Open **Transfers** and watch the file move through Active and Queue.
 3. Wait until Active is zero, Queue is empty and the file appears under
-   **Recently completed** with **Upload** and **Completed** badges.
+   **Recently completed** with **Upload** and **Completed** badges. Successful
+   uploads remain visible there for up to 24 hours across a normal restart.
 4. For important data, also verify the file in the official Proton Drive web
    client.
 

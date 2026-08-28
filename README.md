@@ -22,8 +22,8 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/pdrive-control-center.png" width="100%"
-       alt="PDrive Control Center showing service health, transfer activity and storage capacity">
+  <img src="docs/assets/pdrive-control-center.png?v=0.7.2" width="100%"
+       alt="PDrive Control Center showing service health, realistic five-minute traffic graphs and storage capacity">
 </p>
 
 <p align="center"><sub>Proton Drive at a glance, framed by <a href="https://github.com/oss-singularity/cinnamon-active-window-highlight">Active Window Highlight</a>.</sub></p>
@@ -40,8 +40,8 @@
 </table>
 
 <p align="center">
-  <img src="docs/assets/pdrive-control-menu.png" width="287"
-       alt="PDrive Control Center menu with service actions, documentation and preferences">
+  <img src="docs/assets/pdrive-control-menu.png?v=0.7.3" width="282"
+       alt="Healthy-state PDrive Control Center menu with transfer, cache, recovery and documentation actions">
 </p>
 
 Use Proton Drive directly in Nemo at `/pdrive`. The toolkit starts the mount
@@ -139,12 +139,17 @@ git pull --ff-only
 
 PDrive installs a pinned, checksum-verified rclone build published from its
 public source fork. It contains the upstream fix for
-[rclone #9722](https://github.com/rclone/rclone/issues/9722), a source-pinned API
-bridge fix and a Proton file-data limiter that leaves metadata browsing outside
-bulk transfer limits. The weekly updater stays on that reviewed PDrive build
-until this project publishes a replacement and never restarts an active mount.
-The optional official Proton Drive CLI is a separate client and is not required
-by this project.
+[rclone #9722](https://github.com/rclone/rclone/issues/9722), the API bridge
+worker fix proposed in
+[Proton-API-Bridge #8](https://github.com/rclone/Proton-API-Bridge/pull/8), a
+bounded retry of only transiently failed encrypted blocks tracked in
+[PDrive #42](https://github.com/oss-singularity/proton-drive-linux/issues/42),
+and the Proton file-data limiter tracked in
+[rclone #9832](https://github.com/rclone/rclone/issues/9832). The limiter leaves
+metadata browsing outside bulk transfer limits. The weekly updater stays on
+that reviewed PDrive build until this project publishes a replacement and never
+restarts an active mount. The optional official Proton Drive CLI is a separate
+client and is not required by this project.
 
 ## Uninstall
 

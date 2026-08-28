@@ -293,13 +293,17 @@ have been independently verified. Prefer a controlled systemd stop; avoid
 When Proton explicitly requires fresh 2FA, PDrive records a terminal
 authentication state, cancels the pending systemd restart and sends one desktop
 notification. Open PDrive Control Center and select **Reauthorize** in the
-Overview banner or **hamburger menu → Reauthorize Proton account**. The native
+Overview banner or the then-visible **hamburger menu → Reauthorize Proton
+account …**. The native
 dialog reuses the configured account name and requests only the current account
 password plus an optional fresh six-digit code.
 
-Use local diagnostics first for a generic 401. If the stored session truly
-cannot refresh, the account password changed or the graphical Control Center is
-unavailable, use the terminal fallback:
+Use local diagnostics first for a generic 401. A rejected root-level session
+refresh is kept separate from older file-operation incidents; when the current
+authenticated mount and local RC channel are healthy, it is recorded as
+recovered rather than presented as an unreviewed problem. If the stored session
+truly cannot refresh, the account password changed or the graphical Control
+Center is unavailable, use the terminal fallback:
 
 ```bash
 pdrive-reauth --reauth
@@ -396,10 +400,16 @@ reuse an already consumed stream, so blindly repeating the operation is unsafe.
 The upstream correction is tracked in
 [rclone #9722](https://github.com/rclone/rclone/issues/9722). New toolkit
 installations use a pinned, checksum-verified PDrive rclone build based on the
-fixed beta. Its source also pins the API bridge worker-drain correction and adds
-the file-data-only limiter. The weekly updater keeps this reviewed build until
-PDrive publishes a replacement instead of replacing it with an incompatible
-official binary.
+fixed beta. Its source also pins the API bridge worker-drain correction, retries
+only transiently failed encrypted blocks within the current batch and adds the
+file-data-only limiter. The bridge correction is proposed upstream in
+[Proton-API-Bridge #8](https://github.com/rclone/Proton-API-Bridge/pull/8), while
+the dependent retry is tracked in
+[PDrive #42](https://github.com/oss-singularity/proton-drive-linux/issues/42) and
+the limiter's measurements and proposed backend contract are tracked in
+[rclone #9832](https://github.com/rclone/rclone/issues/9832). The weekly updater
+keeps this reviewed build until PDrive publishes a replacement instead of
+replacing it with an incompatible official binary.
 
 The guarded helper does not treat an ordinary 100% transfer as stalled. It
 requires a terminal backend error in the completion window, a fixed rclone,

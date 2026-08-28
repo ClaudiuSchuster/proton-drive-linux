@@ -65,7 +65,11 @@ printf '%s\n' \
     '    else' \
     '      printf "%s\\n" '\''{"bytes":1048576,"speed":524288,"errors":0,"transferring":[{"name":"demo/file.iso","size":2097152,"bytes":1048576,"speed":524288,"eta":2}]} '\''' \
     '    fi ;;' \
-    '  core/transferred) printf "%s\\n" '\''{"transferred":[{"name":"done.txt","size":12,"bytes":12,"completedAt":"2026-08-24T10:00:00+00:00","srcFs":"/tmp/vfs/proton-test","dstFs":"proton-test:"},{"name":"Projects/demo.qcow2","size":1048576,"bytes":1048576,"completedAt":"2026-08-24T10:04:00+00:00","srcFs":"proton-test:","dstFs":"/tmp/vfs/proton-test"},{"name":"missing-direction.txt","size":24,"bytes":24,"completedAt":"2026-08-24T10:05:00+00:00"},{"name":"ambiguous-direction.txt","size":48,"bytes":48,"completedAt":"2026-08-24T10:06:00+00:00","srcFs":"proton-test:source","dstFs":"proton-test:destination"}]} '\'' ;;' \
+    '  core/transferred)' \
+    '    if [[ "${PDRIVE_TEST_NO_TRANSFERRED:-}" == 1 ]]; then printf "%s\\n" '\''{"transferred":[]}'\''; else' \
+    '      recent_time="${PDRIVE_TEST_RECENT_TIME:?PDRIVE_TEST_RECENT_TIME is required}"' \
+    '      printf '\''{"transferred":[{"name":"done.txt","size":12,"bytes":12,"completedAt":"%s","srcFs":"/tmp/vfs/proton-test","dstFs":"proton-test:"},{"name":"Projects/demo.qcow2","size":1048576,"bytes":1048576,"completedAt":"%s","srcFs":"proton-test:","dstFs":"/tmp/vfs/proton-test"},{"name":"missing-direction.txt","size":24,"bytes":24,"completedAt":"%s"},{"name":"ambiguous-direction.txt","size":48,"bytes":48,"completedAt":"%s","srcFs":"proton-test:source","dstFs":"proton-test:destination"}]}\n'\'' "${recent_time}" "${recent_time}" "${recent_time}" "${recent_time}"' \
+    '    fi ;;' \
     '  vfs/queue) printf "%s\\n" '\''{"queue":[{"name":"demo/file.iso","size":2097152,"tries":2,"uploading":true}]} '\'' ;;' \
     '  vfs/stats) printf "%s\\n" '\''{"diskCache":{"bytesUsed":3145728,"files":2,"uploadsQueued":1,"uploadsInProgress":1,"erroredFiles":0,"outOfSpace":false},"opt":{"CacheMaxAge":86400000000000}}'\'' ;;' \
     '  backend/command) printf "%s\\n" '\''{"result":{"upload":"4M","download":"2M","uploadBytesPerSecond":4194304,"downloadBytesPerSecond":2097152}}'\'' ;;' \
@@ -74,6 +78,11 @@ printf '%s\n' \
 chmod 0755 "${fake_bin}/systemctl" "${fake_bin}/ss" \
     "${fake_bin}/findmnt" "${fake_bin}/rclone-bin"
 touch "${state_dir}/pdrive-rc.sock"
+
+recent_epoch="$(TZ=UTC date '+%s')"
+recent_log_time="$(TZ=UTC date --date="@${recent_epoch}" '+%Y/%m/%d %H:%M:%S')"
+recent_rc_time="$(TZ=UTC date --date="@${recent_epoch}" --iso-8601=seconds)"
+export PDRIVE_TEST_RECENT_TIME="${recent_rc_time}"
 
 cat > "${state_dir}/pdrive-watch-latest.txt" <<'EOF'
 generated_at=2026-08-24T10:08:00+00:00
@@ -117,6 +126,7 @@ cat > "${state_dir}/pdrive-auth-state.json" <<'EOF'
 }
 EOF
 cat > "${state_dir}/proton-mount.log" <<'EOF'
+2026/08/24 09:54:00 ERROR : Failed to create file system for "proton:": couldn't initialize a new proton drive instance: 503 POST https://drive-api.proton.me/auth 503 Service Unavailable (Code=0, Status=503)
 2026/08/24 09:57:58 ERROR : rc: "vfs/queue": error: no VFS active and "fs" parameter not supplied
 2026/08/24 09:58:00 NOTICE: proton drive root link ID 'private-share': 422 POST https://drive-api.proton.me/drive/shares/private-share/files?token=private: A file already exists
 2026/08/24 09:58:00 ERROR : Projects/demo.qcow2: a draft exist - usually this means a failed upload attempt
@@ -126,11 +136,16 @@ cat > "${state_dir}/proton-mount.log" <<'EOF'
 2026/08/24 10:03:00 ERROR : Projects/demo.qcow2: vfs cache: failed to upload try #5, will retry in 5m0s
 2026/08/24 09:55:00 ERROR : unrelated backend failure
 2026/08/24 10:05:00 NOTICE: Bandwidth limit set to {235.520Ki off}
+2026/08/24 10:05:01 NOTICE: Bandwidth limit reset to unlimited
+2026/08/24 10:05:30 ERROR : Proton events: 503 POST https://drive-api.proton.me/drive/events 503 Service Unavailable (Code=0, Status=503)
 2026/08/24 10:06:00 ERROR : demo/file.iso: vfs cache: failed to upload try #2, will retry in 5m0s
 2026/08/24 10:06:10 ERROR : Another/file.bin: a draft exist - usually this means a failed upload attempt
 2026/08/24 10:06:11 ERROR : Another/file.bin: vfs cache: failed to upload try #3, will retry in 5m0s
+2026/08/24 10:06:30 ERROR : proton drive root link ID 'private-share': 502 POST https://storage.proton.me/storage/blocks 502 Bad Gateway (Code=0, Status=502)
 2026/08/24 10:07:00 ERROR : dial tcp: lookup drive-api.proton.me: temporary failure in name resolution
 EOF
+printf '%s INFO  : done.txt: vfs cache: upload succeeded try #2\n' \
+    "${recent_log_time}" >> "${state_dir}/proton-mount.log"
 printf '%s\n' \
     '2026-08-24T10:00:00+00:00 status=ready reason=mounted service=active/running pid=4242 mount=ready dns=ok tcp=established progress=yes success=1 queued=1 errors=7 notices=3 vfs_queue=1 vfs_queue_bytes=2097152 vfs_uploading=1 vfs_failed=0' \
     | tr ' ' '\t' > "${state_dir}/pdrive-watch-history.log"
@@ -173,6 +188,8 @@ jq -e '
     and .transfers.active[0].name == "demo/file.iso"
     and .transfers.active[0].direction == "unknown"
     and ([.transfers.recent[].direction] == ["upload", "download", "unknown", "unknown"])
+    and .transfers.recent_window_seconds == 86400
+    and ([.transfers.recent[].history_source] == ["rclone", "rclone", "rclone", "rclone"])
     and ([.transfers.recent[] | has("srcFs") or has("dstFs")] | any | not)
     and .queue.count == 1
     and .queue.active == 1
@@ -202,39 +219,120 @@ jq -e '
     and .draft_recovery.bridge_unwedge_restart_attempts == 1
     and .draft_recovery.bridge_failure_cycles == 3
     and .issues.available == true
-    and (.issues.events | length) == 5
+    and (.issues.events | length) == 8
     and .issues.events[0].category == "dns"
     and .issues.events[0].lifecycle == "resolved"
     and .issues.events[0].title == "Network resolution recovered"
-    and .issues.events[1].subject == "Another/file.bin"
-    and .issues.events[1].category == "draft-conflict"
-    and .issues.events[1].lifecycle == "active"
-    and .issues.events[1].raw_events == 2
-    and .issues.events[2].category == "upload-retry"
-    and .issues.events[2].lifecycle == "recovering"
-    and .issues.events[3].category == "draft-conflict"
+    and .issues.events[1].subject == "proton drive root link ID '\''<redacted>'\''"
+    and .issues.events[1].category == "http-5xx"
+    and .issues.events[1].level == "notice"
+    and .issues.events[1].lifecycle == "recovering"
+    and .issues.events[1].title == "Upload retry is progressing"
+    and .issues.events[2].subject == "Another/file.bin"
+    and .issues.events[2].category == "draft-conflict"
+    and .issues.events[2].lifecycle == "active"
+    and .issues.events[2].raw_events == 2
+    and .issues.events[3].category == "upload-retry"
     and .issues.events[3].level == "notice"
-    and .issues.events[3].lifecycle == "resolved"
-    and .issues.events[3].title == "Upload recovered automatically"
-    and .issues.events[3].resolved_at == "2026-08-24T10:04:00+00:00"
-    and .issues.events[3].occurrences == 2
-    and .issues.events[3].raw_events == 6
-    and .issues.events[4].message == "unrelated backend failure"
+    and .issues.events[3].lifecycle == "recovering"
+    and .issues.events[3].title == "Upload retry is progressing"
+    and .issues.events[4].category == "http-5xx"
+    and .issues.events[4].subject == "Proton events"
+    and .issues.events[4].level == "error"
     and .issues.events[4].lifecycle == "active"
+    and .issues.events[5].category == "draft-conflict"
+    and .issues.events[5].level == "notice"
+    and .issues.events[5].lifecycle == "resolved"
+    and .issues.events[5].title == "Upload recovered automatically"
+    and .issues.events[5].resolved_at == .transfers.recent[1].completed_at
+    and .issues.events[5].occurrences == 2
+    and .issues.events[5].raw_events == 6
+    and .issues.events[6].message == "unrelated backend failure"
+    and .issues.events[6].lifecycle == "active"
+    and .issues.events[7].category == "http-5xx"
+    and .issues.events[7].level == "notice"
+    and .issues.events[7].lifecycle == "resolved"
+    and .issues.events[7].title == "Proton service recovered"
+    and .issues.events[7].resolved_at == "2026-08-24T10:08:45+00:00"
     and .issues.events[0].last_seen > .issues.events[1].last_seen
     and .issues.events[1].last_seen > .issues.events[2].last_seen
     and .issues.events[2].last_seen > .issues.events[3].last_seen
     and .issues.events[3].last_seen > .issues.events[4].last_seen
-    and .issues.raw_events == 12
+    and .issues.events[4].last_seen > .issues.events[5].last_seen
+    and .issues.events[5].last_seen > .issues.events[6].last_seen
+    and .issues.events[6].last_seen > .issues.events[7].last_seen
+    and .issues.raw_events == 15
     and .issues.errors == 3
-    and .issues.notices == 0
-    and .issues.active == 2
-    and .issues.recovering == 1
-    and .issues.resolved == 2
-    and (.issues.events[3].subject | contains("private-share") | not)
-    and (.issues.events[3].message | contains("private-share") | not)
+    and .issues.notices == 2
+    and .issues.active == 3
+    and .issues.recovering == 2
+    and .issues.resolved == 3
+    and (.issues.events[1].subject | contains("private-share") | not)
+    and (.issues.events[5].subject | contains("private-share") | not)
+    and (.issues.events[5].message | contains("private-share") | not)
     and .history[0].vfs_queue == 1
 ' "${state_json}" >/dev/null
+
+cp -- "${state_dir}/proton-mount.log" "${state_dir}/proton-mount.log.full"
+cat > "${state_dir}/proton-mount.log" <<'EOF'
+2026/08/24 10:06:30 ERROR : proton drive root link ID 'private-share': 502 POST https://storage.proton.me/storage/blocks 502 Bad Gateway (Code=0, Status=502)
+2026/08/24 10:07:00 NOTICE: proton drive root link ID 'private-share': 401 GET https://drive-api.proton.me/drive/shares/private-share?token=private Invalid access token (Code=401, Status=401), Attempt 1
+2026/08/24 10:07:00 ERROR : proton drive root link ID 'private-share': 401 GET https://drive-api.proton.me/drive/shares/private-share?token=private Invalid access token (Code=401, Status=401)
+EOF
+session_refresh_json="${test_root}/session-refresh.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+    "${project_dir}/bin/pdrive-state" --compact > "${session_refresh_json}"
+jq -e '
+    (.issues.events | length) == 2
+    and .issues.events[0].category == "session-refresh"
+    and .issues.events[0].level == "notice"
+    and .issues.events[0].lifecycle == "resolved"
+    and .issues.events[0].title == "Proton session refresh recovered"
+    and .issues.events[0].resolved_at == "2026-08-24T10:07:00+00:00"
+    and .issues.events[0].resolved_at == .issues.events[0].last_seen
+    and .issues.events[0].occurrences == 1
+    and .issues.events[0].raw_events == 2
+    and (.issues.events[0].subject | contains("private-share") | not)
+    and (.issues.events[0].message | contains("private-share") | not)
+    and .issues.events[1].category == "http-5xx"
+    and .issues.events[1].lifecycle == "recovering"
+    and .issues.errors == 0
+    and .issues.notices == 1
+    and .issues.active == 0
+    and .issues.recovering == 1
+    and .issues.resolved == 1
+' "${session_refresh_json}" >/dev/null
+
+session_refresh_unhealthy_json="${test_root}/session-refresh-unhealthy.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+PDRIVE_TEST_NO_MOUNT=1 \
+PDRIVE_TEST_NO_VFS=1 \
+    "${project_dir}/bin/pdrive-state" --compact > "${session_refresh_unhealthy_json}"
+jq -e '
+    .mount.ready == false
+    and .issues.events[0].category == "session-refresh"
+    and .issues.events[0].level == "error"
+    and .issues.events[0].lifecycle == "active"
+    and .issues.events[0].title == "Proton session refresh was rejected"
+    and .issues.events[0].resolved_at == ""
+' "${session_refresh_unhealthy_json}" >/dev/null
+mv -f -- "${state_dir}/proton-mount.log.full" "${state_dir}/proton-mount.log"
 
 cp -- "${state_dir}/pdrive-watch-latest.txt" "${state_dir}/pdrive-watch-latest.ready"
 cat > "${state_dir}/pdrive-watch-latest.txt" <<'EOF'
@@ -484,5 +582,47 @@ jq -e '
     and .authentication.status == "reauthorization-required"
     and .authentication.retry_remaining_seconds == 0
 ' "${expired_rate_limit_json}" >/dev/null
+
+persistent_recent_json="${test_root}/persistent-recent.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+PDRIVE_TEST_NO_TRANSFERRED=1 \
+    "${project_dir}/bin/pdrive-state" --compact > "${persistent_recent_json}"
+
+jq -e '
+    (.transfers.recent | length) == 1
+    and .transfers.recent[0].name == "done.txt"
+    and .transfers.recent[0].direction == "upload"
+    and .transfers.recent[0].completed == true
+    and .transfers.recent[0].history_source == "mount-log"
+    and .transfers.recent[0].bytes == 0
+' "${persistent_recent_json}" >/dev/null
+
+expired_log_time="$(TZ=UTC date --date='2 days ago' '+%Y/%m/%d %H:%M:%S')"
+future_log_time="$(TZ=UTC date --date='1 minute' '+%Y/%m/%d %H:%M:%S')"
+printf 'truncated\000line\n%s ERROR : current.bin: vfs cache: failed to upload try #3\n%s INFO  : old.bin: vfs cache: upload succeeded try #1\n%s INFO  : future.bin: vfs cache: upload succeeded try #1\n' \
+    "${recent_log_time}" "${expired_log_time}" "${future_log_time}" \
+    > "${state_dir}/proton-mount.log"
+expired_recent_json="${test_root}/expired-recent.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+PDRIVE_TEST_NO_TRANSFERRED=1 \
+    "${project_dir}/bin/pdrive-state" --compact > "${expired_recent_json}"
+
+jq -e '(.transfers.recent | length) == 0' "${expired_recent_json}" >/dev/null
 
 printf 'pdrive-state fixture checks passed.\n'

@@ -112,8 +112,14 @@ popover_buttons = [
     for widget in descendants(popover.get_child())
     if isinstance(widget, module.Gtk.Button)
 ]
-assert len(popover_buttons) == 13
-assert all(button.get_visible() for button in popover_buttons)
+assert len(popover_buttons) == 12
+reauthorize_menu_button = next(
+    button
+    for button in popover_buttons
+    if button.get_tooltip_text() == "Reauthorize Proton account …"
+)
+assert not reauthorize_menu_button.get_visible()
+assert all(button.get_visible() for button in popover_buttons if button is not reauthorize_menu_button)
 assert all(button.get_sensitive() for button in popover_buttons)
 assert all(button.get_tooltip_text() for button in popover_buttons)
 assert all(
@@ -137,6 +143,7 @@ for configuration_action in (
     "Restart cooldown …",
 ):
     assert configuration_action in popover_labels
+assert "Reset restart cooldown" not in popover_labels
 
 def button_with_label(text):
     return next(
@@ -259,6 +266,58 @@ assert window.documentation_window is None
 assert window.problem_card.get_tooltip_text() == "Review issue details"
 assert window.mark_issues_reviewed_button.get_label() == "Mark issues reviewed"
 
+recovering_event = {
+    "timestamp": "2026-08-24T10:06:30+00:00",
+    "level": "notice",
+    "category": "http-5xx",
+    "title": "Upload retry is progressing",
+    "subject": "demo/file.iso",
+    "message": "502 POST <Proton API URL> 502 Bad Gateway",
+    "guidance": "No action is required while the same upload continues to make progress.",
+    "first_seen": "2026-08-24T10:00:00+00:00",
+    "occurrences": 3,
+    "lifecycle": "recovering",
+}
+recovering_row = window.issue_row(recovering_event)
+recovering_images = [
+    widget
+    for widget in descendants(recovering_row)
+    if isinstance(widget, module.Gtk.Image)
+]
+assert recovering_images[0].get_icon_name()[0] == "emblem-synchronizing-symbolic"
+recovering_labels = [
+    widget.get_text()
+    for widget in descendants(recovering_row)
+    if isinstance(widget, module.Gtk.Label)
+]
+assert "Upload retry is progressing" in recovering_labels
+assert any(text.startswith("Recent log contains 3 related records") for text in recovering_labels)
+resolved_event = dict(recovering_event)
+resolved_event.update(
+    {
+        "lifecycle": "resolved",
+        "resolved_at": "2026-08-25T11:07:00+00:00",
+    }
+)
+resolved_row = window.issue_row(resolved_event)
+resolved_labels = [
+    widget.get_text()
+    for widget in descendants(resolved_row)
+    if isinstance(widget, module.Gtk.Label)
+]
+assert module.local_time(resolved_event["resolved_at"]) in resolved_labels
+assert module.local_time(resolved_event["timestamp"]) not in resolved_labels
+module.CURRENT_LANGUAGE = "de"
+recovering_row_de = window.issue_row(recovering_event)
+recovering_labels_de = [
+    widget.get_text()
+    for widget in descendants(recovering_row_de)
+    if isinstance(widget, module.Gtk.Label)
+]
+assert "Upload-Wiederholungsversuch macht Fortschritt" in recovering_labels_de
+assert any(text.startswith("Aktuelles Protokoll enthält 3") for text in recovering_labels_de)
+module.CURRENT_LANGUAGE = "en"
+
 window.apply_state(module.demo_state())
 window.apply_state(module.demo_state())
 window.apply_state(module.demo_state())
@@ -273,6 +332,35 @@ assert window.speed_graph.axis_labels[0].get_text().endswith("/s")
 assert window.speed_graph.axis_labels[1].get_text().endswith("/s")
 assert window.speed_graph.axis_labels[2].get_text() == "0 B/s"
 assert window.speed_graph.timeline_start.get_text() == "~5m"
+upload_values = window.speed_graph.values()
+download_values = window.download_graph.values()
+assert len({round(value, -3) for value in upload_values}) > 20
+assert len({round(value, -3) for value in download_values}) > 20
+expected_upload, expected_download = module.demo_traffic_rates(module.GRAPH_WINDOW_SECONDS)
+assert abs(upload_values[-1] - expected_upload) < 1
+assert abs(download_values[-1] - expected_download) < 1
+for interval in module.REFRESH_INTERVAL_OPTIONS:
+    graph = module.SpeedGraph()
+    for offset in range(0, module.GRAPH_WINDOW_SECONDS + 1, interval):
+        graph.push(1024 + offset, 1000.0 + offset)
+    points = graph.points(600.0, 100.0)
+    assert points
+    assert abs(points[0][0]) < 0.001
+    assert abs(points[-1][0] - 600.0) < 0.001
+short_graph = module.SpeedGraph()
+short_graph.push(1024, 1000.0)
+short_graph.push(2048, 1002.0)
+assert short_graph.points(600.0, 100.0)[0][0] > 590.0
+short_graph.push(4096, 1303.0)
+assert list(short_graph.samples) == [(1303.0, 4096)]
+module.CURRENT_LANGUAGE = "de"
+assert module.translate(
+    "Successful uploads from the last 24 hours, plus current-process transfers"
+).startswith("Erfolgreiche Uploads der letzten 24 Stunden")
+assert module.translate(
+    "No completed transfers were found in the last 24 hours."
+) == "In den letzten 24 Stunden wurden keine abgeschlossenen Transfers gefunden."
+module.CURRENT_LANGUAGE = "en"
 assert window.overview_grid.get_child_at(1, 0) is window.download_speed_card
 assert window.overview_grid.get_child_at(2, 1) is window.capacity_card
 assert window.overview_grid.get_column_spacing() == module.OVERVIEW_GUTTER
@@ -424,6 +512,7 @@ window.apply_state(critical_state)
 window.apply_state(critical_state)
 window.apply_state(critical_state)
 assert window.status_title.get_text() == "Problem"
+assert not window.reauthorize_menu_button.get_visible()
 
 auth_state = copy.deepcopy(critical_state)
 auth_state["authentication"] = {
@@ -450,6 +539,7 @@ assert "Automatic login retries were stopped" in window.status_summary.get_text(
 assert window.status_action.get_visible()
 assert window.status_action.get_sensitive()
 assert window.status_action.get_tooltip_text() == "Reauthorize Proton account …"
+assert window.reauthorize_menu_button.get_visible()
 assert window.queue_card.value.get_text() == "–"
 assert window.queue_card.detail.get_text() == "Reauthorization needed"
 assert "local cache data remains protected" in window.live_summary.get_text()
@@ -509,6 +599,7 @@ window.apply_state(rate_limited_state)
 assert window.status_title.get_text() == "Login temporarily paused"
 assert "Try again after" in window.status_summary.get_text()
 assert not window.status_action.get_visible()
+assert not window.reauthorize_menu_button.get_visible()
 assert window.queue_card.value.get_text() == "–"
 
 window.apply_state(module.demo_state())
@@ -934,6 +1025,10 @@ def inspect_configuration_dialog(dialog):
         assert save_button.get_sensitive()
     if dialog.get_title() in {"Metadata cache", "Restart cooldown"}:
         assert dialog.get_content_area().get_size_request()[0] == 440
+    if dialog.get_title() == "Restart cooldown":
+        reset_button = dialog.get_widget_for_response(module.Gtk.ResponseType.REJECT)
+        assert reset_button is not None
+        assert reset_button.get_label() == "Reset restart cooldown"
     return module.Gtk.ResponseType.CANCEL
 
 module.Gtk.Dialog.run = inspect_configuration_dialog
@@ -949,8 +1044,43 @@ assert opened_configuration_dialogs == [
     "Restart cooldown",
 ]
 
-bandwidth_calls = []
 original_run_helper = window.run_helper
+cooldown_calls = []
+
+def save_cooldown(dialog):
+    spinner = next(
+        widget
+        for widget in descendants(dialog.get_content_area())
+        if isinstance(widget, module.Gtk.SpinButton)
+    )
+    spinner.set_value(13)
+    assert dialog.get_widget_for_response(module.Gtk.ResponseType.OK).get_sensitive()
+    return module.Gtk.ResponseType.OK
+
+module.Gtk.Dialog.run = save_cooldown
+window.run_helper = lambda command, title: cooldown_calls.append((command, title))
+try:
+    window.on_cooldown(None)
+finally:
+    module.Gtk.Dialog.run = original_dialog_run
+    window.run_helper = original_run_helper
+assert cooldown_calls == [(["pdrive-watch", "--set-cooldown", "13h"], "Restart cooldown")]
+
+cooldown_calls.clear()
+
+def reset_cooldown(dialog):
+    return module.Gtk.ResponseType.REJECT
+
+module.Gtk.Dialog.run = reset_cooldown
+window.run_helper = lambda command, title: cooldown_calls.append((command, title))
+try:
+    window.on_cooldown(None)
+finally:
+    module.Gtk.Dialog.run = original_dialog_run
+    window.run_helper = original_run_helper
+assert cooldown_calls == [(["pdrive-watch", "--clear-cooldown"], "Restart cooldown")]
+
+bandwidth_calls = []
 
 def apply_asymmetric_bandwidth(dialog):
     scales = [
