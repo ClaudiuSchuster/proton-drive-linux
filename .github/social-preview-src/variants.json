@@ -1,0 +1,14 @@
+{
+  "generic": {
+    "output": ".github/social-preview.png",
+    "tagline": "Native file-explorer access. Resilient uploads. Clear live insight.",
+    "badge": "FILE EXPLORER",
+    "badge_width": 178
+  },
+  "nemo": {
+    "output": ".github/social-preview-nemo.png",
+    "tagline": "Native Nemo access. Resilient uploads. Clear live insight.",
+    "badge": "NEMO NATIVE",
+    "badge_width": 158
+  }
+}
