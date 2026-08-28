@@ -128,6 +128,7 @@ cat > "${state_dir}/proton-mount.log" <<'EOF'
 2026/08/24 09:55:00 ERROR : unrelated backend failure
 2026/08/24 10:05:00 NOTICE: Bandwidth limit set to {235.520Ki off}
 2026/08/24 10:05:01 NOTICE: Bandwidth limit reset to unlimited
+2026/08/24 10:05:30 ERROR : Proton events: 503 POST https://drive-api.proton.me/drive/events 503 Service Unavailable (Code=0, Status=503)
 2026/08/24 10:06:00 ERROR : demo/file.iso: vfs cache: failed to upload try #2, will retry in 5m0s
 2026/08/24 10:06:10 ERROR : Another/file.bin: a draft exist - usually this means a failed upload attempt
 2026/08/24 10:06:11 ERROR : Another/file.bin: vfs cache: failed to upload try #3, will retry in 5m0s
@@ -205,7 +206,7 @@ jq -e '
     and .draft_recovery.bridge_unwedge_restart_attempts == 1
     and .draft_recovery.bridge_failure_cycles == 3
     and .issues.available == true
-    and (.issues.events | length) == 7
+    and (.issues.events | length) == 8
     and .issues.events[0].category == "dns"
     and .issues.events[0].lifecycle == "resolved"
     and .issues.events[0].title == "Network resolution recovered"
@@ -222,35 +223,40 @@ jq -e '
     and .issues.events[3].level == "notice"
     and .issues.events[3].lifecycle == "recovering"
     and .issues.events[3].title == "Upload retry is progressing"
-    and .issues.events[4].category == "draft-conflict"
-    and .issues.events[4].level == "notice"
-    and .issues.events[4].lifecycle == "resolved"
-    and .issues.events[4].title == "Upload recovered automatically"
-    and .issues.events[4].resolved_at == "2026-08-24T10:04:00+00:00"
-    and .issues.events[4].occurrences == 2
-    and .issues.events[4].raw_events == 6
-    and .issues.events[5].message == "unrelated backend failure"
-    and .issues.events[5].lifecycle == "active"
-    and .issues.events[6].category == "http-5xx"
-    and .issues.events[6].level == "notice"
-    and .issues.events[6].lifecycle == "resolved"
-    and .issues.events[6].title == "Proton service recovered"
-    and .issues.events[6].resolved_at == "2026-08-24T10:08:45+00:00"
+    and .issues.events[4].category == "http-5xx"
+    and .issues.events[4].subject == "Proton events"
+    and .issues.events[4].level == "error"
+    and .issues.events[4].lifecycle == "active"
+    and .issues.events[5].category == "draft-conflict"
+    and .issues.events[5].level == "notice"
+    and .issues.events[5].lifecycle == "resolved"
+    and .issues.events[5].title == "Upload recovered automatically"
+    and .issues.events[5].resolved_at == "2026-08-24T10:04:00+00:00"
+    and .issues.events[5].occurrences == 2
+    and .issues.events[5].raw_events == 6
+    and .issues.events[6].message == "unrelated backend failure"
+    and .issues.events[6].lifecycle == "active"
+    and .issues.events[7].category == "http-5xx"
+    and .issues.events[7].level == "notice"
+    and .issues.events[7].lifecycle == "resolved"
+    and .issues.events[7].title == "Proton service recovered"
+    and .issues.events[7].resolved_at == "2026-08-24T10:08:45+00:00"
     and .issues.events[0].last_seen > .issues.events[1].last_seen
     and .issues.events[1].last_seen > .issues.events[2].last_seen
     and .issues.events[2].last_seen > .issues.events[3].last_seen
     and .issues.events[3].last_seen > .issues.events[4].last_seen
     and .issues.events[4].last_seen > .issues.events[5].last_seen
     and .issues.events[5].last_seen > .issues.events[6].last_seen
-    and .issues.raw_events == 14
-    and .issues.errors == 2
+    and .issues.events[6].last_seen > .issues.events[7].last_seen
+    and .issues.raw_events == 15
+    and .issues.errors == 3
     and .issues.notices == 2
-    and .issues.active == 2
+    and .issues.active == 3
     and .issues.recovering == 2
     and .issues.resolved == 3
     and (.issues.events[1].subject | contains("private-share") | not)
-    and (.issues.events[4].subject | contains("private-share") | not)
-    and (.issues.events[4].message | contains("private-share") | not)
+    and (.issues.events[5].subject | contains("private-share") | not)
+    and (.issues.events[5].message | contains("private-share") | not)
     and .history[0].vfs_queue == 1
 ' "${state_json}" >/dev/null
 
