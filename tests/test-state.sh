@@ -273,6 +273,64 @@ jq -e '
     and .history[0].vfs_queue == 1
 ' "${state_json}" >/dev/null
 
+cp -- "${state_dir}/proton-mount.log" "${state_dir}/proton-mount.log.full"
+cat > "${state_dir}/proton-mount.log" <<'EOF'
+2026/08/24 10:06:30 ERROR : proton drive root link ID 'private-share': 502 POST https://storage.proton.me/storage/blocks 502 Bad Gateway (Code=0, Status=502)
+2026/08/24 10:07:00 NOTICE: proton drive root link ID 'private-share': 401 GET https://drive-api.proton.me/drive/shares/private-share?token=private Invalid access token (Code=401, Status=401), Attempt 1
+2026/08/24 10:07:00 ERROR : proton drive root link ID 'private-share': 401 GET https://drive-api.proton.me/drive/shares/private-share?token=private Invalid access token (Code=401, Status=401)
+EOF
+session_refresh_json="${test_root}/session-refresh.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+    "${project_dir}/bin/pdrive-state" --compact > "${session_refresh_json}"
+jq -e '
+    (.issues.events | length) == 2
+    and .issues.events[0].category == "session-refresh"
+    and .issues.events[0].level == "notice"
+    and .issues.events[0].lifecycle == "resolved"
+    and .issues.events[0].title == "Proton session refresh recovered"
+    and .issues.events[0].occurrences == 1
+    and .issues.events[0].raw_events == 2
+    and (.issues.events[0].subject | contains("private-share") | not)
+    and (.issues.events[0].message | contains("private-share") | not)
+    and .issues.events[1].category == "http-5xx"
+    and .issues.events[1].lifecycle == "recovering"
+    and .issues.errors == 0
+    and .issues.notices == 1
+    and .issues.active == 0
+    and .issues.recovering == 1
+    and .issues.resolved == 1
+' "${session_refresh_json}" >/dev/null
+
+session_refresh_unhealthy_json="${test_root}/session-refresh-unhealthy.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+PDRIVE_TEST_NO_MOUNT=1 \
+PDRIVE_TEST_NO_VFS=1 \
+    "${project_dir}/bin/pdrive-state" --compact > "${session_refresh_unhealthy_json}"
+jq -e '
+    .mount.ready == false
+    and .issues.events[0].category == "session-refresh"
+    and .issues.events[0].level == "error"
+    and .issues.events[0].lifecycle == "active"
+    and .issues.events[0].title == "Proton session refresh was rejected"
+' "${session_refresh_unhealthy_json}" >/dev/null
+mv -f -- "${state_dir}/proton-mount.log.full" "${state_dir}/proton-mount.log"
+
 cp -- "${state_dir}/pdrive-watch-latest.txt" "${state_dir}/pdrive-watch-latest.ready"
 cat > "${state_dir}/pdrive-watch-latest.txt" <<'EOF'
 Zeit=2026-08-24T10:08:00+00:00

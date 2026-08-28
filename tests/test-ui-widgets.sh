@@ -113,7 +113,13 @@ popover_buttons = [
     if isinstance(widget, module.Gtk.Button)
 ]
 assert len(popover_buttons) == 12
-assert all(button.get_visible() for button in popover_buttons)
+reauthorize_menu_button = next(
+    button
+    for button in popover_buttons
+    if button.get_tooltip_text() == "Reauthorize Proton account …"
+)
+assert not reauthorize_menu_button.get_visible()
+assert all(button.get_visible() for button in popover_buttons if button is not reauthorize_menu_button)
 assert all(button.get_sensitive() for button in popover_buttons)
 assert all(button.get_tooltip_text() for button in popover_buttons)
 assert all(
@@ -491,6 +497,7 @@ window.apply_state(critical_state)
 window.apply_state(critical_state)
 window.apply_state(critical_state)
 assert window.status_title.get_text() == "Problem"
+assert not window.reauthorize_menu_button.get_visible()
 
 auth_state = copy.deepcopy(critical_state)
 auth_state["authentication"] = {
@@ -517,6 +524,7 @@ assert "Automatic login retries were stopped" in window.status_summary.get_text(
 assert window.status_action.get_visible()
 assert window.status_action.get_sensitive()
 assert window.status_action.get_tooltip_text() == "Reauthorize Proton account …"
+assert window.reauthorize_menu_button.get_visible()
 assert window.queue_card.value.get_text() == "–"
 assert window.queue_card.detail.get_text() == "Reauthorization needed"
 assert "local cache data remains protected" in window.live_summary.get_text()
@@ -576,6 +584,7 @@ window.apply_state(rate_limited_state)
 assert window.status_title.get_text() == "Login temporarily paused"
 assert "Try again after" in window.status_summary.get_text()
 assert not window.status_action.get_visible()
+assert not window.reauthorize_menu_button.get_visible()
 assert window.queue_card.value.get_text() == "–"
 
 window.apply_state(module.demo_state())

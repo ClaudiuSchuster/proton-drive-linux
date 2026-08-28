@@ -293,13 +293,17 @@ have been independently verified. Prefer a controlled systemd stop; avoid
 When Proton explicitly requires fresh 2FA, PDrive records a terminal
 authentication state, cancels the pending systemd restart and sends one desktop
 notification. Open PDrive Control Center and select **Reauthorize** in the
-Overview banner or **hamburger menu → Reauthorize Proton account**. The native
+Overview banner or the then-visible **hamburger menu → Reauthorize Proton
+account …**. The native
 dialog reuses the configured account name and requests only the current account
 password plus an optional fresh six-digit code.
 
-Use local diagnostics first for a generic 401. If the stored session truly
-cannot refresh, the account password changed or the graphical Control Center is
-unavailable, use the terminal fallback:
+Use local diagnostics first for a generic 401. A rejected root-level session
+refresh is kept separate from older file-operation incidents; when the current
+authenticated mount and local RC channel are healthy, it is recorded as
+recovered rather than presented as an unreviewed problem. If the stored session
+truly cannot refresh, the account password changed or the graphical Control
+Center is unavailable, use the terminal fallback:
 
 ```bash
 pdrive-reauth --reauth

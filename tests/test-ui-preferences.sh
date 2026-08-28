@@ -48,6 +48,15 @@ assert module.translate("Everyday use") == "Tägliche Nutzung"
 assert module.translate("Download limit in MiB/s") == "Downloadlimit in MiB/s"
 assert module.translate("Upload retry is progressing") == "Upload-Wiederholungsversuch macht Fortschritt"
 assert module.translate("Proton service recovered") == "Proton-Dienst wiederhergestellt"
+assert module.translate("Proton session refresh was rejected") == (
+    "Proton-Sitzungsaktualisierung wurde abgelehnt"
+)
+assert module.translate("Proton session refresh recovered") == (
+    "Proton-Sitzungsaktualisierung wiederhergestellt"
+)
+assert module.translate(
+    "No action is required while PDrive continues to report healthy authentication and mount state."
+).startswith("Keine Aktion erforderlich")
 assert module.translate(
     "Recent log contains {count} related records · oldest retained {time}"
 ).startswith("Aktuelles Protokoll")
