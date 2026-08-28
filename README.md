@@ -40,7 +40,7 @@
 </table>
 
 <p align="center">
-  <img src="docs/assets/pdrive-control-menu.png" width="290"
+  <img src="docs/assets/pdrive-control-menu.png" width="282"
        alt="Complete PDrive Control Center menu with transfer, cache, recovery, account and documentation actions">
 </p>
 

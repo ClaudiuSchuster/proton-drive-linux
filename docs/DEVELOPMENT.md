@@ -155,6 +155,12 @@ shell crashes. Include the active-window highlight in the main product image.
 Choose a stable initial tab without synthetic pointer input through
 `pdrive-ui --demo --demo-page overview|transfers|history`.
 
+GTK-only detail crops may use an isolated Broadway display. For reference
+images of the supported Linux Mint appearance, set `GTK_THEME` explicitly to
+`Mint-Y-Dark-Teal`; never rely on Broadway's fallback theme. Confirm that the
+theme is installed before capture, then compare the final crop with the native
+Mint rendering, including button borders, shadows and label weight.
+
 ## UI and language
 
 Code, identifiers, public documentation and development metadata are English.
