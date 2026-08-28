@@ -99,7 +99,7 @@ affected paths and suggested next steps. Opening the list does not acknowledge
 anything; mark it reviewed only after reading the evidence. The button is also
 available when only informational recovery records are waiting. Marking them
 reviewed removes them from this list while their history and log evidence remain
-available.
+available. The newest event or recovery is shown first.
 
 ## Before shutdown, update or uninstall
 
