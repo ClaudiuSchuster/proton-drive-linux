@@ -44,7 +44,7 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.6.3"
+VERSION = "0.7.0"
 REFRESH_INTERVAL_SECONDS = 2
 REFRESH_INTERVAL_OPTIONS = (1, 2, 5, 10)
 BANDWIDTH_SLIDER_MAX_RATE = 100.0

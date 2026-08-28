@@ -141,8 +141,10 @@ PDrive installs a pinned, checksum-verified rclone build published from its
 public source fork. It contains the upstream fix for
 [rclone #9722](https://github.com/rclone/rclone/issues/9722), the API bridge
 worker fix proposed in
-[Proton-API-Bridge #8](https://github.com/rclone/Proton-API-Bridge/pull/8) and the
-Proton file-data limiter tracked in
+[Proton-API-Bridge #8](https://github.com/rclone/Proton-API-Bridge/pull/8), a
+bounded retry of only transiently failed encrypted blocks tracked in
+[PDrive #42](https://github.com/oss-singularity/proton-drive-linux/issues/42),
+and the Proton file-data limiter tracked in
 [rclone #9832](https://github.com/rclone/rclone/issues/9832). The limiter leaves
 metadata browsing outside bulk transfer limits. The weekly updater stays on
 that reviewed PDrive build until this project publishes a replacement and never

@@ -105,10 +105,14 @@ make verify
 
 The installed binary comes from the public
 [`oss-singularity/rclone`](https://github.com/oss-singularity/rclone) release
-`pdrive-v1.76.0-beta.10204.1`. Its branch pins the exact
+`pdrive-v1.76.0-beta.10204.2`. Its branch pins the exact
 [`oss-singularity/Proton-API-Bridge`](https://github.com/oss-singularity/Proton-API-Bridge)
-commit used to build the asset; the bridge worker-drain correction is proposed
-upstream in [Proton-API-Bridge PR #8](https://github.com/rclone/Proton-API-Bridge/pull/8).
+commit `c059d7573afb` used to build the asset. The bridge worker-drain correction
+is proposed upstream in
+[Proton-API-Bridge PR #8](https://github.com/rclone/Proton-API-Bridge/pull/8);
+the dependent failed-block retry remains separately tracked in
+[PDrive issue #42](https://github.com/oss-singularity/proton-drive-linux/issues/42)
+until it can be proposed upstream as one focused follow-up commit.
 The independent Proton file-data limiter, its reproduction measurements and the
 public prototype are tracked in
 [rclone issue #9832](https://github.com/rclone/rclone/issues/9832). Keep these
