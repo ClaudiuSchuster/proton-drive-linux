@@ -47,6 +47,7 @@ APP_ID = "io.github.claudiuschuster.PDriveControl"
 VERSION = "0.7.0"
 REFRESH_INTERVAL_SECONDS = 2
 REFRESH_INTERVAL_OPTIONS = (1, 2, 5, 10)
+GRAPH_WINDOW_SECONDS = 5 * 60
 BANDWIDTH_SLIDER_MAX_RATE = 100.0
 BANDWIDTH_SLIDER_UNLIMITED = 110.0
 BANDWIDTH_NEAR_PAUSE_MIB = 0.02
@@ -252,7 +253,7 @@ GERMAN_TRANSLATIONS = {
     "VFS queue": "VFS-Warteschlange",
     "Pending uploads remain safe in the existing VFS cache across restarts": "Ausstehende Uploads bleiben auch bei Neustarts sicher im vorhandenen VFS-Cache",
     "Recently completed": "Kürzlich abgeschlossen",
-    "The in-memory transfer list of the current rclone process": "Die laufzeitinterne Transferliste des aktuellen rclone-Prozesses",
+    "Successful uploads from the last 24 hours, plus current-process transfers": "Erfolgreiche Uploads der letzten 24 Stunden sowie Transfers des aktuellen Prozesses",
     "Local VFS cache": "Lokaler VFS-Cache",
     "Synced local copies are reusable read cache, not unfinished uploads": "Synchronisierte lokale Kopien sind wiederverwendbarer Lesecache, keine unfertigen Uploads",
     "Synced read cache": "Synchronisierter Lesecache",
@@ -353,7 +354,7 @@ GERMAN_TRANSLATIONS = {
     "Queue is empty": "Warteschlange leer",
     "All local changes have been uploaded.": "Alle lokalen Änderungen sind hochgeladen.",
     "No transfers yet": "Noch keine Transfers",
-    "The current rclone process has not completed a transfer yet.": "Der aktuelle rclone-Prozess hat noch keinen Transfer abgeschlossen.",
+    "No completed transfers were found in the last 24 hours.": "In den letzten 24 Stunden wurden keine abgeschlossenen Transfers gefunden.",
     "Status unavailable": "Status nicht erreichbar",
     "of {slots} upload slots in use": "von {slots} Uploadslots belegt",
     "{errors} errors · {notices} notices · since reviewed": "{errors} Fehler · {notices} Hinweise · seit der letzten Prüfung",
@@ -1726,12 +1727,33 @@ class SpeedGraph(Gtk.DrawingArea):
         super().__init__()
         self.set_size_request(-1, 112)
         self.color = color
-        self.samples: collections.deque[float] = collections.deque(maxlen=150)
+        self.samples: collections.deque[tuple[float, float]] = collections.deque()
         self.connect("draw", self.on_draw)
 
-    def push(self, value: float) -> None:
-        self.samples.append(max(0.0, value))
+    def push(self, value: float, sample_time: float | None = None) -> None:
+        observed = sample_time if sample_time is not None else time.monotonic()
+        self.samples.append((observed, max(0.0, value)))
+        cutoff = observed - GRAPH_WINDOW_SECONDS
+        while self.samples and self.samples[0][0] < cutoff:
+            self.samples.popleft()
         self.queue_draw()
+
+    def values(self) -> list[float]:
+        return [value for _observed, value in self.samples]
+
+    def points(self, width: float, height: float) -> list[tuple[float, float]]:
+        if len(self.samples) < 2:
+            return []
+        peak = max(max(self.values()), 1024.0)
+        latest = self.samples[-1][0]
+        window_start = latest - GRAPH_WINDOW_SECONDS
+        return [
+            (
+                max(0.0, min(width, width * (observed - window_start) / GRAPH_WINDOW_SECONDS)),
+                height - (value / peak) * (height - 10) - 5,
+            )
+            for observed, value in self.samples
+        ]
 
     def on_draw(self, _widget: Gtk.Widget, cr: Any) -> bool:
         allocation = self.get_allocation()
@@ -1743,12 +1765,9 @@ class SpeedGraph(Gtk.DrawingArea):
             cr.move_to(0, y)
             cr.line_to(width, y)
             cr.stroke()
-        values = list(self.samples)
-        if len(values) < 2:
+        points = self.points(width, height)
+        if not points:
             return False
-        peak = max(max(values), 1024.0)
-        step = width / max(1, len(values) - 1)
-        points = [(index * step, height - (value / peak) * (height - 10) - 5) for index, value in enumerate(values)]
         cr.move_to(points[0][0], height)
         for x, y in points:
             cr.line_to(x, y)
@@ -3278,8 +3297,6 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.setup_wizard: SetupWizard | None = None
         self.setup_required = not demo and not setup_config_path().is_file()
         self.dashboard_timer_id = 0
-        self.speed_samples: collections.deque[float] = collections.deque(maxlen=150)
-        self.download_samples: collections.deque[float] = collections.deque(maxlen=150)
         self.network_send_baseline: tuple[int, int, float] | None = None
         self.network_receive_baseline: tuple[int, int, float] | None = None
         self.upload_eta_pid = 0
@@ -3345,6 +3362,8 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.setup_wizard = None
         self.content_fit_completed = False
         self.build_ui()
+        if self.demo:
+            self.seed_demo_graphs()
         self.set_empty_lists()
         self.show_all()
         self.configure_dashboard_tabs()
@@ -3630,13 +3649,26 @@ class PDriveWindow(Gtk.ApplicationWindow):
         return container
 
     def update_graph_axis(self, graph: SpeedGraph) -> None:
-        values = list(graph.samples)
+        values = graph.values()
         peak = max(values, default=0.0)
         graph.axis_labels[0].set_text(human_rate(peak))
         graph.axis_labels[1].set_text(human_rate(peak / 2))
         graph.axis_labels[2].set_text("0 B/s")
-        seconds = max(0, (graph.samples.maxlen - 1) * self.refresh_interval_seconds())
-        graph.timeline_start.set_text(approximate_duration(seconds))
+        graph.timeline_start.set_text(approximate_duration(GRAPH_WINDOW_SECONDS))
+
+    def seed_demo_graphs(self) -> None:
+        """Populate only demo mode with privacy-safe five-minute history."""
+
+        end = time.monotonic()
+        for elapsed in range(0, GRAPH_WINDOW_SECONDS + 1, 5):
+            observed = end - GRAPH_WINDOW_SECONDS + elapsed
+            phase = elapsed / GRAPH_WINDOW_SECONDS
+            upload = 3_900_000 + math.sin(phase * math.pi * 5) * 620_000
+            download = 1_400_000 + math.cos(phase * math.pi * 4) * 420_000
+            self.speed_graph.push(upload, observed)
+            self.download_graph.push(download, observed)
+        self.update_graph_axis(self.speed_graph)
+        self.update_graph_axis(self.download_graph)
 
     def build_overview(self) -> Gtk.Widget:
         scroller = Gtk.ScrolledWindow()
@@ -3913,7 +3945,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.cache_transfer_section = self.build_cache_section()
         self.recent_transfer_section, self.recent_list = self.build_list_section(
             "Recently completed",
-            "The in-memory transfer list of the current rclone process",
+            "Successful uploads from the last 24 hours, plus current-process transfers",
         )
         self.transfers_page.pack_start(self.active_transfer_section, False, False, 0)
         self.transfers_page.pack_start(self.queue_transfer_section, False, False, 0)
@@ -4079,7 +4111,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             EmptyState(
                 "document-open-recent-symbolic",
                 "No transfers yet",
-                "The current rclone process has not completed a transfer yet.",
+                "No completed transfers were found in the last 24 hours.",
             )
         )
         self.clear_list(self.issue_list)
@@ -4328,8 +4360,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             int(service.get("pid") or 0),
             sample_time,
         )
-        self.speed_samples.append(speed)
-        self.speed_graph.push(speed)
+        self.speed_graph.push(speed, sample_time)
         self.update_graph_axis(self.speed_graph)
         download_speed, self.network_receive_baseline = network_receive_rate(
             self.network_receive_baseline,
@@ -4337,8 +4368,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             int(service.get("pid") or 0),
             sample_time,
         )
-        self.download_samples.append(download_speed)
-        self.download_graph.push(download_speed)
+        self.download_graph.push(download_speed, sample_time)
         self.update_graph_axis(self.download_graph)
         self.speed_card.update(human_rate(speed), f"Limit {bandwidth.get('live', '–')}")
         self.download_speed_card.update(
@@ -4428,10 +4458,10 @@ class PDriveWindow(Gtk.ApplicationWindow):
             int(vfs.get("cache_bytes") or 0),
         )
         self.upload_graph_peak.set_text(
-            translate_format("Peak {speed}", speed=human_rate(max(self.speed_samples, default=0)))
+            translate_format("Peak {speed}", speed=human_rate(max(self.speed_graph.values(), default=0)))
         )
         self.download_graph_peak.set_text(
-            translate_format("Peak {speed}", speed=human_rate(max(self.download_samples, default=0)))
+            translate_format("Peak {speed}", speed=human_rate(max(self.download_graph.values(), default=0)))
         )
 
         if rate_limited:
@@ -4950,7 +4980,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 + translate_format("{tries} attempt(s)", tries=item.get("tries", 0))
             )
         else:
-            detail = f"{human_bytes(item.get('bytes') or item.get('size', 0))} · {local_time(str(item.get('completed_at', '')))}"
+            completed_size = int(item.get("bytes") or item.get("size") or 0)
+            completed_time = local_time(str(item.get("completed_at", "")))
+            detail = f"{human_bytes(completed_size)} · {completed_time}" if completed_size > 0 else completed_time
         detail_label = label(detail, "transfer-meta")
         detail_label.set_tooltip_text(detail_tooltip)
         box.pack_start(detail_label, False, False, 0)
@@ -5033,7 +5065,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
                 EmptyState(
                     "document-open-recent-symbolic",
                     "No transfers yet",
-                    "The current rclone process has not completed a transfer yet.",
+                    "No completed transfers were found in the last 24 hours.",
                 )
             )
         self.active_list.show_all()

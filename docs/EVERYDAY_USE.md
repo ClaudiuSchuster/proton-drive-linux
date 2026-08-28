@@ -24,8 +24,10 @@ The Overview is the compact answer; **Transfers** contains the evidence.
 
 - **Active** shows work in the current rclone process.
 - **Queue** is the protected local upload queue. A queued file is not lost.
-- **Recently completed** separates direction from result: Upload or Download,
-  then Completed or Failed.
+- **Recently completed** keeps successful uploads visible for 24 hours across
+  normal service or system restarts. It also shows transfers retained by the
+  current rclone process and separates direction from result: Upload or
+  Download, then Completed or Failed.
 - **VFS cache** separates pending Dirty uploads from clean read-cache copies.
 - The Overview upload ETA describes the whole remaining queue; a single row
   describes only that file.
@@ -41,7 +43,9 @@ write. Remote completion is confirmed when:
 
 1. Active transfers are zero.
 2. The upload Queue is empty.
-3. The file appears as Upload and Completed under **Recently completed**.
+3. The file appears as Upload and Completed under **Recently completed** and
+   remains there for up to 24 hours when the owner-only mount log retains the
+   completion evidence.
 
 For an especially important file, verify it once in the official Proton Drive
 web client before removing the independent local copy.

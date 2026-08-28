@@ -310,6 +310,28 @@ assert window.speed_graph.axis_labels[0].get_text().endswith("/s")
 assert window.speed_graph.axis_labels[1].get_text().endswith("/s")
 assert window.speed_graph.axis_labels[2].get_text() == "0 B/s"
 assert window.speed_graph.timeline_start.get_text() == "~5m"
+for interval in module.REFRESH_INTERVAL_OPTIONS:
+    graph = module.SpeedGraph()
+    for offset in range(0, module.GRAPH_WINDOW_SECONDS + 1, interval):
+        graph.push(1024 + offset, 1000.0 + offset)
+    points = graph.points(600.0, 100.0)
+    assert points
+    assert abs(points[0][0]) < 0.001
+    assert abs(points[-1][0] - 600.0) < 0.001
+short_graph = module.SpeedGraph()
+short_graph.push(1024, 1000.0)
+short_graph.push(2048, 1002.0)
+assert short_graph.points(600.0, 100.0)[0][0] > 590.0
+short_graph.push(4096, 1303.0)
+assert list(short_graph.samples) == [(1303.0, 4096)]
+module.CURRENT_LANGUAGE = "de"
+assert module.translate(
+    "Successful uploads from the last 24 hours, plus current-process transfers"
+).startswith("Erfolgreiche Uploads der letzten 24 Stunden")
+assert module.translate(
+    "No completed transfers were found in the last 24 hours."
+) == "In den letzten 24 Stunden wurden keine abgeschlossenen Transfers gefunden."
+module.CURRENT_LANGUAGE = "en"
 assert window.overview_grid.get_child_at(1, 0) is window.download_speed_card
 assert window.overview_grid.get_child_at(2, 1) is window.capacity_card
 assert window.overview_grid.get_column_spacing() == module.OVERVIEW_GUTTER

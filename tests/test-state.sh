@@ -65,7 +65,11 @@ printf '%s\n' \
     '    else' \
     '      printf "%s\\n" '\''{"bytes":1048576,"speed":524288,"errors":0,"transferring":[{"name":"demo/file.iso","size":2097152,"bytes":1048576,"speed":524288,"eta":2}]} '\''' \
     '    fi ;;' \
-    '  core/transferred) printf "%s\\n" '\''{"transferred":[{"name":"done.txt","size":12,"bytes":12,"completedAt":"2026-08-24T10:00:00+00:00","srcFs":"/tmp/vfs/proton-test","dstFs":"proton-test:"},{"name":"Projects/demo.qcow2","size":1048576,"bytes":1048576,"completedAt":"2026-08-24T10:04:00+00:00","srcFs":"proton-test:","dstFs":"/tmp/vfs/proton-test"},{"name":"missing-direction.txt","size":24,"bytes":24,"completedAt":"2026-08-24T10:05:00+00:00"},{"name":"ambiguous-direction.txt","size":48,"bytes":48,"completedAt":"2026-08-24T10:06:00+00:00","srcFs":"proton-test:source","dstFs":"proton-test:destination"}]} '\'' ;;' \
+    '  core/transferred)' \
+    '    if [[ "${PDRIVE_TEST_NO_TRANSFERRED:-}" == 1 ]]; then printf "%s\\n" '\''{"transferred":[]}'\''; else' \
+    '      recent_time="$(date --iso-8601=seconds)"' \
+    '      printf '\''{"transferred":[{"name":"done.txt","size":12,"bytes":12,"completedAt":"%s","srcFs":"/tmp/vfs/proton-test","dstFs":"proton-test:"},{"name":"Projects/demo.qcow2","size":1048576,"bytes":1048576,"completedAt":"%s","srcFs":"proton-test:","dstFs":"/tmp/vfs/proton-test"},{"name":"missing-direction.txt","size":24,"bytes":24,"completedAt":"%s"},{"name":"ambiguous-direction.txt","size":48,"bytes":48,"completedAt":"%s","srcFs":"proton-test:source","dstFs":"proton-test:destination"}]}\n'\'' "${recent_time}" "${recent_time}" "${recent_time}" "${recent_time}"' \
+    '    fi ;;' \
     '  vfs/queue) printf "%s\\n" '\''{"queue":[{"name":"demo/file.iso","size":2097152,"tries":2,"uploading":true}]} '\'' ;;' \
     '  vfs/stats) printf "%s\\n" '\''{"diskCache":{"bytesUsed":3145728,"files":2,"uploadsQueued":1,"uploadsInProgress":1,"erroredFiles":0,"outOfSpace":false},"opt":{"CacheMaxAge":86400000000000}}'\'' ;;' \
     '  backend/command) printf "%s\\n" '\''{"result":{"upload":"4M","download":"2M","uploadBytesPerSecond":4194304,"downloadBytesPerSecond":2097152}}'\'' ;;' \
@@ -135,6 +139,9 @@ cat > "${state_dir}/proton-mount.log" <<'EOF'
 2026/08/24 10:06:30 ERROR : proton drive root link ID 'private-share': 502 POST https://storage.proton.me/storage/blocks 502 Bad Gateway (Code=0, Status=502)
 2026/08/24 10:07:00 ERROR : dial tcp: lookup drive-api.proton.me: temporary failure in name resolution
 EOF
+recent_log_time="$(TZ=UTC date '+%Y/%m/%d %H:%M:%S')"
+printf '%s INFO  : done.txt: vfs cache: upload succeeded try #2\n' \
+    "${recent_log_time}" >> "${state_dir}/proton-mount.log"
 printf '%s\n' \
     '2026-08-24T10:00:00+00:00 status=ready reason=mounted service=active/running pid=4242 mount=ready dns=ok tcp=established progress=yes success=1 queued=1 errors=7 notices=3 vfs_queue=1 vfs_queue_bytes=2097152 vfs_uploading=1 vfs_failed=0' \
     | tr ' ' '\t' > "${state_dir}/pdrive-watch-history.log"
@@ -177,6 +184,8 @@ jq -e '
     and .transfers.active[0].name == "demo/file.iso"
     and .transfers.active[0].direction == "unknown"
     and ([.transfers.recent[].direction] == ["upload", "download", "unknown", "unknown"])
+    and .transfers.recent_window_seconds == 86400
+    and ([.transfers.recent[].history_source] == ["rclone", "rclone", "rclone", "rclone"])
     and ([.transfers.recent[] | has("srcFs") or has("dstFs")] | any | not)
     and .queue.count == 1
     and .queue.active == 1
@@ -231,7 +240,7 @@ jq -e '
     and .issues.events[5].level == "notice"
     and .issues.events[5].lifecycle == "resolved"
     and .issues.events[5].title == "Upload recovered automatically"
-    and .issues.events[5].resolved_at == "2026-08-24T10:04:00+00:00"
+    and .issues.events[5].resolved_at == .transfers.recent[1].completed_at
     and .issues.events[5].occurrences == 2
     and .issues.events[5].raw_events == 6
     and .issues.events[6].message == "unrelated backend failure"
@@ -508,5 +517,45 @@ jq -e '
     and .authentication.status == "reauthorization-required"
     and .authentication.retry_remaining_seconds == 0
 ' "${expired_rate_limit_json}" >/dev/null
+
+persistent_recent_json="${test_root}/persistent-recent.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+PDRIVE_TEST_NO_TRANSFERRED=1 \
+    "${project_dir}/bin/pdrive-state" --compact > "${persistent_recent_json}"
+
+jq -e '
+    (.transfers.recent | length) == 1
+    and .transfers.recent[0].name == "done.txt"
+    and .transfers.recent[0].direction == "upload"
+    and .transfers.recent[0].completed == true
+    and .transfers.recent[0].history_source == "mount-log"
+    and .transfers.recent[0].bytes == 0
+' "${persistent_recent_json}" >/dev/null
+
+expired_log_time="$(TZ=UTC date --date='2 days ago' '+%Y/%m/%d %H:%M:%S')"
+printf 'truncated\000line\n%s ERROR : current.bin: vfs cache: failed to upload try #3\n%s INFO  : old.bin: vfs cache: upload succeeded try #1\n' \
+    "${recent_log_time}" "${expired_log_time}" > "${state_dir}/proton-mount.log"
+expired_recent_json="${test_root}/expired-recent.json"
+HOME="${test_home}" \
+TZ=UTC \
+PATH="${fake_bin}:/usr/bin:/bin" \
+PDRIVE_STATE_DIR="${state_dir}" \
+PDRIVE_CONFIG_DIR="${config_dir}" \
+PDRIVE_MOUNT_DIR="${test_root}/mount" \
+PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
+PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
+PDRIVE_RC_TRANSPORT=cli \
+PDRIVE_TEST_NO_TRANSFERRED=1 \
+    "${project_dir}/bin/pdrive-state" --compact > "${expired_recent_json}"
+
+jq -e '(.transfers.recent | length) == 0' "${expired_recent_json}" >/dev/null
 
 printf 'pdrive-state fixture checks passed.\n'

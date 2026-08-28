@@ -219,12 +219,18 @@ does not modify the privacy-preserving watchdog files, start a second rclone,
 read the encrypted remote configuration, open a network listener or contact
 Proton independently.
 
-The **Recently completed** list belongs to the current rclone process and can
-contain both uploads and downloads. PDrive compares rclone's source and
-destination filesystems with the mounted Proton remote, exports only the
-privacy-safe direction `upload`, `download` or `unknown`, and shows direction
-separately from the completed/failed result. The VFS queue is different: it is
-the protected local write-back queue and therefore contains uploads only.
+The **Recently completed** list is a rolling 24-hour view. `pdrive-state`
+combines the current rclone process's `core/transferred` records with successful
+VFS uploads reconstructed read-only from the bounded tail of the existing
+owner-only mount log. Matching records are shown once, so a normal service or
+system restart does not erase a recent successful upload. PDrive compares
+rclone's source and destination filesystems with the mounted Proton remote,
+exports only the privacy-safe direction `upload`, `download` or `unknown`, and
+shows direction separately from the completed/failed result. Persistent log
+evidence is upload-only; downloads remain visible while the current rclone
+process retains them because the mount log has no equally strong durable
+download-completion record. The VFS queue is different: it is the protected
+local write-back queue and therefore contains uploads only.
 
 The overview's **Unreviewed issues** card uses a persistent review timestamp;
 it therefore does not reset at the next 90-minute timer sample. Adjacent rclone
