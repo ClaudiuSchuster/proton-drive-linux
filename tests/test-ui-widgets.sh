@@ -112,7 +112,7 @@ popover_buttons = [
     for widget in descendants(popover.get_child())
     if isinstance(widget, module.Gtk.Button)
 ]
-assert len(popover_buttons) == 13
+assert len(popover_buttons) == 12
 assert all(button.get_visible() for button in popover_buttons)
 assert all(button.get_sensitive() for button in popover_buttons)
 assert all(button.get_tooltip_text() for button in popover_buttons)
@@ -137,6 +137,7 @@ for configuration_action in (
     "Restart cooldown …",
 ):
     assert configuration_action in popover_labels
+assert "Reset restart cooldown" not in popover_labels
 
 def button_with_label(text):
     return next(
@@ -310,6 +311,13 @@ assert window.speed_graph.axis_labels[0].get_text().endswith("/s")
 assert window.speed_graph.axis_labels[1].get_text().endswith("/s")
 assert window.speed_graph.axis_labels[2].get_text() == "0 B/s"
 assert window.speed_graph.timeline_start.get_text() == "~5m"
+upload_values = window.speed_graph.values()
+download_values = window.download_graph.values()
+assert len({round(value, -3) for value in upload_values}) > 20
+assert len({round(value, -3) for value in download_values}) > 20
+expected_upload, expected_download = module.demo_traffic_rates(module.GRAPH_WINDOW_SECONDS)
+assert abs(upload_values[-1] - expected_upload) < 1
+assert abs(download_values[-1] - expected_download) < 1
 for interval in module.REFRESH_INTERVAL_OPTIONS:
     graph = module.SpeedGraph()
     for offset in range(0, module.GRAPH_WINDOW_SECONDS + 1, interval):
@@ -993,6 +1001,10 @@ def inspect_configuration_dialog(dialog):
         assert save_button.get_sensitive()
     if dialog.get_title() in {"Metadata cache", "Restart cooldown"}:
         assert dialog.get_content_area().get_size_request()[0] == 440
+    if dialog.get_title() == "Restart cooldown":
+        reset_button = dialog.get_widget_for_response(module.Gtk.ResponseType.REJECT)
+        assert reset_button is not None
+        assert reset_button.get_label() == "Reset restart cooldown"
     return module.Gtk.ResponseType.CANCEL
 
 module.Gtk.Dialog.run = inspect_configuration_dialog
@@ -1008,8 +1020,43 @@ assert opened_configuration_dialogs == [
     "Restart cooldown",
 ]
 
-bandwidth_calls = []
 original_run_helper = window.run_helper
+cooldown_calls = []
+
+def save_cooldown(dialog):
+    spinner = next(
+        widget
+        for widget in descendants(dialog.get_content_area())
+        if isinstance(widget, module.Gtk.SpinButton)
+    )
+    spinner.set_value(13)
+    assert dialog.get_widget_for_response(module.Gtk.ResponseType.OK).get_sensitive()
+    return module.Gtk.ResponseType.OK
+
+module.Gtk.Dialog.run = save_cooldown
+window.run_helper = lambda command, title: cooldown_calls.append((command, title))
+try:
+    window.on_cooldown(None)
+finally:
+    module.Gtk.Dialog.run = original_dialog_run
+    window.run_helper = original_run_helper
+assert cooldown_calls == [(["pdrive-watch", "--set-cooldown", "13h"], "Restart cooldown")]
+
+cooldown_calls.clear()
+
+def reset_cooldown(dialog):
+    return module.Gtk.ResponseType.REJECT
+
+module.Gtk.Dialog.run = reset_cooldown
+window.run_helper = lambda command, title: cooldown_calls.append((command, title))
+try:
+    window.on_cooldown(None)
+finally:
+    module.Gtk.Dialog.run = original_dialog_run
+    window.run_helper = original_run_helper
+assert cooldown_calls == [(["pdrive-watch", "--clear-cooldown"], "Restart cooldown")]
+
+bandwidth_calls = []
 
 def apply_asymmetric_bandwidth(dialog):
     scales = [

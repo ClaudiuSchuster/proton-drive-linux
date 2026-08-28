@@ -399,16 +399,16 @@ format, CLI equivalent and refusal conditions:
 
 #### One-shot actions
 
-| Action                     | Protection and result                                                                                                 |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------- |
-| Header **Refresh**         | Re-reads local state immediately and refreshes Proton capacity; it changes no configuration.                          |
-| **Reset restart cooldown** | Clears only the current automatic-restart cooldown through `pdrive-watch --clear-cooldown`.                           |
-| **Refresh metadata**       | Checks uploads, queue and Dirty cache first, then requires terminal confirmation before a controlled restart.         |
-| **Safely restart service** | Warns that an active upload would be interrupted, requires terminal confirmation and validates the new PID and mount. |
-| **Mark issues reviewed**   | Advances only the local issue watermark; it does not delete logs, history or unresolved health evidence.              |
-| **Open Proton Drive web**  | Opens the official web client for account-wide settings; it makes no local PDrive change.                             |
-| **Open PDrive folder**     | Opens `/pdrive` in the file manager; reads and writes then follow normal mounted-filesystem semantics.                |
-| **Reauthorize account**    | Runs one isolated login from a native dialog and replaces the encrypted configuration only after Proton accepts it.   |
+| Action                                        | Protection and result                                                                                                             |
+| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Header **Refresh**                            | Re-reads local state immediately and refreshes Proton capacity; it changes no configuration.                                      |
+| **Restart cooldown → Reset restart cooldown** | Clears only the current automatic-restart cooldown through `pdrive-watch --clear-cooldown`; the configured duration is unchanged. |
+| **Refresh metadata**                          | Checks uploads, queue and Dirty cache first, then requires terminal confirmation before a controlled restart.                     |
+| **Safely restart service**                    | Warns that an active upload would be interrupted, requires terminal confirmation and validates the new PID and mount.             |
+| **Mark issues reviewed**                      | Advances only the local issue watermark; it does not delete logs, history or unresolved health evidence.                          |
+| **Open Proton Drive web**                     | Opens the official web client for account-wide settings; it makes no local PDrive change.                                         |
+| **Open PDrive folder**                        | Opens `/pdrive` in the file manager; reads and writes then follow normal mounted-filesystem semantics.                            |
+| **Reauthorize account**                       | Runs one isolated login from a native dialog and replaces the encrypted configuration only after Proton accepts it.               |
 
 Metadata refresh and service restart deliberately finish their final safety
 checks in a terminal so the user sees the exact queue state and confirmation

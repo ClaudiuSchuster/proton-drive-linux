@@ -22,8 +22,8 @@
 </p>
 
 <p align="center">
-  <img src="docs/assets/pdrive-control-center.png" width="100%"
-       alt="PDrive Control Center showing service health, fixed five-minute traffic graphs and storage capacity">
+  <img src="docs/assets/pdrive-control-center.png?v=0.7.2" width="100%"
+       alt="PDrive Control Center showing service health, realistic five-minute traffic graphs and storage capacity">
 </p>
 
 <p align="center"><sub>Proton Drive at a glance, framed by <a href="https://github.com/oss-singularity/cinnamon-active-window-highlight">Active Window Highlight</a>.</sub></p>
@@ -40,7 +40,7 @@
 </table>
 
 <p align="center">
-  <img src="docs/assets/pdrive-control-menu.png" width="282"
+  <img src="docs/assets/pdrive-control-menu.png?v=0.7.2" width="282"
        alt="Complete PDrive Control Center menu with transfer, cache, recovery, account and documentation actions">
 </p>
 
