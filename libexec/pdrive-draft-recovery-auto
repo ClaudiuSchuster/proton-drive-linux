@@ -24,7 +24,38 @@ from typing import Any
 HOME = pathlib.Path.home()
 STATE_DIR = pathlib.Path(os.environ.get("PDRIVE_STATE_DIR", HOME / ".local/state/rclone"))
 CONFIG_DIR = pathlib.Path(os.environ.get("PDRIVE_CONFIG_DIR", HOME / ".config"))
-CACHE_DIR = pathlib.Path(os.environ.get("PDRIVE_CACHE_DIR", HOME / ".cache/rclone"))
+
+
+def configured_cache_dir() -> pathlib.Path:
+    override = os.environ.get("PDRIVE_CACHE_DIR")
+    if override:
+        return pathlib.Path(override)
+    helper = pathlib.Path(
+        os.environ.get(
+            "PDRIVE_ACCOUNT_CACHE_HELPER",
+            HOME / ".local/libexec/pdrive-account-cache",
+        )
+    )
+    if not helper.is_file() or not os.access(helper, os.X_OK):
+        sibling = pathlib.Path(__file__).with_name("pdrive-account-cache")
+        helper = sibling if sibling.is_file() and os.access(sibling, os.X_OK) else helper
+    try:
+        completed = subprocess.run(
+            [str(helper), "--path"],
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        raise RuntimeError(f"Could not resolve the active account cache: {error}") from error
+    path = completed.stdout.strip()
+    if not path:
+        raise RuntimeError("The active account cache resolver returned an empty path")
+    return pathlib.Path(path)
+
+
+CACHE_DIR = configured_cache_dir()
 RC_SOCKET = pathlib.Path(os.environ.get("PDRIVE_RC_SOCKET", STATE_DIR / "pdrive-rc.sock"))
 RCLONE_BIN = pathlib.Path(os.environ.get("PDRIVE_RCLONE_BIN", HOME / ".local/bin/rclone"))
 MOUNT_LOG = pathlib.Path(os.environ.get("PDRIVE_MOUNT_LOG", STATE_DIR / "proton-mount.log"))

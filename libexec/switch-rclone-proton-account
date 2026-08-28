@@ -1,0 +1,510 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+umask 077
+
+readonly rclone_bin="${PDRIVE_RCLONE_BIN:-${HOME}/.local/bin/rclone}"
+readonly config_file="${PDRIVE_RCLONE_CONFIG:-${HOME}/.config/rclone/rclone.conf}"
+readonly account_config="${PDRIVE_ACCOUNT_CONFIG:-${HOME}/.config/pdrive-account.conf}"
+readonly cache_root="${PDRIVE_CACHE_ROOT:-${HOME}/.cache/rclone}"
+readonly state_dir="${PDRIVE_STATE_DIR:-${HOME}/.local/state/rclone}"
+readonly backup_dir="${PDRIVE_BACKUP_DIR:-${HOME}/.config/rclone/backups}"
+readonly mount_dir="${PDRIVE_MOUNT_DIR:-/pdrive}"
+readonly rc_socket="${PDRIVE_RC_SOCKET:-${state_dir}/pdrive-rc.sock}"
+readonly auth_state_file="${PDRIVE_AUTH_STATE:-${state_dir}/pdrive-auth-state.json}"
+readonly auth_guard="${PDRIVE_AUTH_GUARD:-${HOME}/.local/libexec/pdrive-auth-failure-guard}"
+readonly installed_cache_helper="${PDRIVE_ACCOUNT_CACHE_HELPER:-${HOME}/.local/libexec/pdrive-account-cache}"
+source_cache_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/pdrive-account-cache"
+readonly source_cache_helper
+readonly service_name='rclone-proton-drive.service'
+readonly mount_attempts="${PDRIVE_ACCOUNT_SWITCH_MOUNT_ATTEMPTS:-45}"
+readonly rollback_attempts="${PDRIVE_ACCOUNT_SWITCH_ROLLBACK_ATTEMPTS:-30}"
+readonly poll_seconds="${PDRIVE_ACCOUNT_SWITCH_POLL_SECONDS:-2}"
+
+usage() {
+    printf '%s\n' \
+        'Usage: switch-rclone-proton-account --preflight' \
+        '       switch-rclone-proton-account --switch-from-stdin' \
+        '       switch-rclone-proton-account --help' \
+        '' \
+        'Internal transactional backend for pdrive-account-switch.' \
+        '--preflight performs only read-only transfer and cache safety checks.' \
+        '--switch-from-stdin accepts username, password and optional 2FA as three' \
+        'NUL-delimited fields. Direct interactive use is intentionally unsupported.'
+}
+
+case "${1:-}" in
+    --preflight|--switch-from-stdin)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        action="$1"
+        ;;
+    -h|--help|'')
+        (( $# <= 1 )) || { usage >&2; exit 2; }
+        usage
+        exit 0
+        ;;
+    *)
+        printf 'Unknown option: %s\n\n' "$1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac
+
+for command_name in findmnt flock jq mountpoint openssl python3 realpath stat systemctl timeout; do
+    if ! command -v "${command_name}" >/dev/null 2>&1; then
+        printf 'Missing required command: %s\n' "${command_name}" >&2
+        exit 69
+    fi
+done
+if [[ ! "${mount_attempts}" =~ ^[1-9][0-9]*$ \
+    || ! "${rollback_attempts}" =~ ^[1-9][0-9]*$ \
+    || ! "${poll_seconds}" =~ ^[0-9]+([.][0-9]+)?$ ]]; then
+    printf 'Invalid account-switch validation timing.\n' >&2
+    exit 2
+fi
+if [[ ! -x "${rclone_bin}" ]]; then
+    printf 'Missing rclone wrapper: %s\n' "${rclone_bin}" >&2
+    exit 69
+fi
+if [[ ! -x "${auth_guard}" ]]; then
+    printf 'Missing authentication lifecycle guard: %s\n' "${auth_guard}" >&2
+    exit 69
+fi
+
+cache_helper="${installed_cache_helper}"
+if [[ ! -x "${cache_helper}" && -x "${source_cache_helper}" ]]; then
+    cache_helper="${source_cache_helper}"
+fi
+if [[ ! -x "${cache_helper}" ]]; then
+    printf 'Account cache resolver is missing: %s\n' "${cache_helper}" >&2
+    exit 69
+fi
+
+service_properties() {
+    systemctl --user show "${service_name}" \
+        -p ActiveState -p SubState -p MainPID --no-pager 2>/dev/null || true
+}
+
+dirty_file_count() {
+    [[ -d "${cache_root}" ]] || { printf '0\n'; return 0; }
+    if ! python3 - "${cache_root}" 2>/dev/null <<'PY'
+import json
+import os
+import pathlib
+import sys
+
+root = pathlib.Path(sys.argv[1])
+dirty = 0
+
+
+def walk_error(error: OSError) -> None:
+    raise error
+
+
+for directory, directory_names, file_names in os.walk(root, followlinks=False, onerror=walk_error):
+    current = pathlib.Path(directory)
+    parts = current.relative_to(root).parts
+    metadata_index = next((index for index, part in enumerate(parts) if part == "vfsMeta"), -1)
+    relevant = metadata_index >= 0 and len(parts) > metadata_index + 1 and parts[metadata_index + 1].startswith("proton")
+    for directory_name in list(directory_names):
+        candidate = current / directory_name
+        if candidate.is_symlink() and (relevant or directory_name == "vfsMeta"):
+            raise RuntimeError("unsafe VFS metadata symlink")
+    if not relevant:
+        continue
+    for file_name in file_names:
+        path = current / file_name
+        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
+            payload = json.load(stream)
+        if not isinstance(payload, dict) or not isinstance(payload.get("Dirty"), bool):
+            raise RuntimeError("invalid VFS metadata")
+        dirty += int(payload["Dirty"])
+
+print(dirty)
+PY
+    then
+        printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=preflight-unavailable' >&2
+        printf '%s\n' \
+            'Account change refused: local VFS metadata could not be validated safely.' \
+            'The current account, mount and cache remain unchanged.' >&2
+        return 75
+    fi
+}
+
+preflight() {
+    local properties active sub pid queue_json stats_json queue_count transfer_count dirty_count
+
+    properties="$(service_properties)"
+    active="$(awk -F= '$1 == "ActiveState" { print $2; exit }' <<< "${properties}")"
+    sub="$(awk -F= '$1 == "SubState" { print $2; exit }' <<< "${properties}")"
+    pid="$(awk -F= '$1 == "MainPID" { print $2; exit }' <<< "${properties}")"
+    : "${active:=unknown}" "${sub:=unknown}" "${pid:=0}"
+
+    case "${active}/${sub}" in
+        active/running|active/mounted) ;;
+        inactive/dead|failed/failed|inactive/failed) ;;
+        *)
+            printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=preflight-unavailable' >&2
+            printf 'Account change refused while the service state is %s/%s.\n' \
+                "${active}" "${sub}" >&2
+            return 75
+            ;;
+    esac
+
+    if [[ "${active}" == active ]]; then
+        if [[ ! "${pid}" =~ ^[1-9][0-9]*$ || ! -S "${rc_socket}" ]] \
+            || ! queue_json="$(timeout --signal=TERM 10s "${rclone_bin}" rc \
+                --unix-socket "${rc_socket}" vfs/queue 2>/dev/null)" \
+            || ! stats_json="$(timeout --signal=TERM 10s "${rclone_bin}" rc \
+                --unix-socket "${rc_socket}" core/stats 2>/dev/null)" \
+            || ! jq -e '.queue | type == "array"' >/dev/null 2>&1 <<< "${queue_json}" \
+            || ! jq -e '(.transferring // []) | type == "array"' >/dev/null 2>&1 <<< "${stats_json}"; then
+            printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=preflight-unavailable' >&2
+            printf '%s\n' \
+                'Account change refused: the live transfer state could not be validated safely.' \
+                'The current account, mount and cache remain unchanged.' >&2
+            return 75
+        fi
+        queue_count="$(jq -r '.queue | length' <<< "${queue_json}")"
+        transfer_count="$(jq -r '(.transferring // []) | length' <<< "${stats_json}")"
+        if (( queue_count != 0 || transfer_count != 0 )); then
+            printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=busy' >&2
+            printf 'Account change refused: VFS queue %s, active transfers %s.\n' \
+                "${queue_count}" "${transfer_count}" >&2
+            printf '%s\n' \
+                'Wait for every upload and download to finish. Nothing was changed.' >&2
+            return 75
+        fi
+    elif mountpoint -q -- "${mount_dir}"; then
+        printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=preflight-unavailable' >&2
+        printf '%s\n' \
+            'Account change refused: /pdrive is mounted outside the expected active service state.' \
+            'The current account, mount and cache remain unchanged.' >&2
+        return 75
+    fi
+
+    if ! dirty_count="$(dirty_file_count)"; then
+        return 75
+    fi
+    if (( dirty_count != 0 )); then
+        printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=dirty-cache' >&2
+        printf 'Account change refused: %s Dirty VFS cache file(s) remain protected.\n' \
+            "${dirty_count}" >&2
+        printf '%s\n' \
+            'Wait for pending uploads to finish. No cache data was reassigned or removed.' >&2
+        return 75
+    fi
+
+    printf '%s\n' \
+        'Preflight passed: no active transfers, queued uploads or Dirty VFS data.'
+}
+
+if [[ "${action}" == --preflight ]]; then
+    preflight
+    exit 0
+fi
+
+if [[ ! -f "${config_file}" || -L "${config_file}" || ! -r "${config_file}" ]]; then
+    printf 'Existing rclone configuration is missing, unreadable or unsafe: %s\n' \
+        "${config_file}" >&2
+    exit 73
+fi
+if [[ "$(stat -c %u -- "${config_file}" 2>/dev/null || true)" != "$(id -u)" ]]; then
+    printf 'Refusing a configuration not owned by the current user: %s\n' \
+        "${config_file}" >&2
+    exit 73
+fi
+
+mkdir -p -- "${state_dir}"
+exec 9> "${state_dir}/pdrive-auth-transaction.lock"
+if ! flock -n 9; then
+    printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=already-running' >&2
+    printf '%s\n' 'Another PDrive authentication transaction is already running.' >&2
+    exit 75
+fi
+
+if ! IFS= read -r -d '' username \
+    || ! IFS= read -r -d '' password \
+    || ! IFS= read -r -d '' two_factor; then
+    printf 'Invalid credential transport from pdrive-account-switch.\n' >&2
+    exit 65
+fi
+if [[ -z "${username}" || "${username}" == *$'\n'* || "${username}" == *$'\r'* ]]; then
+    unset password two_factor
+    printf 'Invalid Proton username or email address.\n' >&2
+    exit 65
+fi
+if [[ -z "${password}" || "${password}" == *$'\n'* || "${password}" == *$'\r'* ]]; then
+    unset password two_factor username
+    printf 'Invalid Proton password.\n' >&2
+    exit 65
+fi
+if [[ -n "${two_factor}" && ! "${two_factor}" =~ ^[0-9]{6}$ ]]; then
+    unset password two_factor username
+    printf 'The 2FA code must be empty or exactly six digits.\n' >&2
+    exit 65
+fi
+
+preflight >/dev/null
+
+mkdir -p -- "${config_file%/*}" "${account_config%/*}" "${backup_dir}" "${cache_root}/accounts"
+temporary_config="$(mktemp "${config_file%/*}/rclone.conf.account-switch.XXXXXX")"
+test_cache="$(mktemp -d "${state_dir}/account-switch-login-cache.XXXXXX")"
+temporary_account_config=''
+transaction_dir=''
+login_output=''
+# Invoked indirectly by the EXIT trap below.
+# shellcheck disable=SC2329
+cleanup() {
+    unset password two_factor obscured_password username login_output
+    [[ -z "${temporary_config:-}" ]] || rm -f -- "${temporary_config}"
+    [[ -z "${temporary_account_config:-}" ]] || rm -f -- "${temporary_account_config}"
+    [[ -z "${test_cache:-}" ]] || rm -rf -- "${test_cache}"
+}
+trap cleanup EXIT
+
+obscured_password="$(printf '%s\n' "${password}" | "${rclone_bin}" obscure -)"
+unset password
+{
+    printf '%s\n' \
+        '[proton]' \
+        'type = protondrive' \
+        "username = ${username}" \
+        "password = ${obscured_password}" \
+        'original_file_size = true' \
+        'enable_caching = false'
+    if [[ -n "${two_factor}" ]]; then
+        printf '2fa = %s\n' "${two_factor}"
+    fi
+} > "${temporary_config}"
+unset obscured_password username
+
+"${rclone_bin}" --config="${temporary_config}" config encryption set >/dev/null
+"${rclone_bin}" --config="${temporary_config}" config encryption check >/dev/null
+
+set +e
+login_output="$(timeout --signal=TERM 90s "${rclone_bin}" \
+    --config="${temporary_config}" \
+    --cache-dir="${test_cache}" \
+    --low-level-retries=0 \
+    --retries=1 \
+    --log-level=ERROR \
+    lsd proton: --max-depth 1 2>&1 >/dev/null)"
+login_rc=$?
+set -e
+
+"${rclone_bin}" --config="${temporary_config}" config update proton 2fa '' --no-output
+unset two_factor
+
+if (( login_rc != 0 )); then
+    if grep -Eqi '(^|[^0-9])(HTTP[ =]?429|Status=429|Code=429)([^0-9]|$)' <<< "${login_output}"; then
+        printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=rate-limited' >&2
+        printf '%s\n' \
+            'The candidate account login was rate-limited. The existing account,' \
+            'mount, cache and authentication lifecycle state remain unchanged.' >&2
+    else
+        printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=login-rejected' >&2
+        printf '%s\n' \
+            'The candidate account login failed. The existing account, mount and' \
+            'cache remain unchanged.' >&2
+    fi
+    unset login_output
+    exit "${login_rc}"
+fi
+unset login_output
+
+# Transfers can begin during the bounded candidate login. Recheck every safety
+# fact immediately before the first live mutation.
+preflight >/dev/null
+
+old_cache_dir="$("${cache_helper}" --path)"
+old_properties="$(service_properties)"
+old_active="$(awk -F= '$1 == "ActiveState" { print $2; exit }' <<< "${old_properties}")"
+new_namespace="account-$(openssl rand -hex 16)"
+[[ "${new_namespace}" =~ ^account-[0-9a-f]{32}$ ]]
+new_cache_dir="${cache_root}/accounts/${new_namespace}"
+if [[ -e "${new_cache_dir}" ]]; then
+    printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=namespace-collision' >&2
+    printf '%s\n' 'The new anonymous cache namespace already exists; nothing was changed.' >&2
+    exit 73
+fi
+install -d -m 0700 -- "${new_cache_dir}"
+
+timestamp="$(date '+%Y%m%d-%H%M%S')"
+transaction_dir="$(mktemp -d "${backup_dir}/account-switch-${timestamp}.XXXXXX")"
+chmod 0700 "${transaction_dir}"
+install -m 0600 "${config_file}" "${transaction_dir}/rclone.conf"
+if [[ -e "${account_config}" ]]; then
+    install -m 0600 "${account_config}" "${transaction_dir}/pdrive-account.conf"
+else
+    : > "${transaction_dir}/pdrive-account.conf.absent"
+fi
+if [[ -e "${auth_state_file}" ]]; then
+    install -m 0600 "${auth_state_file}" "${transaction_dir}/pdrive-auth-state.json"
+else
+    : > "${transaction_dir}/pdrive-auth-state.json.absent"
+fi
+
+temporary_account_config="$(mktemp "${account_config%/*}/pdrive-account.conf.XXXXXX")"
+printf '%s\n' \
+    '# Managed by PDrive account switching; never source as shell code.' \
+    '# The opaque namespace contains no Proton account identifier.' \
+    "cache_namespace=${new_namespace}" > "${temporary_account_config}"
+chmod 0600 "${temporary_account_config}" "${temporary_config}"
+
+mount_is_verified() {
+    local expected_cache="$1" properties active pid findmnt_line options pid_json stats_json
+    local disk_path meta_path expected_real
+
+    mountpoint -q -- "${mount_dir}" || return 1
+    findmnt_line="$(findmnt -rn -M "${mount_dir}" -o FSTYPE,OPTIONS 2>/dev/null)" || return 1
+    [[ "${findmnt_line%% *}" =~ ^fuse(\.rclone)?$ ]] || return 1
+    options="${findmnt_line#* }"
+    [[ ",${options}," == *,rw,* ]] || return 1
+    properties="$(service_properties)"
+    active="$(awk -F= '$1 == "ActiveState" { print $2; exit }' <<< "${properties}")"
+    pid="$(awk -F= '$1 == "MainPID" { print $2; exit }' <<< "${properties}")"
+    [[ "${active}" == active && "${pid}" =~ ^[1-9][0-9]*$ ]] || return 1
+    pid_json="$(timeout --signal=TERM 5s "${rclone_bin}" rc \
+        --unix-socket "${rc_socket}" core/pid 2>/dev/null)" || return 1
+    [[ "$(jq -r '.pid // 0' <<< "${pid_json}")" == "${pid}" ]] || return 1
+    stats_json="$(timeout --signal=TERM 5s "${rclone_bin}" rc \
+        --unix-socket "${rc_socket}" vfs/stats 2>/dev/null)" || return 1
+    disk_path="$(jq -er '.diskCache.path | select(type == "string")' <<< "${stats_json}" 2>/dev/null)" || return 1
+    meta_path="$(jq -er '.diskCache.pathMeta | select(type == "string")' <<< "${stats_json}" 2>/dev/null)" || return 1
+    expected_real="$(realpath -m -- "${expected_cache}")"
+    [[ "$(realpath -m -- "${disk_path}")" == "${expected_real}/"* ]] || return 1
+    [[ "$(realpath -m -- "${meta_path}")" == "${expected_real}/"* ]]
+}
+
+restore_previous_transaction() {
+    local stopped=true files_restored=true mount_restored=true
+
+    systemctl --user stop "${service_name}" || stopped=false
+    if ! install -m 0600 "${transaction_dir}/rclone.conf" "${config_file}.rollback" \
+        || ! mv -f -- "${config_file}.rollback" "${config_file}"; then
+        files_restored=false
+    fi
+    if [[ -f "${transaction_dir}/pdrive-account.conf" ]]; then
+        if ! install -m 0600 "${transaction_dir}/pdrive-account.conf" "${account_config}.rollback" \
+            || ! mv -f -- "${account_config}.rollback" "${account_config}"; then
+            files_restored=false
+        fi
+    elif ! rm -f -- "${account_config}"; then
+        files_restored=false
+    fi
+    if [[ -f "${transaction_dir}/pdrive-auth-state.json" ]]; then
+        if ! install -m 0600 "${transaction_dir}/pdrive-auth-state.json" "${auth_state_file}.rollback" \
+            || ! mv -f -- "${auth_state_file}.rollback" "${auth_state_file}"; then
+            files_restored=false
+        fi
+    elif ! rm -f -- "${auth_state_file}"; then
+        files_restored=false
+    fi
+    systemctl --user reset-failed "${service_name}" || true
+
+    if [[ "${old_active}" == active ]]; then
+        mount_restored=false
+        if [[ "${stopped}" == true && "${files_restored}" == true ]] \
+            && systemctl --user start --no-block "${service_name}"; then
+            for ((attempt = 0; attempt < rollback_attempts; attempt += 1)); do
+                if mount_is_verified "${old_cache_dir}"; then
+                    mount_restored=true
+                    break
+                fi
+                sleep "${poll_seconds}"
+            done
+        fi
+    fi
+
+    [[ "${stopped}" == true && "${files_restored}" == true && "${mount_restored}" == true ]]
+}
+
+activation_started=false
+activation_ready=true
+if systemctl --user stop "${service_name}"; then
+    activation_started=true
+else
+    activation_ready=false
+fi
+if [[ "${activation_ready}" == true ]]; then
+    if mv -f -- "${temporary_config}" "${config_file}"; then
+        temporary_config=''
+    else
+        activation_ready=false
+    fi
+fi
+if [[ "${activation_ready}" == true ]]; then
+    if mv -f -- "${temporary_account_config}" "${account_config}"; then
+        temporary_account_config=''
+    else
+        activation_ready=false
+    fi
+fi
+if [[ "${activation_ready}" == true ]] \
+    && ! "${auth_guard}" --mark-healthy; then
+    activation_ready=false
+fi
+if [[ "${activation_ready}" == true ]] \
+    && ! systemctl --user reset-failed "${service_name}"; then
+    activation_ready=false
+fi
+if [[ "${activation_ready}" == true ]] \
+    && ! systemctl --user start --no-block "${service_name}"; then
+    activation_ready=false
+fi
+
+if [[ "${activation_ready}" != true ]]; then
+    printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=activation-failed-rolled-back' >&2
+    if [[ "${activation_started}" != true ]]; then
+        printf '%s\n' \
+            'The current service could not be stopped, so no live configuration' \
+            'or cache selector was changed.' >&2
+        exit 75
+    fi
+    if restore_previous_transaction; then
+        printf '%s\n' \
+            'Candidate activation failed before mount validation. The previous' \
+            'configuration, cache namespace and authentication state were restored.' >&2
+        exit 75
+    fi
+    printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=rollback-failed' >&2
+    printf '%s\n' \
+        'Candidate activation failed and the previous transaction could not be' \
+        'fully restored. Preserve every cache namespace and run pdrive-doctor.' >&2
+    exit 74
+fi
+
+new_mount_ready=false
+for ((attempt = 0; attempt < mount_attempts; attempt += 1)); do
+    if mount_is_verified "${new_cache_dir}"; then
+        new_mount_ready=true
+        break
+    fi
+    sleep "${poll_seconds}"
+done
+if [[ "${new_mount_ready}" == true ]]; then
+    printf '%s\n' \
+        'Proton account change succeeded. /pdrive is mounted through a new,' \
+        'anonymous account-specific cache namespace.' \
+        "Encrypted rollback bundle: ${transaction_dir}"
+    exit 0
+fi
+
+printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=activation-failed-rolled-back' >&2
+if restore_previous_transaction; then
+    printf '%s\n' \
+        'The candidate account authenticated, but its managed mount did not pass' \
+        'validation. The previous encrypted configuration, cache namespace and' \
+        'authentication state were restored; no cache data was reassigned.' >&2
+    exit 75
+fi
+
+printf '%s\n' 'PDRIVE_ACCOUNT_SWITCH_ERROR=rollback-failed' >&2
+printf '%s\n' \
+    'The candidate mount failed validation and the previous files were restored,' \
+    'but the previous mount also did not become ready. Run pdrive-doctor; do not' \
+    'delete either cache namespace.' >&2
+exit 74

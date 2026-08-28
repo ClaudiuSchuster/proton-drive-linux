@@ -74,6 +74,20 @@ Proton Web, the mobile app, the official CLI or another rclone client. If an
 exceptional external change occurs, wait for an empty queue and use the guarded
 metadata refresh.
 
+## Change the mounted Proton account
+
+Routine login repair uses contextual **Reauthorize** and keeps the same account.
+For a deliberate account migration, open **Preferences → Account → Change
+Proton account …**. The action remains visible because it is an intentional
+setting, not an error recovery shortcut.
+
+Finish every upload and download first. PDrive blocks the change if Active,
+Queue or any protected Dirty VFS metadata is nonzero. It tests the new username,
+password and optional fresh 2FA code in an isolated encrypted configuration,
+rechecks the preflight, and only then stops `/pdrive`. A successful account gets
+a new anonymous cache namespace. Previous clean cache and encrypted rollback
+data remain separate; PDrive never merges or silently reassigns them.
+
 ## Notifications and issue review
 
 Desktop notifications follow **Preferences → Desktop notifications** and the

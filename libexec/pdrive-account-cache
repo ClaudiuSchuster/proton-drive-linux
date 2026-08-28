@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+
+readonly cache_root="${PDRIVE_CACHE_ROOT:-${HOME}/.cache/rclone}"
+readonly account_config="${PDRIVE_ACCOUNT_CONFIG:-${HOME}/.config/pdrive-account.conf}"
+
+usage() {
+    printf '%s\n' \
+        'Usage: pdrive-account-cache --path' \
+        '       pdrive-account-cache --help' \
+        '' \
+        'Internal read-only resolver for the active account-specific VFS cache.' \
+        'An installation without pdrive-account.conf keeps the legacy cache root.'
+}
+
+case "${1:-}" in
+    --path)
+        (( $# == 1 )) || { usage >&2; exit 2; }
+        ;;
+    -h|--help|'')
+        (( $# <= 1 )) || { usage >&2; exit 2; }
+        usage
+        exit 0
+        ;;
+    *)
+        printf 'Unknown option: %s\n\n' "$1" >&2
+        usage >&2
+        exit 2
+        ;;
+esac
+
+if [[ ! -e "${account_config}" ]]; then
+    printf '%s\n' "${cache_root}"
+    exit 0
+fi
+if [[ ! -f "${account_config}" || -L "${account_config}" || ! -r "${account_config}" ]]; then
+    printf 'Account cache configuration is missing, unreadable or unsafe: %s\n' \
+        "${account_config}" >&2
+    exit 78
+fi
+if [[ "$(stat -c %u -- "${account_config}" 2>/dev/null || true)" != "$(id -u)" ]]; then
+    printf 'Refusing account cache configuration not owned by the current user: %s\n' \
+        "${account_config}" >&2
+    exit 78
+fi
+
+entries="$(awk '
+    /^[[:space:]]*($|#)/ { next }
+    { print }
+' "${account_config}")"
+if [[ ! "${entries}" =~ ^cache_namespace=(account-[0-9a-f]{32})$ ]]; then
+    printf 'Invalid account cache configuration: %s\n' "${account_config}" >&2
+    exit 78
+fi
+
+printf '%s/accounts/%s\n' "${cache_root}" "${BASH_REMATCH[1]}"

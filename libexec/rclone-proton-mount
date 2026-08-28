@@ -4,7 +4,6 @@
 set -euo pipefail
 
 readonly mount_dir='/pdrive'
-readonly cache_dir="${HOME}/.cache/rclone"
 readonly state_dir="${HOME}/.local/state/rclone"
 readonly config_file="${HOME}/.config/rclone/rclone.conf"
 readonly transfers_config="${HOME}/.config/pdrive-transfers.conf"
@@ -14,6 +13,14 @@ readonly recovery_config="${HOME}/.config/pdrive-recovery.conf"
 readonly draft_recovery_config="${HOME}/.config/pdrive-draft-recovery.conf"
 readonly rc_socket="${state_dir}/pdrive-rc.sock"
 readonly rclone_bin="${HOME}/.local/bin/rclone"
+readonly account_cache_helper="${PDRIVE_ACCOUNT_CACHE_HELPER:-${HOME}/.local/libexec/pdrive-account-cache}"
+
+if [[ ! -x "${account_cache_helper}" ]]; then
+    echo "Account cache resolver is missing: ${account_cache_helper}" >&2
+    exit 69
+fi
+cache_dir="$("${account_cache_helper}" --path)"
+readonly cache_dir
 
 mkdir -p -- "${cache_dir}" "${state_dir}"
 if [[ ! -d "${mount_dir}" || -L "${mount_dir}" ]]; then

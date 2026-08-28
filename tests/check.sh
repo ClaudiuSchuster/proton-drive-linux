@@ -132,6 +132,8 @@ manual_assets=(
     'docs/assets/pdrive-control-center.png'
     'docs/assets/pdrive-transfers.png'
     'docs/assets/pdrive-auth-cooldown.png'
+    'docs/assets/pdrive-account-settings.png'
+    'docs/assets/pdrive-account-switch.png'
     'docs/assets/pdrive-setup-wizard.png'
 )
 for manual_path in "${manual_files[@]}" "${manual_assets[@]}"; do
@@ -158,6 +160,7 @@ done
 "${project_dir}/tests/test-prerequisites.sh"
 "${project_dir}/tests/test-setup.sh"
 "${project_dir}/tests/test-reauth.sh"
+"${project_dir}/tests/test-account-switch.sh"
 "${project_dir}/tests/test-auth-failure-guard.sh"
 "${project_dir}/tests/test-setup-wizard-ui.sh"
 "${project_dir}/tests/test-state.sh"

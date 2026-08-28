@@ -44,7 +44,7 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.7.4"
+VERSION = "0.7.5"
 REFRESH_INTERVAL_SECONDS = 2
 REFRESH_INTERVAL_OPTIONS = (1, 2, 5, 10)
 GRAPH_WINDOW_SECONDS = 5 * 60
@@ -52,6 +52,7 @@ BANDWIDTH_SLIDER_MAX_RATE = 100.0
 BANDWIDTH_SLIDER_UNLIMITED = 110.0
 BANDWIDTH_NEAR_PAUSE_MIB = 0.02
 SETUP_TIMEOUT_SECONDS = 180
+ACCOUNT_SWITCH_TIMEOUT_SECONDS = 300
 AUTOSTART_MARKER = "X-PDrive-Control-Center=true"
 PROJECT_URL = "https://github.com/oss-singularity/proton-drive-linux"
 DOCUMENTATION_URL = f"{PROJECT_URL}#readme"
@@ -189,6 +190,10 @@ GERMAN_TRANSLATIONS = {
     "Safely restart service …": "Dienst sicher neu starten …",
     "Reauthorize Proton account …": "Proton-Konto neu autorisieren …",
     "Reauthorization is available in the installed application when the account requires it.": "Die neue Autorisierung ist in der installierten Anwendung verfügbar, sobald das Konto sie benötigt.",
+    "Change Proton account …": "Proton-Konto wechseln …",
+    "Change Proton account": "Proton-Konto wechseln",
+    "Account": "Konto",
+    "Move the managed /pdrive mount to another Proton account. Active transfers and protected pending data block the change.": "Verschiebe den verwalteten /pdrive-Mount zu einem anderen Proton-Konto. Aktive Übertragungen und geschützte ausstehende Daten blockieren den Wechsel.",
     "Documentation …": "Handbuch …",
     "Documentation": "Handbuch",
     "Quick start": "Schnellstart",
@@ -557,6 +562,39 @@ GERMAN_TRANSLATIONS = {
     "Proton did not accept the login. Check the password and retry once with a fresh 2FA code.": "Proton hat die Anmeldung nicht akzeptiert. Prüfe das Passwort und versuche es einmal mit einem frischen 2FA-Code erneut.",
     "The existing encrypted configuration was not changed.": "Die bestehende verschlüsselte Konfiguration wurde nicht verändert.",
     "The existing encrypted configuration was updated safely.": "Die bestehende verschlüsselte Konfiguration wurde sicher aktualisiert.",
+    "Change account securely": "Konto sicher wechseln",
+    "Move /pdrive to another account": "/pdrive zu einem anderen Konto verschieben",
+    "The mounted Proton account and remote namespace will change. Existing local cache data stays assigned to the previous account and is never merged.": "Das gemountete Proton-Konto und der entfernte Namensraum ändern sich. Vorhandene lokale Cachedaten bleiben dem bisherigen Konto zugeordnet und werden niemals zusammengeführt.",
+    "Checking active transfers, queued uploads and protected Dirty cache data …": "Aktive Übertragungen, eingereihte Uploads und geschützte Dirty-Cachedaten werden geprüft …",
+    "New username or email": "Neuer Benutzername oder E-Mail",
+    "New password": "Neues Passwort",
+    "Repeat new password": "Neues Passwort wiederholen",
+    "Fresh 2FA code (optional)": "Frischer 2FA-Code (optional)",
+    "Credentials travel through one anonymous pipe. They never enter process arguments, environment variables, logs, diagnostics or screenshots.": "Zugangsdaten laufen durch eine anonyme Pipe. Sie gelangen niemals in Prozessargumente, Umgebungsvariablen, Logs, Diagnosen oder Screenshots.",
+    "I understand that /pdrive will show the new account and that previous cache data remains separate.": "Ich verstehe, dass /pdrive das neue Konto zeigt und bisherige Cachedaten getrennt bleiben.",
+    "Confirm the intentional Proton account migration": "Den beabsichtigten Proton-Kontowechsel bestätigen",
+    "Authenticating the candidate and activating its isolated cache namespace …": "Das neue Konto wird authentifiziert und sein isolierter Cache-Namensraum aktiviert …",
+    "Ready: no active transfers, queued uploads or Dirty cache data were found.": "Bereit: Es wurden keine aktiven Übertragungen, eingereihten Uploads oder Dirty-Cachedaten gefunden.",
+    "Account change is blocked while an upload, download or VFS queue item is active.": "Der Kontowechsel ist blockiert, solange ein Upload, Download oder VFS-Warteschlangeneintrag aktiv ist.",
+    "Account change is blocked while protected Dirty cache data awaits upload.": "Der Kontowechsel ist blockiert, solange geschützte Dirty-Cachedaten auf den Upload warten.",
+    "The account-switch helper could not be started.": "Der Helfer für den Kontowechsel konnte nicht gestartet werden.",
+    "Account safety could not be verified. The current account and cache remain unchanged.": "Die Kontosicherheit konnte nicht geprüft werden. Das aktuelle Konto und der Cache bleiben unverändert.",
+    "Account changes are disabled in demo mode.": "Kontowechsel sind im Demo-Modus deaktiviert.",
+    "Enter the new Proton username or email address.": "Gib den neuen Proton-Benutzernamen oder die E-Mail-Adresse ein.",
+    "Confirm the intentional Proton account migration.": "Bestätige den beabsichtigten Proton-Kontowechsel.",
+    "Proton account changed": "Proton-Konto gewechselt",
+    "/pdrive is mounted through the new account’s separate cache namespace.": "/pdrive ist über den getrennten Cache-Namensraum des neuen Kontos gemountet.",
+    "The previous encrypted configuration and cache namespace remain available for rollback.": "Die vorherige verschlüsselte Konfiguration und der Cache-Namensraum bleiben für ein Rollback verfügbar.",
+    "Previous account restored": "Vorheriges Konto wiederhergestellt",
+    "The candidate login worked, but its mount failed validation. PDrive restored the previous configuration and cache namespace.": "Die Anmeldung des neuen Kontos funktionierte, aber sein Mount bestand die Validierung nicht. PDrive hat die vorherige Konfiguration und den Cache-Namensraum wiederhergestellt.",
+    "No cache data was reassigned or removed.": "Keine Cachedaten wurden neu zugeordnet oder entfernt.",
+    "A transfer or queued upload began during validation. The account change was cancelled safely.": "Während der Validierung begann eine Übertragung oder ein eingereihter Upload. Der Kontowechsel wurde sicher abgebrochen.",
+    "Dirty cache data appeared during validation. The account change was cancelled safely.": "Während der Validierung erschienen Dirty-Cachedaten. Der Kontowechsel wurde sicher abgebrochen.",
+    "Proton temporarily rate-limited the candidate login. Wait for the full backoff before retrying.": "Proton hat die Anmeldung des neuen Kontos vorübergehend begrenzt. Warte den vollständigen Backoff ab, bevor du es erneut versuchst.",
+    "The previous files were restored, but /pdrive still needs diagnostics. Do not delete any cache namespace.": "Die vorherigen Dateien wurden wiederhergestellt, aber /pdrive benötigt weiterhin eine Diagnose. Lösche keinen Cache-Namensraum.",
+    "The account change timed out. Inspect PDrive before making another login attempt.": "Der Kontowechsel hat das Zeitlimit überschritten. Prüfe PDrive, bevor du einen weiteren Loginversuch startest.",
+    "Proton did not accept the candidate login. Check the credentials and retry once with a fresh 2FA code.": "Proton hat die Anmeldung des neuen Kontos nicht akzeptiert. Prüfe die Zugangsdaten und versuche es einmal mit einem frischen 2FA-Code erneut.",
+    "The current account, mount and cache were not changed.": "Das aktuelle Konto, der Mount und der Cache wurden nicht verändert.",
     "Proton account reauthorization required": "Neue Autorisierung des Proton-Kontos erforderlich",
     "Open PDrive Control Center and complete one guided reauthorization. Automatic login retries are stopped.": "Öffne das PDrive Control Center und führe einmal die geführte neue Autorisierung durch. Automatische Loginversuche sind gestoppt.",
     "Proton account reauthorized": "Proton-Konto neu autorisiert",
@@ -655,6 +693,16 @@ def reauth_backend_path() -> str:
     return str(pathlib.Path(__file__).resolve().parent.parent / "libexec/reauth-rclone-proton")
 
 
+def account_switch_backend_path() -> str:
+    configured = os.environ.get("PDRIVE_ACCOUNT_SWITCH_BACKEND")
+    if configured:
+        return configured
+    installed = pathlib.Path.home() / ".local/libexec/switch-rclone-proton-account"
+    if installed.is_file() and os.access(installed, os.X_OK):
+        return str(installed)
+    return str(pathlib.Path(__file__).resolve().parent.parent / "libexec/switch-rclone-proton-account")
+
+
 def mount_path() -> pathlib.Path:
     return pathlib.Path(os.environ.get("PDRIVE_MOUNT_DIR", "/pdrive")).expanduser()
 
@@ -690,7 +738,10 @@ def setup_readiness() -> dict[str, Any]:
         try:
             rclone_ready = (
                 subprocess.run(
-                    [resolve_command("PDRIVE_PREREQUISITES_BIN", "pdrive-prerequisites"), "--check"],
+                    [
+                        resolve_command("PDRIVE_PREREQUISITES_BIN", "pdrive-prerequisites"),
+                        "--check",
+                    ],
                     check=False,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
@@ -1757,7 +1808,10 @@ class SpeedGraph(Gtk.DrawingArea):
         window_start = latest - GRAPH_WINDOW_SECONDS
         return [
             (
-                max(0.0, min(width, width * (observed - window_start) / GRAPH_WINDOW_SECONDS)),
+                max(
+                    0.0,
+                    min(width, width * (observed - window_start) / GRAPH_WINDOW_SECONDS),
+                ),
                 height - (value / peak) * (height - 10) - 5,
             )
             for observed, value in self.samples
@@ -2509,7 +2563,11 @@ class SetupWizard(Gtk.Box):
         self.bandwidth_unlimited = Gtk.RadioButton.new_with_label_from_widget(
             self.bandwidth_auto, translate("Unlimited bulk transfers")
         )
-        for radio in (self.bandwidth_auto, self.bandwidth_manual, self.bandwidth_unlimited):
+        for radio in (
+            self.bandwidth_auto,
+            self.bandwidth_manual,
+            self.bandwidth_unlimited,
+        ):
             set_pointer_on_hover(radio)
             radio.connect("toggled", self.on_bandwidth_mode_changed)
 
@@ -2848,7 +2906,11 @@ class SetupWizard(Gtk.Box):
         self.bandwidth_spinner.start()
         self.bandwidth_continue_button.set_sensitive(False)
         self.bandwidth_back_button.set_sensitive(False)
-        for radio in (self.bandwidth_auto, self.bandwidth_manual, self.bandwidth_unlimited):
+        for radio in (
+            self.bandwidth_auto,
+            self.bandwidth_manual,
+            self.bandwidth_unlimited,
+        ):
             radio.set_sensitive(False)
         threading.Thread(
             target=self.bandwidth_worker,
@@ -2919,7 +2981,11 @@ class SetupWizard(Gtk.Box):
         self.bandwidth_progress.hide()
         self.bandwidth_continue_button.set_sensitive(True)
         self.bandwidth_back_button.set_sensitive(True)
-        for radio in (self.bandwidth_auto, self.bandwidth_manual, self.bandwidth_unlimited):
+        for radio in (
+            self.bandwidth_auto,
+            self.bandwidth_manual,
+            self.bandwidth_unlimited,
+        ):
             radio.set_sensitive(True)
 
         context = self.bandwidth_result.get_style_context()
@@ -3325,6 +3391,406 @@ class ReauthorizationDialog(Gtk.Dialog):
         return GLib.SOURCE_REMOVE
 
 
+class AccountSwitchDialog(Gtk.Dialog):
+    """Guarded migration to a separately cached Proton account."""
+
+    def __init__(self, window: "PDriveWindow", demo: bool = False) -> None:
+        super().__init__(
+            title=translate("Change Proton account"),
+            transient_for=None if demo else window,
+            modal=True,
+        )
+        self.parent_window = window
+        self.demo = demo
+        self.busy = False
+        self.completed = False
+        self.preflight_running = False
+        self.preflight_ready = False
+        self.set_default_size(610, -1)
+        self.add_buttons(
+            translate("Cancel"),
+            Gtk.ResponseType.CANCEL,
+            translate("Change account securely"),
+            Gtk.ResponseType.OK,
+        )
+        self.cancel_button = self.get_widget_for_response(Gtk.ResponseType.CANCEL)
+        self.switch_button = self.get_widget_for_response(Gtk.ResponseType.OK)
+        add_css(self.switch_button, "setup-primary")
+        self.set_default_response(Gtk.ResponseType.OK)
+        self.connect("response", self.on_response)
+        self.connect("delete-event", self.on_delete)
+
+        content = self.get_content_area()
+        content.set_spacing(12)
+        content.set_margin_top(18)
+        content.set_margin_bottom(18)
+        content.set_margin_start(18)
+        content.set_margin_end(18)
+
+        hero = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=14)
+        self.hero_icon = Gtk.Image.new_from_icon_name("system-switch-user-symbolic", Gtk.IconSize.DIALOG)
+        self.hero_icon.set_pixel_size(46)
+        add_css(self.hero_icon, "warning")
+        hero.pack_start(self.hero_icon, False, False, 0)
+        hero_text = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=4)
+        self.hero_title = label("Move /pdrive to another account", "status-title")
+        self.hero_detail = label(
+            "The mounted Proton account and remote namespace will change. Existing local cache data stays assigned to the previous account and is never merged.",
+            "status-detail",
+        )
+        self.hero_detail.set_line_wrap(True)
+        hero_text.pack_start(self.hero_title, False, False, 0)
+        hero_text.pack_start(self.hero_detail, False, False, 0)
+        hero.pack_start(hero_text, True, True, 0)
+        content.pack_start(hero, False, False, 0)
+
+        self.preflight_box = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        self.preflight_spinner = Gtk.Spinner()
+        self.preflight_box.pack_start(self.preflight_spinner, False, False, 0)
+        self.preflight_label = label(
+            "Checking active transfers, queued uploads and protected Dirty cache data …",
+            "section-subtitle",
+        )
+        self.preflight_label.set_line_wrap(True)
+        self.preflight_box.pack_start(self.preflight_label, True, True, 0)
+        content.pack_start(self.preflight_box, False, False, 0)
+
+        self.form = Gtk.Grid(column_spacing=16, row_spacing=12)
+        add_css(self.form, "reauth-panel")
+        self.username_entry = Gtk.Entry()
+        self.username_entry.set_input_purpose(Gtk.InputPurpose.EMAIL)
+        self.password_entry = Gtk.Entry()
+        self.password_confirm_entry = Gtk.Entry()
+        self.two_factor_entry = Gtk.Entry()
+        for entry in (
+            self.password_entry,
+            self.password_confirm_entry,
+            self.two_factor_entry,
+        ):
+            entry.set_visibility(False)
+            entry.set_invisible_char("●")
+        self.two_factor_entry.set_input_purpose(Gtk.InputPurpose.DIGITS)
+        self.two_factor_entry.set_max_length(6)
+        for row_index, (title, entry) in enumerate(
+            (
+                ("New username or email", self.username_entry),
+                ("New password", self.password_entry),
+                ("Repeat new password", self.password_confirm_entry),
+                ("Fresh 2FA code (optional)", self.two_factor_entry),
+            )
+        ):
+            self.form.attach(label(title), 0, row_index, 1, 1)
+            entry.set_hexpand(True)
+            entry.connect("changed", self.update_button_state)
+            entry.connect("activate", lambda _entry: self.start_account_switch())
+            self.form.attach(entry, 1, row_index, 1, 1)
+        content.pack_start(self.form, False, False, 0)
+
+        credential_note = label(
+            "Credentials travel through one anonymous pipe. They never enter process arguments, environment variables, logs, diagnostics or screenshots.",
+            "reauth-note",
+        )
+        credential_note.set_line_wrap(True)
+        content.pack_start(credential_note, False, False, 0)
+
+        self.confirmation = Gtk.CheckButton(
+            label=translate(
+                "I understand that /pdrive will show the new account and that previous cache data remains separate."
+            )
+        )
+        self.confirmation.set_tooltip_text(translate("Confirm the intentional Proton account migration"))
+        self.confirmation.connect("toggled", self.update_button_state)
+        content.pack_start(self.confirmation, False, False, 0)
+
+        self.show_password = Gtk.CheckButton(label=translate("Show passwords"))
+        self.show_password.set_tooltip_text(translate("Show passwords"))
+        self.show_password.connect("toggled", self.on_show_password)
+        content.pack_start(self.show_password, False, False, 0)
+
+        self.progress = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=9)
+        self.spinner = Gtk.Spinner()
+        self.progress.pack_start(self.spinner, False, False, 0)
+        self.progress_label = label(
+            "Authenticating the candidate and activating its isolated cache namespace …",
+            "section-subtitle",
+        )
+        self.progress_label.set_line_wrap(True)
+        self.progress.pack_start(self.progress_label, True, True, 0)
+        content.pack_start(self.progress, False, False, 0)
+
+        self.result_detail = label("")
+        self.result_detail.set_no_show_all(True)
+        self.result_detail.set_line_wrap(True)
+        content.pack_start(self.result_detail, False, False, 0)
+
+        self.show_all()
+        self.progress.hide()
+        self.result_detail.hide()
+        self.form.set_sensitive(False)
+        self.confirmation.set_sensitive(False)
+        self.show_password.set_sensitive(False)
+        self.switch_button.set_sensitive(False)
+        if self.demo:
+            GLib.idle_add(self.preflight_finished, 0, "")
+        else:
+            self.start_preflight()
+
+    def on_delete(self, _dialog: Gtk.Dialog, _event: Gdk.Event) -> bool:
+        return self.busy or self.preflight_running
+
+    def start_preflight(self) -> None:
+        self.preflight_running = True
+        self.cancel_button.set_sensitive(False)
+        self.preflight_spinner.start()
+        threading.Thread(target=self.preflight_worker, daemon=True).start()
+
+    def preflight_worker(self) -> None:
+        returncode = 127
+        error_text = ""
+        try:
+            completed = subprocess.run(
+                [account_switch_backend_path(), "--preflight"],
+                check=False,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                timeout=30,
+            )
+            returncode = completed.returncode
+            error_text = completed.stderr.decode("utf-8", errors="replace")[-4096:]
+        except subprocess.TimeoutExpired:
+            returncode = 124
+        except OSError:
+            error_text = "helper-unavailable"
+        GLib.idle_add(self.preflight_finished, returncode, error_text)
+
+    def preflight_finished(self, returncode: int, error_text: str) -> bool:
+        self.preflight_running = False
+        self.preflight_spinner.stop()
+        self.cancel_button.set_sensitive(True)
+        if returncode == 0:
+            self.preflight_ready = True
+            self.preflight_label.set_text(
+                translate("Ready: no active transfers, queued uploads or Dirty cache data were found.")
+            )
+            self.form.set_sensitive(True)
+            self.confirmation.set_sensitive(True)
+            self.show_password.set_sensitive(True)
+            add_css(self.preflight_label, "reauth-success")
+            self.username_entry.grab_focus()
+        else:
+            self.preflight_ready = False
+            if "PDRIVE_ACCOUNT_SWITCH_ERROR=busy" in error_text:
+                message = "Account change is blocked while an upload, download or VFS queue item is active."
+            elif "PDRIVE_ACCOUNT_SWITCH_ERROR=dirty-cache" in error_text:
+                message = "Account change is blocked while protected Dirty cache data awaits upload."
+            elif error_text == "helper-unavailable":
+                message = "The account-switch helper could not be started."
+            else:
+                message = "Account safety could not be verified. The current account and cache remain unchanged."
+            self.preflight_label.set_text(translate(message))
+            add_css(self.preflight_label, "setup-error")
+        self.update_button_state()
+        return GLib.SOURCE_REMOVE
+
+    def on_show_password(self, button: Gtk.CheckButton) -> None:
+        visible = button.get_active()
+        self.password_entry.set_visibility(visible)
+        self.password_confirm_entry.set_visibility(visible)
+        self.two_factor_entry.set_visibility(visible)
+
+    def credentials_valid(self) -> bool:
+        two_factor = self.two_factor_entry.get_text().strip()
+        return (
+            bool(self.username_entry.get_text().strip())
+            and bool(self.password_entry.get_text())
+            and self.password_entry.get_text() == self.password_confirm_entry.get_text()
+            and (not two_factor or bool(re.fullmatch(r"[0-9]{6}", two_factor)))
+        )
+
+    def update_button_state(self, *_args: Any) -> None:
+        self.switch_button.set_sensitive(
+            self.completed
+            or (
+                self.preflight_ready
+                and not self.preflight_running
+                and not self.busy
+                and self.confirmation.get_active()
+                and self.credentials_valid()
+            )
+        )
+
+    def on_response(self, _dialog: Gtk.Dialog, response: int) -> None:
+        if self.busy or self.preflight_running:
+            return
+        if response in {Gtk.ResponseType.CANCEL, Gtk.ResponseType.DELETE_EVENT} or self.completed:
+            self.destroy()
+            return
+        if response == Gtk.ResponseType.OK:
+            self.start_account_switch()
+
+    def start_account_switch(self) -> None:
+        if self.busy or self.completed or not self.preflight_ready:
+            return
+        if self.demo:
+            self.show_error("Account changes are disabled in demo mode.")
+            return
+        username = self.username_entry.get_text().strip()
+        password = self.password_entry.get_text()
+        password_confirm = self.password_confirm_entry.get_text()
+        two_factor = self.two_factor_entry.get_text().strip()
+        if not username:
+            self.show_error("Enter the new Proton username or email address.")
+            return
+        if not password or password != password_confirm:
+            self.show_error("Passwords are empty or do not match.")
+            return
+        if two_factor and not re.fullmatch(r"[0-9]{6}", two_factor):
+            self.show_error("The 2FA code must be empty or exactly six digits.")
+            return
+        if not self.confirmation.get_active():
+            self.show_error("Confirm the intentional Proton account migration.")
+            return
+
+        payload = bytearray()
+        for value in (username, password, two_factor):
+            payload.extend(value.encode("utf-8"))
+            payload.append(0)
+        self.username_entry.set_text("")
+        self.password_entry.set_text("")
+        self.password_confirm_entry.set_text("")
+        self.two_factor_entry.set_text("")
+        del username, password, password_confirm, two_factor
+        self.begin_busy_state()
+        threading.Thread(target=self.account_switch_worker, args=(payload,), daemon=True).start()
+
+    def begin_busy_state(self) -> None:
+        self.busy = True
+        self.form.set_sensitive(False)
+        self.confirmation.set_sensitive(False)
+        self.show_password.set_sensitive(False)
+        self.cancel_button.set_sensitive(False)
+        self.switch_button.set_sensitive(False)
+        self.result_detail.hide()
+        self.progress.show_all()
+        self.spinner.start()
+
+    def account_switch_worker(self, payload: bytearray) -> None:
+        returncode = 127
+        error_text = ""
+        try:
+            process = subprocess.Popen(
+                [account_switch_backend_path(), "--switch-from-stdin"],
+                stdin=subprocess.PIPE,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+            )
+            try:
+                _stdout, stderr = process.communicate(bytes(payload), timeout=ACCOUNT_SWITCH_TIMEOUT_SECONDS)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                _stdout, stderr = process.communicate()
+                returncode = 124
+            else:
+                returncode = process.returncode
+            error_text = stderr.decode("utf-8", errors="replace")[-4096:]
+        except OSError:
+            error_text = "helper-unavailable"
+        finally:
+            for index in range(len(payload)):
+                payload[index] = 0
+            payload.clear()
+        GLib.idle_add(self.account_switch_finished, returncode, error_text)
+
+    def show_error(self, message: str) -> None:
+        self.set_result_style("setup-error")
+        self.result_detail.set_text(translate(message))
+        self.result_detail.show()
+
+    def set_result_style(self, css_class: str) -> None:
+        context = self.result_detail.get_style_context()
+        for candidate in ("setup-error", "reauth-success", "reauth-attention"):
+            context.remove_class(candidate)
+        context.add_class(css_class)
+
+    def account_switch_finished(self, returncode: int, error_text: str) -> bool:
+        self.busy = False
+        self.spinner.stop()
+        self.progress.hide()
+        self.cancel_button.set_sensitive(True)
+        if returncode == 0:
+            self.completed = True
+            self.cancel_button.hide()
+            self.switch_button.set_label(translate("Close"))
+            self.switch_button.set_sensitive(True)
+            self.hero_icon.set_from_icon_name("emblem-ok-symbolic", Gtk.IconSize.DIALOG)
+            add_css(self.hero_icon, "good")
+            self.hero_title.set_text(translate("Proton account changed"))
+            self.hero_detail.set_text(
+                translate("/pdrive is mounted through the new account’s separate cache namespace.")
+            )
+            self.result_detail.set_text(
+                translate("The previous encrypted configuration and cache namespace remain available for rollback.")
+            )
+            self.set_result_style("reauth-success")
+            self.result_detail.show()
+            self.parent_window.request_refresh(force_capacity=True)
+            return GLib.SOURCE_REMOVE
+
+        if "PDRIVE_ACCOUNT_SWITCH_ERROR=activation-failed-rolled-back" in error_text:
+            self.completed = True
+            self.cancel_button.hide()
+            self.switch_button.set_label(translate("Close"))
+            self.switch_button.set_sensitive(True)
+            self.hero_icon.set_from_icon_name("edit-undo-symbolic", Gtk.IconSize.DIALOG)
+            add_css(self.hero_icon, "warning")
+            self.hero_title.set_text(translate("Previous account restored"))
+            self.hero_detail.set_text(
+                translate(
+                    "The candidate login worked, but its mount failed validation. PDrive restored the previous configuration and cache namespace."
+                )
+            )
+            self.result_detail.set_text(translate("No cache data was reassigned or removed."))
+            self.set_result_style("reauth-attention")
+            self.result_detail.show()
+            self.parent_window.request_refresh(force_capacity=True)
+            return GLib.SOURCE_REMOVE
+
+        self.form.set_sensitive(self.preflight_ready)
+        self.confirmation.set_sensitive(self.preflight_ready)
+        self.show_password.set_sensitive(self.preflight_ready)
+        if self.preflight_ready:
+            self.username_entry.grab_focus()
+        if "PDRIVE_ACCOUNT_SWITCH_ERROR=busy" in error_text:
+            message = "A transfer or queued upload began during validation. The account change was cancelled safely."
+            self.preflight_ready = False
+        elif "PDRIVE_ACCOUNT_SWITCH_ERROR=dirty-cache" in error_text:
+            message = "Dirty cache data appeared during validation. The account change was cancelled safely."
+            self.preflight_ready = False
+        elif "PDRIVE_ACCOUNT_SWITCH_ERROR=rate-limited" in error_text:
+            message = "Proton temporarily rate-limited the candidate login. Wait for the full backoff before retrying."
+        elif "PDRIVE_ACCOUNT_SWITCH_ERROR=rollback-failed" in error_text:
+            message = "The previous files were restored, but /pdrive still needs diagnostics. Do not delete any cache namespace."
+            self.preflight_ready = False
+        elif error_text == "helper-unavailable":
+            message = "The account-switch helper could not be started."
+        elif returncode == 124:
+            message = "The account change timed out. Inspect PDrive before making another login attempt."
+        else:
+            message = (
+                "Proton did not accept the candidate login. Check the credentials and retry once with a fresh 2FA code."
+            )
+        self.form.set_sensitive(self.preflight_ready)
+        self.confirmation.set_sensitive(self.preflight_ready)
+        self.show_password.set_sensitive(self.preflight_ready)
+        self.result_detail.set_text(
+            translate(message) + " " + translate("The current account, mount and cache were not changed.")
+        )
+        self.set_result_style("setup-error")
+        self.result_detail.show()
+        self.update_button_state()
+        return GLib.SOURCE_REMOVE
+
+
 class PDriveWindow(Gtk.ApplicationWindow):
     def __init__(self, application: Gtk.Application, demo: bool = False) -> None:
         super().__init__(application=application)
@@ -3337,6 +3803,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.documentation_window: DocumentationWindow | None = None
         self.about_dialog: Gtk.AboutDialog | None = None
         self.reauthorization_dialog: ReauthorizationDialog | None = None
+        self.account_switch_dialog: AccountSwitchDialog | None = None
         self.setup_wizard: SetupWizard | None = None
         self.setup_required = not demo and not setup_config_path().is_file()
         self.dashboard_timer_id = 0
@@ -3544,7 +4011,11 @@ class PDriveWindow(Gtk.ApplicationWindow):
             ("alarm-symbolic", "Restart cooldown …", self.on_cooldown),
             ("view-refresh-symbolic", "Refresh metadata …", self.on_metadata_refresh),
             ("system-reboot-symbolic", "Safely restart service …", self.on_restart),
-            ("dialog-password-symbolic", "Reauthorize Proton account …", self.on_reauthorize),
+            (
+                "dialog-password-symbolic",
+                "Reauthorize Proton account …",
+                self.on_reauthorize,
+            ),
         ]
         for icon_name, text, callback in actions:
             button = Gtk.Button()
@@ -4421,7 +4892,10 @@ class PDriveWindow(Gtk.ApplicationWindow):
         self.active_card.update(str(active), translate_format("of {slots} upload slots in use", slots=slots))
         authentication_status = str(authentication.get("status") or "unknown")
         reauthorization_required = authentication_status == "reauthorization-required"
-        authentication_blocked = authentication_status in {"rate-limited", "reauthorization-required"}
+        authentication_blocked = authentication_status in {
+            "rate-limited",
+            "reauthorization-required",
+        }
         rate_limited = authentication_status == "rate-limited"
         if authentication_blocked:
             queue_detail = translate("Reauthorization needed")
@@ -4500,10 +4974,16 @@ class PDriveWindow(Gtk.ApplicationWindow):
             int(vfs.get("cache_bytes") or 0),
         )
         self.upload_graph_peak.set_text(
-            translate_format("Peak {speed}", speed=human_rate(max(self.speed_graph.values(), default=0)))
+            translate_format(
+                "Peak {speed}",
+                speed=human_rate(max(self.speed_graph.values(), default=0)),
+            )
         )
         self.download_graph_peak.set_text(
-            translate_format("Peak {speed}", speed=human_rate(max(self.download_graph.values(), default=0)))
+            translate_format(
+                "Peak {speed}",
+                speed=human_rate(max(self.download_graph.values(), default=0)),
+            )
         )
 
         if rate_limited:
@@ -4747,7 +5227,10 @@ class PDriveWindow(Gtk.ApplicationWindow):
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        title = label(translate(str(event.get("title") or "rclone reported an error")), "transfer-name")
+        title = label(
+            translate(str(event.get("title") or "rclone reported an error")),
+            "transfer-name",
+        )
         title.set_line_wrap(True)
         top.pack_start(title, True, True, 0)
         display_time = str(event.get("resolved_at") or event.get("timestamp") or "")
@@ -4963,7 +5446,12 @@ class PDriveWindow(Gtk.ApplicationWindow):
         elif recent:
             text = "Failed" if item.get("error") else "Completed"
             top.pack_end(label(text, "pill"), False, False, 0)
-            top.pack_end(self.transfer_direction_badge(str(item.get("direction") or "unknown")), False, False, 0)
+            top.pack_end(
+                self.transfer_direction_badge(str(item.get("direction") or "unknown")),
+                False,
+                False,
+                0,
+            )
         else:
             if item.get("stage") == "finalizing":
                 speed_text = translate("Finalizing")
@@ -5269,6 +5757,21 @@ class PDriveWindow(Gtk.ApplicationWindow):
         )
         dialog.present()
 
+    def on_account_switch(self, _button: Gtk.Button | None) -> None:
+        if self.account_switch_dialog is not None:
+            self.account_switch_dialog.present()
+            return
+        dialog = AccountSwitchDialog(self, demo=self.demo)
+        self.account_switch_dialog = dialog
+        dialog.connect(
+            "destroy",
+            lambda _dialog: setattr(self, "account_switch_dialog", None),
+        )
+        dialog.present()
+        application = self.get_application()
+        if self.demo and isinstance(application, PDriveApplication) and application.demo_dialog == "account-switch":
+            self.hide()
+
     def on_copy_short_status(self, _button: Gtk.Button) -> None:
         status = getattr(self, "short_status_text", "")
         if not status:
@@ -5426,7 +5929,11 @@ class PDriveWindow(Gtk.ApplicationWindow):
         application = self.get_application()
         if not isinstance(application, PDriveApplication):
             return
-        dialog = Gtk.Dialog(title=translate("Preferences"), transient_for=self, modal=True)
+        dialog = Gtk.Dialog(
+            title=translate("Preferences"),
+            transient_for=None if self.demo else self,
+            modal=True,
+        )
         dialog.add_buttons(
             translate("Cancel"),
             Gtk.ResponseType.CANCEL,
@@ -5496,6 +6003,27 @@ class PDriveWindow(Gtk.ApplicationWindow):
         )
         language_note.set_line_wrap(True)
         content.pack_start(language_note, False, False, 0)
+        account_separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
+        account_separator.set_margin_top(3)
+        account_separator.set_margin_bottom(3)
+        content.pack_start(account_separator, False, False, 0)
+        content.pack_start(label("Account", "section-title"), False, False, 0)
+        account_note = label(
+            "Move the managed /pdrive mount to another Proton account. Active transfers and protected pending data block the change.",
+            "section-subtitle",
+        )
+        account_note.set_line_wrap(True)
+        content.pack_start(account_note, False, False, 0)
+        account_switch_button = Gtk.Button(label=translate("Change Proton account …"))
+        account_switch_button.set_tooltip_text(translate("Change Proton account …"))
+        account_switch_button.set_halign(Gtk.Align.START)
+        add_css(account_switch_button, "reauth-attention")
+        set_pointer_on_hover(account_switch_button)
+        account_switch_button.connect(
+            "clicked",
+            lambda _button: dialog.response(Gtk.ResponseType.APPLY),
+        )
+        content.pack_start(account_switch_button, False, False, 0)
         explanation = label(
             "Session startup uses ~/.config/autostart. A manual launch from the application "
             "menu still opens the window visibly.",
@@ -5537,6 +6065,8 @@ class PDriveWindow(Gtk.ApplicationWindow):
         notification_combo.connect("changed", update_save_sensitivity)
         save_button.set_sensitive(False)
         dialog.show_all()
+        if self.demo and application.demo_dialog == "preferences-account":
+            self.hide()
         response = dialog.run()
         close_to_tray = close_toggle.get_active()
         start_in_tray = start_toggle.get_active()
@@ -5546,6 +6076,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
         selected_language = language_combo.get_active_id() or "en"
         previous_language = str(application.preferences["language"])
         dialog.destroy()
+        if response == Gtk.ResponseType.APPLY:
+            self.on_account_switch(account_switch_button)
+            return
         if response != Gtk.ResponseType.OK:
             return
         error = application.update_preferences(
@@ -5918,6 +6451,7 @@ class PDriveApplication(Gtk.Application):
         demo: bool = False,
         background: bool = False,
         demo_page: str = "overview",
+        demo_dialog: str = "",
     ) -> None:
         global CURRENT_LANGUAGE
         non_unique = demo or os.environ.get("PDRIVE_UI_NON_UNIQUE") == "1"
@@ -5925,6 +6459,7 @@ class PDriveApplication(Gtk.Application):
         super().__init__(application_id=APP_ID, flags=flags)
         self.demo = demo
         self.demo_page = demo_page
+        self.demo_dialog = demo_dialog
         self.background = background and not demo
         self.preferences = dict(DEFAULT_PREFERENCES) if demo else load_preferences()
         if demo:
@@ -5965,6 +6500,12 @@ class PDriveApplication(Gtk.Application):
             self.window.show_all()
             if self.demo:
                 self.window.stack.set_visible_child_name(self.demo_page)
+                if self.demo_dialog:
+                    self.window.move(520, 60)
+                if self.demo_dialog == "preferences-account":
+                    GLib.idle_add(self.window.on_preferences, None)
+                elif self.demo_dialog == "account-switch":
+                    GLib.idle_add(self.window.on_account_switch, None)
         if background_activation:
             self.window.hide()
         else:
@@ -6387,6 +6928,12 @@ def argument_parser() -> argparse.ArgumentParser:
         help="select the initial page for --demo",
     )
     parser.add_argument(
+        "--demo-dialog",
+        choices=("preferences-account", "account-switch"),
+        default="",
+        help="open one deterministic documentation dialog for --demo",
+    )
+    parser.add_argument(
         "--background",
         action="store_true",
         help="keep the window hidden in the tray during desktop-session startup",
@@ -6407,6 +6954,8 @@ def main() -> int:
         parser.error("--demo and --background cannot be combined")
     if not args.demo and args.demo_page != "overview":
         parser.error("--demo-page requires --demo")
+    if not args.demo and args.demo_dialog:
+        parser.error("--demo-dialog requires --demo")
     if args.check:
         state_command = PDriveWindow.find_state_command()
         if not pathlib.Path(state_command).is_file() and not shutil.which(state_command):
@@ -6427,6 +6976,7 @@ def main() -> int:
         demo=args.demo,
         background=args.background,
         demo_page=args.demo_page,
+        demo_dialog=args.demo_dialog,
     )
     try:
         return application.run([])

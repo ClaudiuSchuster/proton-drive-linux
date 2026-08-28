@@ -343,6 +343,30 @@ credential rejection remain distinct and do not manufacture a rate limit.
 The mount unit's one-hour restart delay and unlimited start timeout exist to
 avoid such login hammering.
 
+## Account change is blocked or rolled back
+
+Use **Reauthorize** only for the already configured account. For an intentional
+new account, open **Preferences → Account → Change Proton account …** or run:
+
+```bash
+pdrive-account-switch --switch
+```
+
+PDrive refuses while any upload, download, VFS queue entry or Dirty metadata
+file exists. This is a safety result: wait for real remote completion and retry
+the preflight; do not clear the queue, delete metadata or stop a healthy active
+transfer to force it through. If the live RC or metadata state cannot be read,
+run `pdrive-doctor` and repair observability before changing accounts.
+
+A rejected candidate login leaves the current mount and same-account
+authentication guard unchanged. A message that the **previous account was
+restored** means the candidate authenticated but its new mount failed one of the
+PID, writable-FUSE, RC or cache-path validation gates. Inspect service
+diagnostics before another login attempt. Do not delete either cache namespace
+or the encrypted rollback bundle; the old selectors have already been restored
+atomically. If both the candidate and restored mount need attention, preserve
+all cache roots and use `pdrive-doctor` before any manual service action.
+
 ## HTTP 422: draft or name already exists
 
 A normal name conflict and an incomplete server-side upload draft can both

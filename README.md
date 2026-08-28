@@ -64,8 +64,9 @@ Keyring and provides a native GTK control center for the details that matter.
 - Independent upload/download file-data limits, guided connection tuning and
   guarded upload-slot, cache-retention, metadata-refresh and restart controls.
 - Conservative health monitoring with desktop notifications.
-- Guided first setup, native account reauthorization, encrypted credentials and
-  signed rclone updates.
+- Guided first setup, contextual same-account reauthorization, guarded account
+  switching with isolated cache namespaces, encrypted credentials and signed
+  rclone updates.
 
 This is an on-demand filesystem, not a full offline mirror. Reads download data
 when needed; writes remain protected in the local VFS cache until uploaded.
@@ -98,6 +99,24 @@ Control Center. The existing account name and protected VFS upload cache remain
 untouched while the replacement login is verified. A real Proton rate limit is
 distinguished from rejected credentials and persists a local retry time so no
 UI or manual service start can create another premature login attempt.
+
+For an intentional migration to another Proton account, open **Preferences →
+Account → Change Proton account …**. PDrive refuses while any transfer, queued
+upload or Dirty cache file remains, tests the candidate login in isolation, and
+mounts it only through a fresh anonymous cache namespace. If activation fails,
+the previous encrypted configuration, authentication state and cache namespace
+are restored automatically.
+
+<table>
+  <tr>
+    <td><img src="docs/assets/pdrive-account-settings.png" alt="PDrive Preferences account section with the guarded Change Proton account action"></td>
+    <td><img src="docs/assets/pdrive-account-switch.png" alt="PDrive guarded Proton account-change dialog after a successful safety preflight"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>A deliberate account action, separate from contextual reauthorization</sub></td>
+    <td align="center"><sub>Full native credentials, explicit confirmation and cache-isolation promise</sub></td>
+  </tr>
+</table>
 
 Existing configuration, credentials, cache and state are preserved when the
 installer is run again.
