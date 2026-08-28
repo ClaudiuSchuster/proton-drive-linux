@@ -698,10 +698,33 @@ def completed_after_issue(event: dict[str, Any], transfers: list[dict[str, Any]]
     return completed_at
 
 
+def progressing_upload_subjects(
+    queue: dict[str, Any],
+    active_transfers: list[dict[str, Any]],
+) -> set[str]:
+    """Return exact queued paths with current process-owned payload progress."""
+
+    uploading = {
+        issue_path(str(item.get("name") or ""))
+        for item in queue.get("items", [])
+        if isinstance(item, dict) and item.get("uploading")
+    }
+    return {
+        issue_path(str(transfer.get("name") or ""))
+        for transfer in active_transfers
+        if isinstance(transfer, dict)
+        and not transfer.get("error")
+        and number(transfer.get("speed")) >= 1024
+        and integer(transfer.get("bytes")) > 0
+        and issue_path(str(transfer.get("name") or "")) in uploading
+    }
+
+
 def enrich_issue_lifecycles(
     issues: dict[str, Any],
     queue: dict[str, Any],
-    transfers: list[dict[str, Any]],
+    completed_transfers: list[dict[str, Any]],
+    active_transfers: list[dict[str, Any]],
     latest: dict[str, Any],
     authentication: dict[str, Any],
 ) -> dict[str, Any]:
@@ -710,6 +733,14 @@ def enrich_issue_lifecycles(
     queue_items = {
         issue_path(str(item.get("name") or "")): item for item in queue.get("items", []) if isinstance(item, dict)
     }
+    progressing_subjects = progressing_upload_subjects(queue, active_transfers)
+    one_progressing_upload = len(queue_items) == 1 and len(progressing_subjects) == 1
+
+    def mark_progressing(event: dict[str, Any]) -> None:
+        event["level"] = "notice"
+        event["title"] = "Upload retry is progressing"
+        event["guidance"] = "No action is required while the same upload continues to make progress."
+
     events = []
     for raw_event in issues.get("events", []):
         event = dict(raw_event)
@@ -719,9 +750,10 @@ def enrich_issue_lifecycles(
         resolution = ""
         resolved_at = ""
         queue_item = queue_items.get(subject)
-        completed_at = completed_after_issue(event, transfers)
+        completed_at = completed_after_issue(event, completed_transfers)
         authentication_ready_at = issue_timestamp(str(authentication.get("generated_at") or ""))
         event_observed_at = issue_timestamp(str(event.get("last_seen") or event.get("timestamp") or ""))
+        event_text = f"{event.get('subject') or ''} {event.get('message') or ''}".lower()
         if (
             category == "authentication"
             and authentication.get("status") == "ready"
@@ -735,6 +767,20 @@ def enrich_issue_lifecycles(
             event["level"] = "notice"
             event["title"] = "Proton account reauthorized"
             event["guidance"] = "No further action is required while the mount remains ready."
+        elif (
+            category in {"http-5xx", "rclone-error"}
+            and "failed to create file system" in event_text
+            and authentication.get("status") == "ready"
+            and authentication_ready_at is not None
+            and event_observed_at is not None
+            and authentication_ready_at >= event_observed_at
+        ):
+            lifecycle = "resolved"
+            resolved_at = str(authentication.get("generated_at") or "")
+            resolution = "The Proton service recovered and the authenticated mount started successfully."
+            event["level"] = "notice"
+            event["title"] = "Proton service recovered"
+            event["guidance"] = "No further action is required while the mount remains ready."
         elif completed_at and category in UPLOAD_INCIDENT_CATEGORIES:
             lifecycle = "resolved"
             resolved_at = completed_at
@@ -745,6 +791,15 @@ def enrich_issue_lifecycles(
         elif queue_item is not None and category in UPLOAD_INCIDENT_CATEGORIES:
             if bool(queue_item.get("uploading")) or int(queue_item.get("tries") or 0) >= 2:
                 lifecycle = "recovering"
+                if subject in progressing_subjects:
+                    mark_progressing(event)
+        elif (
+            category in UPLOAD_INCIDENT_CATEGORIES
+            and subject.lower().startswith("proton drive root link id ")
+            and one_progressing_upload
+        ):
+            lifecycle = "recovering"
+            mark_progressing(event)
         elif (
             category == "dns"
             and str(latest.get("dns") or "").lower() == "ok"
@@ -795,7 +850,7 @@ def recent_issues(limit: int = 200, maximum_bytes: int = 512 * 1024) -> dict[str
             continue
         level = match.group(3)
         message = sanitize_issue_text(match.group(4))
-        if message.lower().startswith("bandwidth limit set to"):
+        if message.lower().startswith(("bandwidth limit set to", "bandwidth limit reset to")):
             continue
         subject = ""
         subject_match = re.match(r"^([^:]{1,240}):\s+(.+)$", message)
@@ -1367,6 +1422,7 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
             recent_issues(),
             queue,
             recent_transfers,
+            active,
             latest,
             authentication,
         ),

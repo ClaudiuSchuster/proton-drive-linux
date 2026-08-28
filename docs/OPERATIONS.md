@@ -237,15 +237,23 @@ explicit lifecycle:
 - **resolved** requires positive evidence such as a later successful transfer
   of the same path or restored DNS health.
 
-Only active and recovering incidents contribute to the unreviewed counter.
+Only active and recovering incidents contribute to the unreviewed counter. A
+recovering upload with current process-owned payload progress is informational;
+the same queued retry remains an error when that evidence is absent. A failed
+mount-start request becomes resolved only when a newer authenticated mount start
+proves recovery. Routine bandwidth-control notices do not enter issue review.
 Automatically resolved incidents remain visible as a single informational
 recovery record. An old message or a path merely disappearing from the queue is
-never enough to declare success. Each retained incident shows its local
-timestamp, severity, category, affected path or component, repeat count,
-sanitized rclone context and a suggested next step. API URLs, Proton share/link
-identifiers and credential-shaped values are redacted before entering the JSON
-snapshot. Only **Mark issues reviewed** advances the watermark; it does not
-delete logs, watchdog history, recovery records or current health warnings.
+never enough to declare success.
+
+Each retained incident shows its local timestamp, severity, category, affected
+path or component, sanitized rclone context and a suggested next step. Its
+occurrence label describes related records in the retained recent log window;
+the count may decrease as old records leave that bounded window and is not a
+lifetime total. API URLs, Proton share/link identifiers and credential-shaped
+values are redacted before entering the JSON snapshot. Only **Mark issues
+reviewed** advances the watermark; it does not delete logs, watchdog history,
+recovery records or current health warnings.
 
 The Active, Queue and VFS-Cache overview cards provide keyboard and pointer
 shortcuts into the corresponding Transfers sections. The cache

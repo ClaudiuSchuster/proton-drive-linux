@@ -284,7 +284,7 @@ GERMAN_TRANSLATIONS = {
     "The counters report new events, but their sanitized log details are no longer available.": "Die Zähler melden neue Ereignisse, aber ihre bereinigten Logdetails sind nicht mehr verfügbar.",
     "Showing {shown} of {total} unreviewed event(s); {missing} older detail(s) are outside the retained log tail.": "{shown} von {total} ungeprüften Ereignis(sen) sichtbar; {missing} ältere Details liegen außerhalb des eingelesenen Logendes.",
     "{errors} error(s) and {notices} notice(s) await review.": "{errors} Fehler und {notices} Hinweise warten auf Prüfung.",
-    "Repeated {count} times · first seen {time}": "{count}-mal wiederholt · erstmals {time}",
+    "Recent log contains {count} related records · oldest retained {time}": "Aktuelles Protokoll enthält {count} zusammengehörige Einträge · ältester erhaltener Eintrag {time}",
     "Suggested next step": "Empfohlener nächster Schritt",
     "Open troubleshooting": "Fehlerbehebung öffnen",
     "Service diagnostics": "Dienstdiagnose",
@@ -336,7 +336,11 @@ GERMAN_TRANSLATIONS = {
     "rclone reported an error": "rclone hat einen Fehler gemeldet",
     "Review the current mount, queue and network health before choosing a recovery action.": "Prüfe Mount-, Queue- und Netzwerkzustand, bevor du eine Recovery-Aktion auswählst.",
     "Upload recovered automatically": "Upload automatisch wiederhergestellt",
+    "Upload retry is progressing": "Upload-Wiederholungsversuch macht Fortschritt",
+    "No action is required while the same upload continues to make progress.": "Keine Aktion erforderlich, solange derselbe Upload weiter Fortschritt macht.",
     "Network resolution recovered": "Netzwerk-Namensauflösung wiederhergestellt",
+    "Proton service recovered": "Proton-Dienst wiederhergestellt",
+    "The Proton service recovered and the authenticated mount started successfully.": "Der Proton-Dienst wurde wiederhergestellt und der authentifizierte Mount erfolgreich gestartet.",
     "The affected upload completed successfully after rclone recovered.": "Der betroffene Upload wurde nach rclones Recovery erfolgreich abgeschlossen.",
     "DNS connectivity is healthy again.": "Die DNS-Verbindung ist wieder gesund.",
     "No action is required. Keep the recovery record for context.": "Keine Aktion erforderlich. Der Recovery-Eintrag bleibt als Kontext erhalten.",
@@ -4655,6 +4659,9 @@ class PDriveWindow(Gtk.ApplicationWindow):
         if lifecycle == "resolved":
             icon_name = "emblem-ok-symbolic"
             icon_class = "accent"
+        elif lifecycle == "recovering":
+            icon_name = "emblem-synchronizing-symbolic"
+            icon_class = "accent"
         elif level == "notice":
             icon_name = "dialog-warning-symbolic"
             icon_class = "warning"
@@ -4668,7 +4675,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
 
         content = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         top = Gtk.Box(orientation=Gtk.Orientation.HORIZONTAL, spacing=8)
-        title = label(str(event.get("title") or "rclone reported an error"), "transfer-name")
+        title = label(translate(str(event.get("title") or "rclone reported an error")), "transfer-name")
         title.set_line_wrap(True)
         top.pack_start(title, True, True, 0)
         display_time = str(event.get("resolved_at") or event.get("timestamp") or "")
@@ -4689,15 +4696,17 @@ class PDriveWindow(Gtk.ApplicationWindow):
             content.pack_start(subject_label, False, False, 0)
         occurrences = max(1, int(event.get("occurrences") or 1))
         if occurrences > 1:
-            content.pack_start(
-                label(
-                    translate_format(
-                        "Repeated {count} times · first seen {time}",
-                        count=occurrences,
-                        time=local_time(str(event.get("first_seen") or "")),
-                    ),
-                    "transfer-meta",
+            occurrence_label = label(
+                translate_format(
+                    "Recent log contains {count} related records · oldest retained {time}",
+                    count=occurrences,
+                    time=local_time(str(event.get("first_seen") or "")),
                 ),
+                "transfer-meta",
+            )
+            occurrence_label.set_line_wrap(True)
+            content.pack_start(
+                occurrence_label,
                 False,
                 False,
                 0,

@@ -46,6 +46,11 @@ assert module.translate("License") == "Lizenz"
 assert module.translate("Quick start") == "Schnellstart"
 assert module.translate("Everyday use") == "Tägliche Nutzung"
 assert module.translate("Download limit in MiB/s") == "Downloadlimit in MiB/s"
+assert module.translate("Upload retry is progressing") == "Upload-Wiederholungsversuch macht Fortschritt"
+assert module.translate("Proton service recovered") == "Proton-Dienst wiederhergestellt"
+assert module.translate(
+    "Recent log contains {count} related records · oldest retained {time}"
+).startswith("Aktuelles Protokoll")
 assert module.translate(
     "The logarithmic sliders give low everyday limits more precision. Leaving connection headroom can keep browsing and calls responsive; use pdrive-bwlimit for values above 100 MiB/s."
 ).startswith("Die logarithmischen Regler")
