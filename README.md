@@ -9,7 +9,7 @@
 
 <p align="center">
   A reliable Proton Drive mount for Linux Mint Cinnamon — native file-manager
-  access, guarded recovery and a live control center, all around one rclone
+  access, resilient uploads and a live control center, all around one rclone
   process.
 </p>
 
@@ -19,6 +19,11 @@
   <a href="LICENSE"><img alt="License GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-6f5bd5"></a>
   <img alt="Linux Mint Cinnamon" src="https://img.shields.io/badge/Linux%20Mint-Cinnamon-75c46b">
   <img alt="rclone Proton Drive backend" src="https://img.shields.io/badge/rclone-Proton%20Drive-4f7ee8">
+</p>
+
+<p align="center">
+  <img src=".github/social-preview.png" width="100%"
+       alt="PDrive Control Center — Proton Drive at home on Linux">
 </p>
 
 <p align="center">
