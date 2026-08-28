@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help version check check-units check-display verify install install-with-proton-cli uninstall
+.PHONY: help version check check-units check-display verify social-preview check-social-preview install install-with-proton-cli uninstall
 
 help: ## Show this action-free command overview.
 	@printf '%s\n' \
@@ -11,6 +11,8 @@ help: ## Show this action-free command overview.
 		'  make check-units              Validate systemd user units only.' \
 		'  make check-display            Run GTK tests on the current display.' \
 		'  make verify                   Run diff hygiene and the portable suite.' \
+		'  make social-preview           Render every configured social-preview variant.' \
+		'  make check-social-preview     Verify committed previews match their sources.' \
 		'  make version                  Print the project version.' \
 		'  make install                  Install or update user-local files.' \
 		'  make install-with-proton-cli  Also enable the optional Proton CLI updater.' \
@@ -32,6 +34,12 @@ check-display: ## Run GTK tests against the current desktop display.
 verify: ## Check diff hygiene and run the portable repository suite.
 	git diff --check
 	$(MAKE) check
+
+social-preview: ## Render every configured social-preview variant.
+	python3 .github/social-preview-src/render-all.py
+
+check-social-preview: ## Verify committed previews match their sources.
+	python3 .github/social-preview-src/render-all.py --check
 
 install: ## Install or update user-local project files.
 	./install.sh

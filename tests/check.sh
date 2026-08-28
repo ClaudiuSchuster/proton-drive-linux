@@ -36,7 +36,9 @@ done
 
 for python_file in "${project_dir}/bin/pdrive-state" "${project_dir}/bin/pdrive-ui" \
     "${project_dir}/libexec/pdrive-draft-recovery-auto" \
-    "${project_dir}/tests/test-draft-recovery.py"; do
+    "${project_dir}/tests/test-draft-recovery.py" \
+    "${project_dir}/.github/social-preview-src/render.py" \
+    "${project_dir}/.github/social-preview-src/render-all.py"; do
     python3 - "${python_file}" <<'PY'
 import pathlib
 import sys

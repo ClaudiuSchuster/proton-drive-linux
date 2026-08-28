@@ -57,6 +57,8 @@ HOME="${test_home}" bash "${project_dir}/libexec/switch-rclone-proton-account" -
 HOME="${test_home}" "${project_dir}/libexec/pdrive-auth-failure-guard" >/dev/null
 HOME="${test_home}" "${project_dir}/libexec/pdrive-auth-failure-guard" --help >/dev/null
 HOME="${test_home}" make -s -C "${project_dir}" help >/dev/null
+HOME="${test_home}" python3 "${project_dir}/.github/social-preview-src/render.py" --help >/dev/null
+HOME="${test_home}" python3 "${project_dir}/.github/social-preview-src/render-all.py" --help >/dev/null
 HOME="${test_home}" make -s -C "${project_dir}" version >/dev/null
 after="$(snapshot)"
 

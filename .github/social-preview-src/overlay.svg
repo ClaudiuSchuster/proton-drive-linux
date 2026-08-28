@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="640" viewBox="0 0 1280 640">
+  <defs>
+    <linearGradient id="leftShade" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#080b17" stop-opacity="0.98"/>
+      <stop offset="0.54" stop-color="#080b17" stop-opacity="0.78"/>
+      <stop offset="0.78" stop-color="#080b17" stop-opacity="0.14"/>
+      <stop offset="1" stop-color="#080b17" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#6d5dfc"/>
+      <stop offset="0.55" stop-color="#34b6e4"/>
+      <stop offset="1" stop-color="#62e5bc"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1280" height="640" fill="url(#leftShade)"/>
+  <rect x="1" y="1" width="1278" height="638" rx="26" fill="none" stroke="#7b8db3" stroke-opacity="0.25" stroke-width="2"/>
+
+  <text x="76" y="78" fill="#9facbf" font-family="Noto Sans, sans-serif" font-size="18" font-weight="700" letter-spacing="3">OSS SINGULARITY  /  OPEN SOURCE</text>
+  <rect x="76" y="101" width="224" height="5" rx="2.5" fill="url(#accent)"/>
+
+  <text x="248" y="211" fill="#ffffff" font-family="Noto Sans, sans-serif" font-size="62" font-weight="800">PDrive</text>
+  <text x="248" y="270" fill="#dbe5f3" font-family="Noto Sans, sans-serif" font-size="42" font-weight="600">Control Center</text>
+
+  <text x="76" y="370" fill="#f3f7fc" font-family="Noto Sans, sans-serif" font-size="29" font-weight="500">Proton Drive, at home on Linux.</text>
+  <text x="76" y="408" fill="#aebbd0" font-family="Noto Sans, sans-serif" font-size="18">{{TAGLINE}}</text>
+
+  <g font-family="Noto Sans, sans-serif" font-size="15" font-weight="700" letter-spacing="1.4">
+    <rect x="76" y="455" width="{{BADGE_WIDTH}}" height="38" rx="19" fill="#161d31" stroke="#6e62f7" stroke-opacity="0.7"/>
+    <text x="{{BADGE_CENTER}}" y="480" text-anchor="middle" fill="#e6e3ff">{{BADGE}}</text>
+    <rect x="{{SECOND_X}}" y="455" width="208" height="38" rx="19" fill="#161d31" stroke="#39bae5" stroke-opacity="0.7"/>
+    <text x="{{SECOND_CENTER}}" y="480" text-anchor="middle" fill="#dcf6ff">RESILIENT UPLOADS</text>
+    <rect x="{{THIRD_X}}" y="455" width="150" height="38" rx="19" fill="#161d31" stroke="#62e5bc" stroke-opacity="0.7"/>
+    <text x="{{THIRD_CENTER}}" y="480" text-anchor="middle" fill="#dcfff4">LIVE INSIGHT</text>
+  </g>
+
+  <text x="76" y="571" fill="#8190a9" font-family="Noto Sans, sans-serif" font-size="16">github.com/oss-singularity/proton-drive-linux</text>
+</svg>
