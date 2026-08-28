@@ -40,8 +40,8 @@
 </table>
 
 <p align="center">
-  <img src="docs/assets/pdrive-control-menu.png?v=0.7.2" width="282"
-       alt="Complete PDrive Control Center menu with transfer, cache, recovery, account and documentation actions">
+  <img src="docs/assets/pdrive-control-menu.png?v=0.7.3" width="282"
+       alt="Healthy-state PDrive Control Center menu with transfer, cache, recovery and documentation actions">
 </p>
 
 Use Proton Drive directly in Nemo at `/pdrive`. The toolkit starts the mount

@@ -21,7 +21,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
-TOOL_VERSION = "0.7.2"
+TOOL_VERSION = "0.7.3"
 RECENT_TRANSFER_WINDOW_SECONDS = 24 * 60 * 60
 RECENT_TRANSFER_LIMIT = 24
 MOUNT_LOG_TAIL_BYTES = 512 * 1024
@@ -603,6 +603,18 @@ def classify_issue(message: str, level: str) -> tuple[str, str, str]:
             "Network name resolution failed",
             "Restore the network or DNS route and let rclone retry. Never clear pending VFS cache data.",
         )
+    if re.search(r"(^|[^0-9])401([^0-9]|$)", message):
+        if lowered.startswith("proton drive root link id "):
+            return (
+                "session-refresh",
+                "Proton session refresh was rejected",
+                "Check the current authentication and mount health. Reauthorize only if PDrive reports that it is required.",
+            )
+        return (
+            "http-401",
+            "Proton request authorization failed",
+            "Check the affected operation and current authentication health before reauthorizing the account.",
+        )
     if re.search(r"(^|[^0-9])429([^0-9]|$)", message):
         return (
             "http-429",
@@ -644,6 +656,8 @@ ISSUE_PRIORITY = {
     "authentication": 110,
     "draft-conflict": 100,
     "http-429": 90,
+    "session-refresh": 85,
+    "http-401": 85,
     "dns": 80,
     "http-5xx": 70,
     "http-422": 60,
@@ -655,6 +669,7 @@ ISSUE_PRIORITY = {
 
 UPLOAD_INCIDENT_CATEGORIES = {
     "draft-conflict",
+    "http-401",
     "http-422",
     "http-5xx",
     "upload-retry",
@@ -680,6 +695,10 @@ def issues_are_related(left: dict[str, Any], right: dict[str, Any]) -> bool:
         return False
     left_subject = str(left.get("subject") or "")
     right_subject = str(right.get("subject") or "")
+    left_category = str(left.get("category") or "")
+    right_category = str(right.get("category") or "")
+    if "session-refresh" in {left_category, right_category} and left_category != right_category:
+        return False
     if left_subject and left_subject == right_subject:
         return True
     if str(left.get("message") or "") == str(right.get("message") or ""):
@@ -689,8 +708,6 @@ def issues_are_related(left: dict[str, Any], right: dict[str, Any]) -> bool:
     # upload failure it explains. Correlate only in that direction: a new
     # share-level line starts a new attempt and must never bridge two files that
     # happen to fail close together during parallel uploads.
-    left_category = str(left.get("category") or "")
-    right_category = str(right.get("category") or "")
     backend_context = left_subject.lower().startswith("proton drive root link id ")
     return (
         backend_context
@@ -827,6 +844,10 @@ def enrich_issue_lifecycles(
     active_transfers: list[dict[str, Any]],
     latest: dict[str, Any],
     authentication: dict[str, Any],
+    service: dict[str, Any],
+    mount: dict[str, Any],
+    rc_errors: dict[str, str],
+    runtime_observed_at: str,
 ) -> dict[str, Any]:
     """Resolve log incidents only when current runtime evidence proves recovery."""
 
@@ -835,6 +856,13 @@ def enrich_issue_lifecycles(
     }
     progressing_subjects = progressing_upload_subjects(queue, active_transfers)
     one_progressing_upload = len(queue_items) == 1 and len(progressing_subjects) == 1
+    runtime_ready = (
+        authentication.get("status") == "ready"
+        and bool(service.get("active"))
+        and bool(mount.get("ready"))
+        and bool(mount.get("writable"))
+        and not any(endpoint in rc_errors for endpoint in ("core/stats", "vfs/queue", "vfs/stats"))
+    )
 
     def mark_progressing(event: dict[str, Any]) -> None:
         event["level"] = "notice"
@@ -867,6 +895,15 @@ def enrich_issue_lifecycles(
             event["level"] = "notice"
             event["title"] = "Proton account reauthorized"
             event["guidance"] = "No further action is required while the mount remains ready."
+        elif category == "session-refresh" and runtime_ready:
+            lifecycle = "resolved"
+            resolved_at = runtime_observed_at
+            resolution = "The authenticated mount and its local control channel are healthy after the rejected refresh."
+            event["level"] = "notice"
+            event["title"] = "Proton session refresh recovered"
+            event["guidance"] = (
+                "No action is required while PDrive continues to report healthy authentication and mount state."
+            )
         elif (
             category in {"http-5xx", "rclone-error"}
             and "failed to create file system" in event_text
@@ -1552,6 +1589,10 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
             active,
             latest,
             authentication,
+            service,
+            mount,
+            rc_errors,
+            now.isoformat(timespec="seconds"),
         ),
         "watchdog": latest,
         "draft_recovery": draft_recovery,

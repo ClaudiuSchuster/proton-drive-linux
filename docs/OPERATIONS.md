@@ -241,13 +241,17 @@ explicit lifecycle:
 - **active** means no recovery evidence exists;
 - **recovering** means the affected item is still queued and retrying; and
 - **resolved** requires positive evidence such as a later successful transfer
-  of the same path or restored DNS health.
+  of the same path, restored DNS health, or a healthy authenticated mount and
+  local control channel after a rejected root-level session refresh.
 
 Only active and recovering incidents contribute to the unreviewed counter. A
 recovering upload with current process-owned payload progress is informational;
 the same queued retry remains an error when that evidence is absent. A failed
 mount-start request becomes resolved only when a newer authenticated mount start
-proves recovery. Routine bandwidth-control notices do not enter issue review.
+proves recovery. A root-level HTTP 401 is kept separate from older
+file-operation incidents and does not remain unreviewed after current runtime
+checks prove authentication, mount and RC health. Routine bandwidth-control
+notices do not enter issue review.
 Automatically resolved incidents remain visible as a single informational
 recovery record. An old message or a path merely disappearing from the queue is
 never enough to declare success.
@@ -314,9 +318,11 @@ result and exit status, uptime, restart count, mount filesystem and the latest
 watchdog state. Health history on disk is capped at 512 samples, the state
 adapter exposes 48, and the UI renders the latest 24.
 
-The control popover opens guarded operations, account reauthorization,
-Preferences, an About dialog and a native documentation window with Quick
-start, Everyday use, Operations, Troubleshooting, Security and License pages.
+The control popover opens guarded operations, Preferences, an About dialog and
+a native documentation window with Quick start, Everyday use, Operations,
+Troubleshooting, Security and License pages. Account reauthorization appears
+there only while PDrive has detected that the configured account requires it;
+the same contextual action is shown in the Overview status banner.
 The About dialog reports the
 installed PDrive Control Center version, project authors, GPL license and
 canonical GitHub project link.
@@ -399,16 +405,16 @@ format, CLI equivalent and refusal conditions:
 
 #### One-shot actions
 
-| Action                                        | Protection and result                                                                                                             |
-| --------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| Header **Refresh**                            | Re-reads local state immediately and refreshes Proton capacity; it changes no configuration.                                      |
-| **Restart cooldown → Reset restart cooldown** | Clears only the current automatic-restart cooldown through `pdrive-watch --clear-cooldown`; the configured duration is unchanged. |
-| **Refresh metadata**                          | Checks uploads, queue and Dirty cache first, then requires terminal confirmation before a controlled restart.                     |
-| **Safely restart service**                    | Warns that an active upload would be interrupted, requires terminal confirmation and validates the new PID and mount.             |
-| **Mark issues reviewed**                      | Advances only the local issue watermark; it does not delete logs, history or unresolved health evidence.                          |
-| **Open Proton Drive web**                     | Opens the official web client for account-wide settings; it makes no local PDrive change.                                         |
-| **Open PDrive folder**                        | Opens `/pdrive` in the file manager; reads and writes then follow normal mounted-filesystem semantics.                            |
-| **Reauthorize account**                       | Runs one isolated login from a native dialog and replaces the encrypted configuration only after Proton accepts it.               |
+| Action                                                               | Protection and result                                                                                                                                                    |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Header **Refresh**                                                   | Re-reads local state immediately and refreshes Proton capacity; it changes no configuration.                                                                             |
+| **Restart cooldown → Reset restart cooldown**                        | Clears only the current automatic-restart cooldown through `pdrive-watch --clear-cooldown`; the configured duration is unchanged.                                        |
+| **Refresh metadata**                                                 | Checks uploads, queue and Dirty cache first, then requires terminal confirmation before a controlled restart.                                                            |
+| **Safely restart service**                                           | Warns that an active upload would be interrupted, requires terminal confirmation and validates the new PID and mount.                                                    |
+| **Mark issues reviewed**                                             | Advances only the local issue watermark; it does not delete logs, history or unresolved health evidence.                                                                 |
+| **Open Proton Drive web**                                            | Opens the official web client for account-wide settings; it makes no local PDrive change.                                                                                |
+| **Open PDrive folder**                                               | Opens `/pdrive` in the file manager; reads and writes then follow normal mounted-filesystem semantics.                                                                   |
+| Overview banner or conditional menu **Reauthorize Proton account …** | Appears only when PDrive reports `reauthorization-required`; runs one isolated same-account login and replaces the encrypted configuration only after Proton accepts it. |
 
 Metadata refresh and service restart deliberately finish their final safety
 checks in a terminal so the user sees the exact queue state and confirmation
@@ -628,8 +634,10 @@ the current service start, writes mode-0600
 `Restart=on-failure` retry and sends one notification according to the Control
 Center notification preference. It never records a username, password, TOTP,
 API URL or session token. The Overview then shows **Reauthorization required**
-with a dedicated button; the same action is available under **hamburger menu →
-Reauthorize Proton account**.
+with a dedicated button; only while this state is active, the same action is
+available under **hamburger menu → Reauthorize Proton account …**. Both actions
+disappear again after successful reauthorization. A rate-limit state keeps the
+action unavailable until its saved cooldown expires.
 
 The native dialog uses the account already present in the encrypted
 configuration and requests only the current account password and optional fresh

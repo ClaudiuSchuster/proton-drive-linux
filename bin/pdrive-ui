@@ -44,7 +44,7 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.7.2"
+VERSION = "0.7.3"
 REFRESH_INTERVAL_SECONDS = 2
 REFRESH_INTERVAL_OPTIONS = (1, 2, 5, 10)
 GRAPH_WINDOW_SECONDS = 5 * 60
@@ -325,6 +325,10 @@ GERMAN_TRANSLATIONS = {
     "The guarded recovery timer will intervene only in exclusive metadata-cache mode after a later retry confirms the conflict.": "Der abgesicherte Recovery-Timer greift nur im exklusiven Metadaten-Cache-Modus ein, nachdem ein späterer Versuch den Konflikt bestätigt hat.",
     "Network name resolution failed": "Netzwerk-Namensauflösung fehlgeschlagen",
     "Restore the network or DNS route and let rclone retry. Never clear pending VFS cache data.": "Stelle Netzwerk oder DNS wieder her und lasse rclone erneut versuchen. Lösche niemals ausstehende VFS-Cache-Daten.",
+    "Proton session refresh was rejected": "Proton-Sitzungsaktualisierung wurde abgelehnt",
+    "Check the current authentication and mount health. Reauthorize only if PDrive reports that it is required.": "Prüfe den aktuellen Authentifizierungs- und Mount-Zustand. Autorisiere nur neu, wenn PDrive dies als erforderlich meldet.",
+    "Proton request authorization failed": "Autorisierung der Proton-Anfrage fehlgeschlagen",
+    "Check the affected operation and current authentication health before reauthorizing the account.": "Prüfe den betroffenen Vorgang und den aktuellen Authentifizierungszustand, bevor du das Konto neu autorisierst.",
     "Proton temporarily rate-limited the request": "Proton hat die Anfrage vorübergehend begrenzt",
     "Wait for Proton's backoff to expire before another login or recovery attempt.": "Warte Protons vollständige Sperrzeit ab, bevor du einen weiteren Login- oder Recovery-Versuch startest.",
     "Proton rejected a metadata change": "Proton hat eine Metadatenänderung abgelehnt",
@@ -341,6 +345,9 @@ GERMAN_TRANSLATIONS = {
     "Upload retry is progressing": "Upload-Wiederholungsversuch macht Fortschritt",
     "No action is required while the same upload continues to make progress.": "Keine Aktion erforderlich, solange derselbe Upload weiter Fortschritt macht.",
     "Network resolution recovered": "Netzwerk-Namensauflösung wiederhergestellt",
+    "Proton session refresh recovered": "Proton-Sitzungsaktualisierung wiederhergestellt",
+    "The authenticated mount and its local control channel are healthy after the rejected refresh.": "Der authentifizierte Mount und sein lokaler Steuerkanal sind nach der abgelehnten Aktualisierung wieder fehlerfrei.",
+    "No action is required while PDrive continues to report healthy authentication and mount state.": "Keine Aktion erforderlich, solange PDrive weiterhin einen fehlerfreien Authentifizierungs- und Mount-Zustand meldet.",
     "Proton service recovered": "Proton-Dienst wiederhergestellt",
     "The Proton service recovered and the authenticated mount started successfully.": "Der Proton-Dienst wurde wiederhergestellt und der authentifizierte Mount erfolgreich gestartet.",
     "The affected upload completed successfully after rclone recovered.": "Der betroffene Upload wurde nach rclones Recovery erfolgreich abgeschlossen.",
@@ -3554,6 +3561,10 @@ class PDriveWindow(Gtk.ApplicationWindow):
             row.pack_start(label(text), True, True, 0)
             button.add(row)
             button.connect("clicked", activate, callback)
+            if text == "Reauthorize Proton account …":
+                button.set_no_show_all(True)
+                button.hide()
+                self.reauthorize_menu_button = button
             box.pack_start(button, False, False, 0)
         separator = Gtk.Separator(orientation=Gtk.Orientation.HORIZONTAL)
         separator.set_margin_top(3)
@@ -4463,6 +4474,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             status_title = STATUS_META.get(live_status, STATUS_META["unknown"])[1]
         self.update_status(live_status, translate(status_title), live_summary)
         self.status_action.set_visible(reauthorization_required)
+        self.reauthorize_menu_button.set_visible(reauthorization_required)
         issues = state.get("issues", {})
         application = self.get_application()
         if (
