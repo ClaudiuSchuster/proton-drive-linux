@@ -96,15 +96,6 @@ else
     read -r -p 'Proton username or email address: ' username
     read -r -s -p 'Proton password: ' password
     printf '\n'
-    read -r -s -p 'Repeat password: ' password_confirm
-    printf '\n'
-    if [[ -z "${password}" || "${password}" != "${password_confirm}" ]]; then
-        unset password password_confirm
-        printf 'Passwords are empty or do not match.\n' >&2
-        exit 65
-    fi
-    unset password_confirm
-
     read -r -s -p 'Current six-digit 2FA code (empty if 2FA is disabled): ' two_factor
     printf '\n'
 fi

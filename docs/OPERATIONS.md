@@ -389,7 +389,7 @@ only its own marked autostart file. A manual menu launch remains visible.
 
 The Preferences **Account** section is a guarded action rather than a saved UI
 preference. **Change Proton account …** accepts a new Proton username or email,
-password, repeated password and an optional fresh six-digit 2FA code. It has no
+password and an optional fresh six-digit 2FA code. It has no
 default credential value and stores none of those inputs in the UI preference
 file. Activation occurs only after isolated authentication, a repeated clean
 preflight and validated remounting. Its persistent effects are the encrypted
@@ -716,7 +716,7 @@ Reauthorization preserves the existing account identity and VFS namespace;
 `pdrive-account-switch --switch` deliberately changes both. The Control Center
 access path is **hamburger menu → Preferences → Account → Change Proton account
 …**. Its full native form accepts the candidate username or email, password,
-repeated password and optional fresh six-digit 2FA code. The explicit checkbox
+and optional fresh six-digit 2FA code. The explicit checkbox
 confirms that `/pdrive` and the Proton remote namespace will change while old
 local cache data remains separate.
 

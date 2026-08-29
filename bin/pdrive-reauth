@@ -94,15 +94,6 @@ if [[ -z "${proton_password}" ]]; then
     echo 'The password must not be empty.' >&2
     exit 65
 fi
-read -r -s -p 'Repeat password: ' proton_password_confirm
-echo
-if [[ "${proton_password}" != "${proton_password_confirm}" ]]; then
-    unset proton_password proton_password_confirm
-    echo 'The passwords do not match.' >&2
-    exit 65
-fi
-unset proton_password_confirm
-
 read -r -s -p 'Current 6-digit 2FA code (empty when 2FA is disabled): ' proton_2fa
 echo
 if [[ -n "${proton_2fa}" && ! "${proton_2fa}" =~ ^[0-9]{6}$ ]]; then
