@@ -6,9 +6,11 @@ or mechanically backport commits between them. Distribution differences belong
 in small reviewed adapters, package recipes and tests beside the shared source.
 
 Linux Mint 22.x Cinnamon remains the reference and currently supported desktop.
-Arch Linux and Ubuntu are the first portability targets. Their presence in an
-adapter or container test is not yet a support claim; each target is promoted
-only after its complete release gate has passed.
+Arch Linux and Ubuntu are the first portability targets. Arch Linux has passed
+its clean Cinnamon/X11 installation gate and now has a release-candidate
+package for configured real-world review. Adapter or container coverage alone
+is never a support claim; each target is promoted only after its complete
+release gate has passed.
 
 ## Portability envelope
 
@@ -30,16 +32,16 @@ credential and UI behavior has been designed and tested.
 
 ## Target status
 
-| Distribution                | Current status       | Promotion work still required                                                                                            |
-| --------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
-| Linux Mint 22.x Cinnamon    | Reference, supported | Keep the full local and online suite green and retain live Cinnamon/Nemo release testing.                                |
-| Ubuntu 24.04 LTS            | Initial target       | Complete package layout, clean-system installation, GNOME/keyring/tray testing and release packaging.                    |
-| Arch Linux                  | Package candidate    | Keep smoke and native-package gates green; complete clean-system installation and Fabi's live desktop validation.        |
-| Debian                      | Prepared next        | Reuse the Debian-family adapter, then validate supported desktop and package versions explicitly.                        |
-| MX Linux                    | Planned              | Decide and test the supported systemd mode; the default non-systemd experience is outside today's lifecycle contract.    |
-| Fedora                      | Planned              | Add an RPM-family package adapter, spec file and SELinux-aware desktop tests.                                            |
-| CentOS Stream / RHEL family | Planned              | Establish available GTK, AppIndicator and Python versions before defining a supported release.                           |
-| Univention UCS              | Future request       | Treat as a separate Debian-derived, server-oriented target; first define the intended desktop and user-session use case. |
+| Distribution                 | Current status       | Promotion work still required                                                                                            |
+| ---------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------ |
+| Linux Mint 22.x Cinnamon     | Reference, supported | Keep the full local and online suite green and retain live Cinnamon/Nemo release testing.                                |
+| Ubuntu 24.04 LTS             | Initial target       | Complete package layout, clean-system installation, GNOME/keyring/tray testing and release packaging.                    |
+| Arch Linux with Cinnamon/X11 | Release candidate    | Keep smoke and native-package gates green; complete configured account, transfer and login-lifecycle review.             |
+| Debian                       | Prepared next        | Reuse the Debian-family adapter, then validate supported desktop and package versions explicitly.                        |
+| MX Linux                     | Planned              | Decide and test the supported systemd mode; the default non-systemd experience is outside today's lifecycle contract.    |
+| Fedora                       | Planned              | Add an RPM-family package adapter, spec file and SELinux-aware desktop tests.                                            |
+| CentOS Stream / RHEL family  | Planned              | Establish available GTK, AppIndicator and Python versions before defining a supported release.                           |
+| Univention UCS               | Future request       | Treat as a separate Debian-derived, server-oriented target; first define the intended desktop and user-session use case. |
 
 ## One source tree, small adapters
 
@@ -98,8 +100,10 @@ command publishes an image, stable package, tag or release. On pull requests
 and explicit workflow dispatches, the same Arch compatibility job reuses its
 already pulled image, runs the native package gate and uploads the compressed
 package for seven days as `proton-drive-linux-arch-<commit>`. This ephemeral,
-commit-bound test candidate exists only for the clean-desktop gate; it is not a
-stable distribution package.
+commit-bound artifact exists for the clean-desktop gate. A package that passes
+that gate may be attached to its matching PDrive GitHub Release for configured
+review, but does not become a generally supported distribution package until
+the remaining promotion record is complete.
 
 The runner refuses to download an image implicitly. To opt into a current image
 download, run:
