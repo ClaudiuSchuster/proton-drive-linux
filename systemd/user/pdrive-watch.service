@@ -1,11 +1,12 @@
 [Unit]
 Description=Health check and bounded stall recovery for the Proton Drive rclone deployment
-Documentation=file:%h/.local/share/doc/proton-drive-linux/OPERATIONS.md
+Documentation=https://github.com/oss-singularity/proton-drive-linux/blob/main/docs/OPERATIONS.md
 
 [Service]
 Type=oneshot
 UMask=0077
-ExecStart=%h/.local/bin/pdrive-watch --record
+Environment=PATH=/usr/local/bin:/usr/bin:%h/.local/bin
+ExecStart=/usr/bin/env pdrive-service watch-record
 TimeoutStartSec=5min
 Nice=10
 IOSchedulingClass=idle

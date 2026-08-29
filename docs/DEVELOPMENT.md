@@ -88,6 +88,7 @@ systemd/user/    mount, watchdog and updater lifecycle
 share/           desktop launcher and scalable application icon
 docs/            user, operator and developer documentation
 tests/           fixtures, safety checks and GTK behavior tests
+packaging/       shared static staging plus distribution package recipes
 install.sh       idempotent copy-based user-local installer
 uninstall.sh     guarded removal of repository-managed files
 ```
@@ -144,6 +145,23 @@ the focused systemd invariants and static verification, while
 portable `make check` remains the CI entry point and automatically uses Xvfb
 when it is installed.
 
+`make check-platforms` validates exact `os-release` matching and the centralized
+Debian-family and Arch package maps. `make check-arch` reuses the online Arch
+smoke-test entry point with rootless Podman and a read-only repository mount.
+`make check-arch-package` creates a deterministic current-tree source archive,
+renders its checksum-pinned PKGBUILD, runs `makepkg` and `namcap`, installs the
+package in the same disposable Arch container and writes only the completed
+ignored artifact below `dist/arch/`. It does not publish anything.
+The support tiers, resource-conscious test ladder and package promotion gates
+live in [Distribution portability](PORTABILITY.md).
+
+`make check-desktop-gate` prints the privacy-safe read-only preflight from the
+current graphical login. Before promoting a distribution, run the strict
+preflight and configured modes and complete the manual session, tray,
+file-manager and login
+lifecycle checks in [Real desktop release gates](DESKTOP_GATES.md). Container
+success never replaces that clean target-desktop record.
+
 For UI changes, also run the real-display widget suite where a disposable
 display is unavailable:
 
@@ -194,11 +212,14 @@ transactional reauthentication and account switching, terminal-authentication re
 systemd semantics, state fixtures, version consistency, desktop validation and
 GTK checks when the display stack is available. GitHub Actions also runs
 Super-Linter for Bash, Python, Markdown, YAML, action security and secret
-scanning. Pull requests receive one required Functional-check and Super-Linter
-pair; pushes are limited to `main`, where the resulting merge commit is checked
-once more. Do not broaden the push trigger to feature branches, because
-same-repository pull requests would run both jobs twice for the same source
-commit.
+scanning. The focused Arch compatibility job also builds the native package
+after its pull-request or manually dispatched smoke test and retains that
+commit-bound candidate for seven days for a clean-desktop promotion run. It
+does not make the package stable or publish a release. Pull requests receive
+one required Functional-check and Super-Linter pair; pushes are limited to
+`main`, where the resulting merge commit is checked once more. Do not broaden
+the push trigger to feature branches, because same-repository pull requests
+would run both jobs twice for the same source commit.
 
 `VERSION`, `bin/pdrive-ui::VERSION` and `bin/pdrive-state::TOOL_VERSION` must
 match exactly. Releases use immutable annotated `vX.Y.Z` tags on a commit whose

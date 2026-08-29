@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+
+project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." && pwd -P)"
+template="${project_dir}/packaging/arch/PKGBUILD.in"
+version="$(< "${project_dir}/VERSION")"
+source_url=''
+source_sha256=''
+output=''
+
+usage() {
+    printf '%s\n' \
+        'Usage: packaging/arch/render-pkgbuild --source-sha256 HASH [OPTIONS]' \
+        '' \
+        'Render a checksum-pinned Arch PKGBUILD from the release template.' \
+        '' \
+        '--version VERSION       source release version (default: VERSION file)' \
+        '--source-url URL        release archive URL (default: canonical GitHub tag)' \
+        '--source-sha256 HASH    exact 64-character SHA-256 digest' \
+        '--output FILE           write FILE instead of standard output' \
+        '-h, --help              show only this action-free help'
+}
+
+while (( $# )); do
+    case "${1}" in
+        --version)
+            (( $# >= 2 )) || { usage >&2; exit 2; }
+            version="${2}"
+            shift 2
+            ;;
+        --source-url)
+            (( $# >= 2 )) || { usage >&2; exit 2; }
+            source_url="${2}"
+            shift 2
+            ;;
+        --source-sha256)
+            (( $# >= 2 )) || { usage >&2; exit 2; }
+            source_sha256="${2}"
+            shift 2
+            ;;
+        --output)
+            (( $# >= 2 )) || { usage >&2; exit 2; }
+            output="${2}"
+            shift 2
+            ;;
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        *)
+            usage >&2
+            exit 2
+            ;;
+    esac
+done
+
+[[ "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || {
+    printf 'Invalid SemVer release: %s\n' "${version}" >&2
+    exit 2
+}
+[[ "${source_sha256}" =~ ^[0-9a-f]{64}$ ]] || {
+    printf 'A lowercase 64-character source SHA-256 is required.\n' >&2
+    exit 2
+}
+if [[ -z "${source_url}" ]]; then
+    source_url="https://github.com/oss-singularity/proton-drive-linux/archive/refs/tags/v${version}.tar.gz"
+fi
+[[ "${source_url}" != *$'\n'* && "${source_url}" != *$'\r'* ]] || {
+    printf 'Invalid source URL.\n' >&2
+    exit 2
+}
+
+rendered="$(< "${template}")"
+rendered="${rendered//@VERSION@/${version}}"
+rendered="${rendered//@SOURCE_URL@/${source_url}}"
+rendered="${rendered//@SOURCE_SHA256@/${source_sha256}}"
+
+if [[ -n "${output}" ]]; then
+    printf '%s\n' "${rendered}" > "${output}"
+else
+    printf '%s\n' "${rendered}"
+fi

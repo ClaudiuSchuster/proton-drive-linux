@@ -19,7 +19,7 @@ body:
     id: platform
     attributes:
       label: Linux and desktop version
-      placeholder: Linux Mint 22.x Cinnamon
+      placeholder: Linux Mint 22.x Cinnamon, Ubuntu 24.04 GNOME or Arch Linux Cinnamon
     validations:
       required: true
   - type: input

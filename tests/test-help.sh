@@ -18,9 +18,9 @@ snapshot() {
 }
 
 before="$(snapshot)"
-for helper in pdrive-account-switch pdrive-bwlimit pdrive-cache-age pdrive-doctor pdrive-draft-recovery pdrive-network-tune pdrive-reauth \
-    pdrive-prerequisites pdrive-recovery pdrive-refresh pdrive-setup pdrive-state pdrive-transfers \
-    pdrive-ui pdrive-watch; do
+for helper in pdrive-account-switch pdrive-bwlimit pdrive-cache-age pdrive-desktop-gate pdrive-doctor pdrive-draft-recovery pdrive-network-tune pdrive-reauth \
+    pdrive-platform pdrive-prerequisites pdrive-recovery pdrive-refresh pdrive-setup pdrive-state pdrive-transfers \
+    pdrive-service pdrive-ui pdrive-watch; do
     helper_help="$(HOME="${test_home}" "${project_dir}/bin/${helper}" --help 2>&1)"
     if grep -Eq \
         'Verwendung:|Unbekannte Option|Keine Option|Konfiguration:|Neustart|Wiederherstellung|Bestätigung|Warnung:' \
@@ -50,6 +50,7 @@ fi
 grep -qF "language en" "${project_dir}/libexec/pdrive-auth-failure-guard"
 HOME="${test_home}" bash "${project_dir}/install.sh" --help >/dev/null
 HOME="${test_home}" bash "${project_dir}/uninstall.sh" --help >/dev/null
+HOME="${test_home}" bash "${project_dir}/packaging/install-static.sh" --help >/dev/null
 HOME="${test_home}" bash "${project_dir}/libexec/setup-rclone-proton" >/dev/null
 HOME="${test_home}" bash "${project_dir}/libexec/reauth-rclone-proton" --help >/dev/null
 HOME="${test_home}" bash "${project_dir}/libexec/pdrive-account-cache" --help >/dev/null

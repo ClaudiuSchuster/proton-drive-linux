@@ -15,7 +15,9 @@ grep -qF "TOOL_VERSION = \"${project_version}\"" "${project_dir}/bin/pdrive-stat
 mapfile -t shell_files < <(
     find "${project_dir}/bin" "${project_dir}/libexec" "${project_dir}/tests" \
         -maxdepth 1 -type f -name '*.sh' -print | sort
-    printf '%s\n' "${project_dir}/install.sh" "${project_dir}/uninstall.sh"
+    printf '%s\n' "${project_dir}/install.sh" "${project_dir}/uninstall.sh" \
+        "${project_dir}/packaging/install-static.sh" \
+        "${project_dir}/packaging/arch/render-pkgbuild"
 )
 
 for shell_file in "${shell_files[@]}"; do
@@ -34,7 +36,9 @@ for yaml_file in "${yaml_files[@]}"; do
     fi
 done
 
-for python_file in "${project_dir}/bin/pdrive-state" "${project_dir}/bin/pdrive-ui" \
+for python_file in "${project_dir}/bin/pdrive-desktop-gate" \
+    "${project_dir}/bin/pdrive-platform" \
+    "${project_dir}/bin/pdrive-state" "${project_dir}/bin/pdrive-ui" \
     "${project_dir}/libexec/pdrive-draft-recovery-auto" \
     "${project_dir}/tests/test-draft-recovery.py" \
     "${project_dir}/.github/social-preview-src/render.py" \
@@ -55,11 +59,23 @@ else
 fi
 
 for shell_file in "${project_dir}"/bin/* "${project_dir}"/libexec/* \
-    "${project_dir}"/install.sh "${project_dir}"/uninstall.sh "${project_dir}"/tests/*.sh; do
+    "${project_dir}"/install.sh "${project_dir}"/uninstall.sh \
+    "${project_dir}"/packaging/install-static.sh \
+    "${project_dir}"/packaging/arch/render-pkgbuild "${project_dir}"/tests/*.sh; do
     [[ -x "${shell_file}" ]] || {
         printf 'Expected executable file: %s\n' "${shell_file}" >&2
         exit 1
     }
+done
+
+for installed_source in "${project_dir}"/bin/* "${project_dir}"/libexec/* \
+    "${project_dir}"/systemd/user/*; do
+    [[ -f "${installed_source}" ]] || continue
+    installed_name="$(basename -- "${installed_source}")"
+    if ! grep -qwF -- "${installed_name}" "${project_dir}/uninstall.sh"; then
+        printf 'uninstall.sh does not handle installed file: %s\n' "${installed_name}" >&2
+        exit 1
+    fi
 done
 
 if command -v desktop-file-validate >/dev/null 2>&1; then
@@ -121,9 +137,11 @@ if grep -RiqF -- 'mode-0600 Unix' "${project_dir}/README.md" "${project_dir}/doc
 fi
 
 manual_files=(
+    'docs/DESKTOP_GATES.md'
     'docs/QUICK_START.md'
     'docs/EVERYDAY_USE.md'
     'docs/OPERATIONS.md'
+    'docs/PORTABILITY.md'
     'docs/TROUBLESHOOTING.md'
     'SECURITY.md'
     'LICENSE'
@@ -142,22 +160,23 @@ for manual_path in "${manual_files[@]}" "${manual_assets[@]}"; do
         exit 1
     fi
     manual_name=$(basename -- "${manual_path}")
-    for lifecycle_script in install.sh uninstall.sh; do
-        if ! grep -qF -- "${manual_name}" "${project_dir}/${lifecycle_script}"; then
-            printf '%s does not handle in-app documentation asset: %s\n' \
-                "${lifecycle_script}" "${manual_name}" >&2
-            exit 1
-        fi
-    done
+    if ! grep -qF -- "${manual_name}" "${project_dir}/uninstall.sh"; then
+        printf 'uninstall.sh does not handle in-app documentation asset: %s\n' \
+            "${manual_name}" >&2
+        exit 1
+    fi
 done
 
 "${project_dir}/tests/test-help.sh"
 "${project_dir}/tests/test-systemd.sh"
+"${project_dir}/tests/test-install-layout.sh"
 "${project_dir}/tests/test-updaters.sh"
 "${project_dir}/tests/test-cache-age.sh"
 "${project_dir}/tests/test-network-tune.sh"
 "${project_dir}/tests/test-bwlimit.sh"
 "${project_dir}/tests/test-prerequisites.sh"
+"${project_dir}/tests/test-platforms.sh"
+"${project_dir}/tests/test-desktop-gate.sh"
 "${project_dir}/tests/test-setup.sh"
 "${project_dir}/tests/test-reauth.sh"
 "${project_dir}/tests/test-account-switch.sh"

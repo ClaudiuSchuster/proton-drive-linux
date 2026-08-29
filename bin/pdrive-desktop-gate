@@ -1,0 +1,537 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Collect privacy-safe, read-only evidence from a real PDrive desktop."""
+
+from __future__ import annotations
+
+import argparse
+import datetime as dt
+import importlib.machinery
+import importlib.util
+import json
+import os
+import pathlib
+import platform as host_platform
+import re
+import shutil
+import stat
+import subprocess
+import sys
+from typing import Any
+
+
+SCHEMA_VERSION = 1
+SUPPORTED_ARCHITECTURES = {"amd64", "x86_64"}
+CORE_HELPERS = ("pdrive-doctor", "pdrive-platform", "pdrive-state", "pdrive-ui")
+CORE_UNITS = (
+    "pdrive-draft-recovery.timer",
+    "pdrive-watch.timer",
+    "rclone-proton-drive.service",
+    "rclone-selfupdate.timer",
+)
+MANUAL_GATES = (
+    {
+        "id": "menu-launch",
+        "description": "The desktop menu shows the expected name and icon and launches one Control Center instance.",
+    },
+    {
+        "id": "window-layout",
+        "description": "Overview, Transfers and History remain readable at minimum width and fit the available work area.",
+    },
+    {
+        "id": "language-and-keyboard",
+        "description": "English and German are complete and all controls are reachable with the keyboard.",
+    },
+    {
+        "id": "tray-behavior",
+        "description": "Left click opens the window, right click opens the control menu and hide/show behavior is reliable.",
+    },
+    {
+        "id": "file-manager",
+        "description": "The file-manager route opens /pdrive without changing its owner-only access contract.",
+    },
+    {
+        "id": "login-lifecycle",
+        "description": "A fresh graphical login unlocks the keyring and starts enabled user services without an authentication loop.",
+    },
+    {
+        "id": "configured-transfer",
+        "description": "An explicitly authorized disposable upload and download complete and agree with Control Center state.",
+    },
+)
+
+
+def load_platform_adapter() -> Any:
+    adapter_path = pathlib.Path(__file__).with_name("pdrive-platform")
+    loader = importlib.machinery.SourceFileLoader("pdrive_platform_gate_adapter", str(adapter_path))
+    specification = importlib.util.spec_from_loader(loader.name, loader)
+    if specification is None:
+        raise ImportError("Cannot load the PDrive platform adapter")
+    module = importlib.util.module_from_spec(specification)
+    loader.exec_module(module)
+    return module
+
+
+PLATFORM_ADAPTER = load_platform_adapter()
+
+
+def run(command: list[str], timeout: int = 8) -> subprocess.CompletedProcess[str]:
+    environment = os.environ.copy()
+    environment["PYTHONDONTWRITEBYTECODE"] = "1"
+    try:
+        return subprocess.run(
+            command,
+            check=False,
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            timeout=timeout,
+            env=environment,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return subprocess.CompletedProcess(command, 124, "", type(error).__name__)
+
+
+def safe_label(value: str, fallback: str = "unknown") -> str:
+    cleaned = re.sub(r"[^A-Za-z0-9_.:+@ /,()=-]", "?", value.strip())[:80]
+    return cleaned or fallback
+
+
+def result(
+    gate_id: str,
+    category: str,
+    status_value: str,
+    detail: str,
+    *,
+    required: bool = True,
+) -> dict[str, Any]:
+    return {
+        "id": gate_id,
+        "category": category,
+        "status": status_value,
+        "required": required,
+        "detail": safe_label(detail),
+    }
+
+
+def installed_path(name: str) -> pathlib.Path | None:
+    candidate = shutil.which(name)
+    if not candidate:
+        return None
+    path = pathlib.Path(candidate)
+    return path if path.is_file() else None
+
+
+def project_version() -> str:
+    candidates = (
+        pathlib.Path(__file__).parent.parent / "VERSION",
+        pathlib.Path.home() / ".local/share/doc/proton-drive-linux/VERSION",
+        pathlib.Path("/usr/share/doc/proton-drive-linux/VERSION"),
+    )
+    for candidate in candidates:
+        try:
+            value = candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            continue
+        if re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", value):
+            return value
+    ui_path = installed_path("pdrive-ui")
+    if ui_path:
+        completed = run([str(ui_path), "--version"])
+        match = re.search(r"\b[0-9]+\.[0-9]+\.[0-9]+\b", completed.stdout)
+        if match:
+            return match.group(0)
+    return "unknown"
+
+
+def package_results(platform_info: dict[str, Any]) -> dict[str, Any]:
+    family = platform_info.get("family", "")
+    packages = platform_info.get("packages", [])
+    missing: list[str] = []
+    if family == "arch":
+        for package in packages:
+            if run(["/usr/bin/pacman", "-Q", "--", package]).returncode != 0:
+                missing.append(package)
+    elif family == "debian":
+        for package in packages:
+            completed = run(["/usr/bin/dpkg-query", "-W", "-f=${db:Status-Abbrev}", package])
+            if completed.returncode != 0 or completed.stdout != "ii ":
+                missing.append(package)
+    else:
+        return result("packages", "platform", "FAIL", "no reviewed package profile")
+    if missing:
+        return result("packages", "platform", "FAIL", "missing: " + ", ".join(missing))
+    return result("packages", "platform", "PASS", f"all {len(packages)} mapped packages installed")
+
+
+def gtk_result() -> dict[str, Any]:
+    code = """
+import gi
+import cairo
+gi.require_foreign('cairo')
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk
+print(f'{Gtk.get_major_version()}.{Gtk.get_minor_version()}.{Gtk.get_micro_version()}')
+"""
+    completed = run([sys.executable, "-c", code])
+    if completed.returncode != 0:
+        return result("gtk", "desktop", "FAIL", "GTK 3 Python bindings unavailable")
+    return result("gtk", "desktop", "PASS", "GTK " + completed.stdout.strip())
+
+
+def tray_result() -> dict[str, Any]:
+    indicator_code = """
+import gi
+gi.require_version('AyatanaAppIndicator3', '0.1')
+from gi.repository import AyatanaAppIndicator3
+print(AyatanaAppIndicator3.__name__)
+"""
+    if run([sys.executable, "-c", indicator_code]).returncode == 0:
+        return result("tray-library", "desktop", "PASS", "Ayatana AppIndicator available")
+    fallback_code = """
+import gi
+gi.require_version('Gtk', '3.0')
+from gi.repository import Gtk
+assert hasattr(Gtk, 'StatusIcon')
+"""
+    if run([sys.executable, "-c", fallback_code]).returncode == 0:
+        return result("tray-library", "desktop", "PASS", "GTK StatusIcon fallback available")
+    return result("tray-library", "desktop", "FAIL", "no supported tray backend")
+
+
+def desktop_entry_result() -> dict[str, Any]:
+    relative = pathlib.Path("applications/io.github.claudiuschuster.PDriveControl.desktop")
+    roots = (
+        pathlib.Path(os.environ.get("XDG_DATA_HOME", pathlib.Path.home() / ".local/share")),
+        pathlib.Path("/usr/local/share"),
+        pathlib.Path("/usr/share"),
+    )
+    entry = next((root / relative for root in roots if (root / relative).is_file()), None)
+    if entry is None:
+        return result("desktop-entry", "installation", "FAIL", "installed desktop entry missing")
+    validator = shutil.which("desktop-file-validate")
+    if validator and run([validator, str(entry)]).returncode != 0:
+        return result("desktop-entry", "installation", "FAIL", "desktop entry validation failed")
+    return result("desktop-entry", "installation", "PASS", "installed desktop entry valid")
+
+
+def icon_result() -> dict[str, Any]:
+    relative = pathlib.Path("icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg")
+    roots = (
+        pathlib.Path(os.environ.get("XDG_DATA_HOME", pathlib.Path.home() / ".local/share")),
+        pathlib.Path("/usr/local/share"),
+        pathlib.Path("/usr/share"),
+    )
+    if any((root / relative).is_file() for root in roots):
+        return result("desktop-icon", "installation", "PASS", "installed scalable icon present")
+    return result("desktop-icon", "installation", "FAIL", "installed scalable icon missing")
+
+
+def unit_result() -> dict[str, Any]:
+    roots = (
+        pathlib.Path.home() / ".config/systemd/user",
+        pathlib.Path("/usr/local/lib/systemd/user"),
+        pathlib.Path("/usr/lib/systemd/user"),
+        pathlib.Path("/lib/systemd/user"),
+    )
+    missing = [unit for unit in CORE_UNITS if not any((root / unit).is_file() for root in roots)]
+    if missing:
+        return result("systemd-units", "installation", "FAIL", "missing: " + ", ".join(missing))
+    return result("systemd-units", "installation", "PASS", "core user units installed")
+
+
+def mountpoint_result() -> dict[str, Any]:
+    mountpoint = pathlib.Path("/pdrive")
+    try:
+        metadata = mountpoint.lstat()
+    except OSError:
+        return result("mountpoint", "installation", "FAIL", "/pdrive missing")
+    if stat.S_ISLNK(metadata.st_mode) or not stat.S_ISDIR(metadata.st_mode):
+        return result("mountpoint", "installation", "FAIL", "/pdrive is not a real directory")
+    if metadata.st_uid != os.getuid():
+        return result("mountpoint", "installation", "FAIL", "/pdrive has a different owner")
+    access_mode = stat.S_IMODE(metadata.st_mode)
+    if access_mode & 0o077:
+        return result("mountpoint", "installation", "FAIL", "/pdrive is not owner-only")
+    return result("mountpoint", "installation", "PASS", "/pdrive is an owner-only directory")
+
+
+def runtime_results() -> list[dict[str, Any]]:
+    checks: list[dict[str, Any]] = []
+    config = pathlib.Path.home() / ".config/rclone/rclone.conf"
+    checks.append(
+        result(
+            "encrypted-config",
+            "configured-runtime",
+            "PASS" if config.is_file() and os.access(config, os.R_OK) else "FAIL",
+            "encrypted configuration readable"
+            if config.is_file() and os.access(config, os.R_OK)
+            else "encrypted configuration missing",
+        )
+    )
+    service = run(["systemctl", "--user", "is-active", "rclone-proton-drive.service"])
+    checks.append(
+        result(
+            "mount-service",
+            "configured-runtime",
+            "PASS" if service.returncode == 0 and service.stdout.strip() == "active" else "FAIL",
+            "mount service active"
+            if service.returncode == 0 and service.stdout.strip() == "active"
+            else "mount service inactive",
+        )
+    )
+    findmnt = run(["findmnt", "-rn", "-M", "/pdrive", "-o", "FSTYPE,OPTIONS"])
+    mounted = findmnt.returncode == 0 and findmnt.stdout.startswith(("fuse ", "fuse.rclone "))
+    writable = mounted and "rw" in findmnt.stdout.replace(",", " ").split()
+    checks.append(
+        result(
+            "fuse-mount",
+            "configured-runtime",
+            "PASS" if mounted and writable else "FAIL",
+            "owner FUSE mount is active and writable"
+            if mounted and writable
+            else "active writable FUSE mount not proven",
+        )
+    )
+    state_helper = installed_path("pdrive-state")
+    state_valid = False
+    if state_helper:
+        snapshot = run([str(state_helper)], timeout=15)
+        if snapshot.returncode == 0:
+            try:
+                state_data = json.loads(snapshot.stdout)
+                state_valid = isinstance(state_data, dict) and "schema_version" in state_data
+            except json.JSONDecodeError:
+                pass
+    checks.append(
+        result(
+            "state-snapshot",
+            "configured-runtime",
+            "PASS" if state_valid else "FAIL",
+            "versioned state snapshot readable" if state_valid else "versioned state snapshot unavailable",
+        )
+    )
+    secret_tool = shutil.which("secret-tool")
+    secret_ready = False
+    if secret_tool:
+        try:
+            secret_check = subprocess.run(
+                [secret_tool, "lookup", "service", "rclone", "account", "proton-drive"],
+                check=False,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+                timeout=5,
+            )
+            secret_ready = secret_check.returncode == 0
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+    checks.append(
+        result(
+            "keyring-entry",
+            "configured-runtime",
+            "PASS" if secret_ready else "FAIL",
+            "keyring entry available" if secret_ready else "keyring entry unavailable or locked",
+        )
+    )
+    return checks
+
+
+def collect_report(configured: bool) -> dict[str, Any]:
+    platform_info = PLATFORM_ADAPTER.platform_information()
+    release = PLATFORM_ADAPTER.os_release_values()
+    session_type = safe_label(os.environ.get("XDG_SESSION_TYPE", ""))
+    desktop = safe_label(os.environ.get("XDG_CURRENT_DESKTOP", ""))
+    results: list[dict[str, Any]] = []
+    family = platform_info.get("family", "")
+    results.append(
+        result(
+            "distribution-adapter",
+            "platform",
+            "PASS" if family in {"arch", "debian"} else "FAIL",
+            f"{platform_info.get('id') or 'unknown'} uses {family or 'no'} profile",
+        )
+    )
+    architecture = host_platform.machine().lower()
+    results.append(
+        result(
+            "architecture",
+            "platform",
+            "PASS" if architecture in SUPPORTED_ARCHITECTURES else "FAIL",
+            architecture,
+        )
+    )
+    results.append(package_results(platform_info))
+    graphical = session_type in {"x11", "wayland"} and bool(
+        os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY")
+    )
+    results.append(
+        result(
+            "graphical-session",
+            "desktop",
+            "PASS" if graphical else "FAIL",
+            f"{desktop} on {session_type}" if graphical else "no live X11 or Wayland session",
+        )
+    )
+    bus_command = shutil.which("gdbus")
+    bus_ready = (
+        bool(bus_command)
+        and run(
+            [
+                str(bus_command),
+                "call",
+                "--session",
+                "--dest",
+                "org.freedesktop.DBus",
+                "--object-path",
+                "/org/freedesktop/DBus",
+                "--method",
+                "org.freedesktop.DBus.ListNames",
+            ]
+        ).returncode
+        == 0
+    )
+    results.append(
+        result(
+            "session-bus",
+            "desktop",
+            "PASS" if bus_ready else "FAIL",
+            "D-Bus session reachable" if bus_ready else "D-Bus session unavailable",
+        )
+    )
+    user_manager = run(["systemctl", "--user", "show-environment"])
+    results.append(
+        result(
+            "systemd-user",
+            "desktop",
+            "PASS" if user_manager.returncode == 0 else "FAIL",
+            "user manager reachable" if user_manager.returncode == 0 else "user manager unavailable",
+        )
+    )
+    results.extend((gtk_result(), tray_result()))
+    fuse = pathlib.Path("/dev/fuse")
+    fuse_ready = fuse.exists() and os.access(fuse, os.R_OK | os.W_OK)
+    results.append(
+        result(
+            "fuse-device",
+            "desktop",
+            "PASS" if fuse_ready else "FAIL",
+            "/dev/fuse accessible" if fuse_ready else "/dev/fuse unavailable",
+        )
+    )
+    missing_helpers = [name for name in CORE_HELPERS if installed_path(name) is None]
+    results.append(
+        result(
+            "installed-helpers",
+            "installation",
+            "FAIL" if missing_helpers else "PASS",
+            "missing: " + ", ".join(missing_helpers) if missing_helpers else "core helpers available on PATH",
+        )
+    )
+    results.extend((desktop_entry_result(), icon_result(), unit_result(), mountpoint_result()))
+    ui_path = installed_path("pdrive-ui")
+    ui_check = run([str(ui_path), "--check"], timeout=15) if ui_path else None
+    results.append(
+        result(
+            "control-center-check",
+            "installation",
+            "PASS" if ui_check and ui_check.returncode == 0 else "FAIL",
+            "GTK and state helper self-check passed"
+            if ui_check and ui_check.returncode == 0
+            else "Control Center self-check failed",
+        )
+    )
+    if configured:
+        results.extend(runtime_results())
+    counts = {status_value: 0 for status_value in ("PASS", "FAIL", "SKIP")}
+    for gate in results:
+        counts[gate["status"]] += 1
+    automated_ready = not any(gate["required"] and gate["status"] != "PASS" for gate in results)
+    return {
+        "schema_version": SCHEMA_VERSION,
+        "generated_at": dt.datetime.now(dt.UTC).replace(microsecond=0).isoformat(),
+        "project_version": project_version(),
+        "mode": "configured" if configured else "preflight",
+        "platform": {
+            "id": safe_label(str(platform_info.get("id", ""))),
+            "version_id": safe_label(release.get("VERSION_ID", "")),
+            "family": safe_label(family),
+            "architecture": safe_label(architecture),
+            "desktop": desktop,
+            "session_type": session_type,
+        },
+        "summary": {"automated_ready": automated_ready, **{key.lower(): value for key, value in counts.items()}},
+        "results": results,
+        "manual_gates": list(MANUAL_GATES),
+        "privacy": "No hostname, user name, home path, PID, file name, credential or remote content is collected.",
+    }
+
+
+def markdown_report(report: dict[str, Any]) -> str:
+    platform_info = report["platform"]
+    lines = [
+        "# PDrive desktop gate report",
+        "",
+        f"- Generated: `{report['generated_at']}`",
+        f"- PDrive: `{report['project_version']}`",
+        f"- Mode: `{report['mode']}`",
+        f"- Platform: `{platform_info['id']} {platform_info['version_id']}` / `{platform_info['architecture']}`",
+        f"- Desktop: `{platform_info['desktop']}` / `{platform_info['session_type']}`",
+        f"- Automated gate: `{'PASS' if report['summary']['automated_ready'] else 'FAIL'}`",
+        "",
+        "| Gate | Category | Required | Status | Evidence |",
+        "| --- | --- | --- | --- | --- |",
+    ]
+    for gate in report["results"]:
+        detail = str(gate["detail"]).replace("|", "\\|")
+        lines.append(
+            f"| `{gate['id']}` | {gate['category']} | {'yes' if gate['required'] else 'no'} | "
+            f"**{gate['status']}** | {detail} |"
+        )
+    lines.extend(("", "## Manual confirmation still required", ""))
+    for gate in report["manual_gates"]:
+        lines.append(f"- [ ] `{gate['id']}` — {gate['description']}")
+    lines.extend(("", f"> {report['privacy']}", ""))
+    return "\n".join(lines)
+
+
+def argument_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="pdrive-desktop-gate",
+        description="Collect privacy-safe, read-only evidence from a real PDrive desktop.",
+    )
+    formats = parser.add_mutually_exclusive_group()
+    formats.add_argument("--json", action="store_true", help="print the versioned machine-readable report")
+    formats.add_argument("--markdown", action="store_true", help="print a reviewable Markdown report")
+    parser.add_argument(
+        "--configured",
+        action="store_true",
+        help="also verify the saved configuration, keyring entry, service, mount and state helper",
+    )
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="return failure when any required automated gate does not pass",
+    )
+    return parser
+
+
+def main() -> int:
+    parser = argument_parser()
+    args = parser.parse_args()
+    if not args.json and not args.markdown:
+        if args.configured or args.strict:
+            parser.error("--configured and --strict require --json or --markdown")
+        parser.print_help()
+        return 0
+    report = collect_report(args.configured)
+    if args.json:
+        print(json.dumps(report, sort_keys=True, separators=(",", ":")))
+    else:
+        print(markdown_report(report))
+    return 1 if args.strict and not report["summary"]["automated_ready"] else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

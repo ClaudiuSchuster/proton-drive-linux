@@ -3,6 +3,8 @@
 
 set -euo pipefail
 
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+project_root="$(cd -- "$(dirname -- "${script_path}")/.." && pwd -P)"
 readonly mount_dir='/pdrive'
 readonly state_dir="${HOME}/.local/state/rclone"
 readonly config_file="${HOME}/.config/rclone/rclone.conf"
@@ -12,8 +14,8 @@ readonly cache_config="${HOME}/.config/pdrive-cache.conf"
 readonly recovery_config="${HOME}/.config/pdrive-recovery.conf"
 readonly draft_recovery_config="${HOME}/.config/pdrive-draft-recovery.conf"
 readonly rc_socket="${state_dir}/pdrive-rc.sock"
-readonly rclone_bin="${HOME}/.local/bin/rclone"
-readonly account_cache_helper="${PDRIVE_ACCOUNT_CACHE_HELPER:-${HOME}/.local/libexec/pdrive-account-cache}"
+readonly rclone_bin="${project_root}/bin/rclone"
+readonly account_cache_helper="${PDRIVE_ACCOUNT_CACHE_HELPER:-${project_root}/libexec/pdrive-account-cache}"
 
 if [[ ! -x "${account_cache_helper}" ]]; then
     echo "Account cache resolver is missing: ${account_cache_helper}" >&2

@@ -11,7 +11,8 @@ upload. Detailed maintenance belongs in [Operations](OPERATIONS.md), not here.
 ## 1. Install
 
 The supported target is Linux Mint 22.x with Cinnamon, Nemo and a graphical
-login.
+login. Arch Linux and Ubuntu are active portability targets, not yet supported
+release targets; see [Distribution portability](PORTABILITY.md).
 
 ```bash
 git clone https://github.com/oss-singularity/proton-drive-linux.git

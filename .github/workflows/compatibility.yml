@@ -1,0 +1,67 @@
+---
+name: Distribution compatibility
+
+on: # yamllint disable-line rule:truthy
+  pull_request:
+    paths:
+      - ".github/workflows/compatibility.yml"
+      - "Makefile"
+      - "VERSION"
+      - "bin/**"
+      - "install.sh"
+      - "libexec/**"
+      - "packaging/**"
+      - "share/**"
+      - "systemd/**"
+      - "tests/**"
+      - "uninstall.sh"
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/compatibility.yml"
+      - "Makefile"
+      - "VERSION"
+      - "bin/**"
+      - "install.sh"
+      - "libexec/**"
+      - "packaging/**"
+      - "share/**"
+      - "systemd/**"
+      - "tests/**"
+      - "uninstall.sh"
+  schedule:
+    - cron: "23 4 * * 1"
+  workflow_dispatch: null
+
+permissions:
+  contents: read
+
+concurrency:
+  group: distro-compatibility-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  arch-smoke:
+    name: Arch Linux smoke checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - name: Test the Arch Linux adapter
+        run: ./tests/run-distro-smoke.sh --runtime docker --pull arch
+      - name: Build and inspect the Arch package candidate
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        run: ./tests/run-arch-package.sh --runtime docker
+      - name: Upload the commit-bound Arch package candidate
+        if: github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: proton-drive-linux-arch-${{ github.sha }}
+          path: dist/arch/proton-drive-linux-*.pkg.tar.zst
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0

@@ -1,14 +1,14 @@
 [Unit]
 Description=Update Proton Drive CLI from the official Proton release channel
-Documentation=file:%h/.local/share/doc/proton-drive-linux/OPERATIONS.md https://proton.me/support/drive-cli
+Documentation=https://github.com/oss-singularity/proton-drive-linux/blob/main/docs/OPERATIONS.md https://proton.me/support/drive-cli
 After=network-online.target
 Wants=network-online.target
-ConditionPathExists=%h/.local/libexec/proton-drive-update
 
 [Service]
 Type=oneshot
 UMask=0077
-ExecStart=%h/.local/libexec/proton-drive-update
+Environment=PATH=/usr/local/bin:/usr/bin:%h/.local/bin
+ExecStart=/usr/bin/env pdrive-service proton-drive-update
 TimeoutStartSec=10min
 Nice=10
 IOSchedulingClass=idle

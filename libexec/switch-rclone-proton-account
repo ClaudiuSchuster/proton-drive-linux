@@ -4,7 +4,9 @@
 set -euo pipefail
 umask 077
 
-readonly rclone_bin="${PDRIVE_RCLONE_BIN:-${HOME}/.local/bin/rclone}"
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+project_root="$(cd -- "$(dirname -- "${script_path}")/.." && pwd -P)"
+readonly rclone_bin="${PDRIVE_RCLONE_BIN:-${project_root}/bin/rclone}"
 readonly config_file="${PDRIVE_RCLONE_CONFIG:-${HOME}/.config/rclone/rclone.conf}"
 readonly account_config="${PDRIVE_ACCOUNT_CONFIG:-${HOME}/.config/pdrive-account.conf}"
 readonly cache_root="${PDRIVE_CACHE_ROOT:-${HOME}/.cache/rclone}"
@@ -13,10 +15,8 @@ readonly backup_dir="${PDRIVE_BACKUP_DIR:-${HOME}/.config/rclone/backups}"
 readonly mount_dir="${PDRIVE_MOUNT_DIR:-/pdrive}"
 readonly rc_socket="${PDRIVE_RC_SOCKET:-${state_dir}/pdrive-rc.sock}"
 readonly auth_state_file="${PDRIVE_AUTH_STATE:-${state_dir}/pdrive-auth-state.json}"
-readonly auth_guard="${PDRIVE_AUTH_GUARD:-${HOME}/.local/libexec/pdrive-auth-failure-guard}"
-readonly installed_cache_helper="${PDRIVE_ACCOUNT_CACHE_HELPER:-${HOME}/.local/libexec/pdrive-account-cache}"
-source_cache_helper="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)/pdrive-account-cache"
-readonly source_cache_helper
+readonly auth_guard="${PDRIVE_AUTH_GUARD:-${project_root}/libexec/pdrive-auth-failure-guard}"
+readonly installed_cache_helper="${PDRIVE_ACCOUNT_CACHE_HELPER:-${project_root}/libexec/pdrive-account-cache}"
 readonly service_name='rclone-proton-drive.service'
 readonly mount_attempts="${PDRIVE_ACCOUNT_SWITCH_MOUNT_ATTEMPTS:-45}"
 readonly rollback_attempts="${PDRIVE_ACCOUNT_SWITCH_ROLLBACK_ATTEMPTS:-30}"
@@ -73,9 +73,6 @@ if [[ ! -x "${auth_guard}" ]]; then
 fi
 
 cache_helper="${installed_cache_helper}"
-if [[ ! -x "${cache_helper}" && -x "${source_cache_helper}" ]]; then
-    cache_helper="${source_cache_helper}"
-fi
 if [[ ! -x "${cache_helper}" ]]; then
     printf 'Account cache resolver is missing: %s\n' "${cache_helper}" >&2
     exit 69

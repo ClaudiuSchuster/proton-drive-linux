@@ -1,0 +1,177 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-3.0-or-later
+"""Read-only Linux distribution adapter for PDrive setup and diagnostics."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import pathlib
+import re
+from typing import Any
+
+
+PROFILES: dict[str, dict[str, Any]] = {
+    "debian": {
+        "ids": ("debian", "ubuntu", "linuxmint"),
+        "label": "Debian / Ubuntu / Linux Mint",
+        "package_manager": "/usr/bin/apt-get",
+        "install_arguments": ("install", "-y"),
+        "manual_command": ("sudo", "apt", "install"),
+        "packages": (
+            "curl",
+            "fuse3",
+            "gir1.2-ayatanaappindicator3-0.1",
+            "gir1.2-gtk-3.0",
+            "gnome-keyring",
+            "iproute2",
+            "jq",
+            "libfuse3-3",
+            "libnotify-bin",
+            "libpam-gnome-keyring",
+            "libsecret-tools",
+            "openssl",
+            "python3-gi",
+            "python3-gi-cairo",
+        ),
+    },
+    "arch": {
+        "ids": ("arch", "archlinux"),
+        "label": "Arch Linux",
+        "package_manager": "/usr/bin/pacman",
+        "install_arguments": ("-S", "--needed", "--noconfirm"),
+        "manual_command": ("sudo", "pacman", "-S", "--needed"),
+        "packages": (
+            "curl",
+            "fuse3",
+            "gnome-keyring",
+            "gtk3",
+            "iproute2",
+            "jq",
+            "libayatana-appindicator",
+            "libnotify",
+            "libsecret",
+            "openssl",
+            "polkit",
+            "python-cairo",
+            "python-gobject",
+        ),
+    },
+}
+
+
+def os_release_values() -> dict[str, str]:
+    release_path = pathlib.Path(os.environ.get("PDRIVE_OS_RELEASE", "/etc/os-release"))
+    try:
+        lines = release_path.read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return {}
+    values: dict[str, str] = {}
+    for line in lines:
+        if not line or line.lstrip().startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+        if re.fullmatch(r"[A-Z_]+", key):
+            values[key] = value
+    return values
+
+
+def platform_information() -> dict[str, Any]:
+    release = os_release_values()
+    identifier = release.get("ID", "").strip().lower()
+    like_identifiers = tuple(
+        token for token in release.get("ID_LIKE", "").lower().split() if re.fullmatch(r"[a-z0-9._-]+", token)
+    )
+    candidates = (identifier, *like_identifiers)
+    for family, profile in PROFILES.items():
+        if not any(candidate in profile["ids"] for candidate in candidates):
+            continue
+        package_manager = str(profile["package_manager"])
+        return {
+            "id": identifier,
+            "id_like": list(like_identifiers),
+            "family": family,
+            "label": str(profile["label"]),
+            "package_manager": package_manager,
+            "install_arguments": list(profile["install_arguments"]),
+            "manual_command": list(profile["manual_command"]),
+            "packages": list(profile["packages"]),
+            "automatic": pathlib.Path("/usr/bin/pkexec").is_file() and pathlib.Path(package_manager).is_file(),
+        }
+    return {
+        "id": identifier,
+        "id_like": list(like_identifiers),
+        "family": "",
+        "label": release.get("PRETTY_NAME", identifier or "Unknown Linux"),
+        "package_manager": "",
+        "install_arguments": [],
+        "manual_command": [],
+        "packages": [],
+        "automatic": False,
+    }
+
+
+def system_package_install_command() -> list[str]:
+    platform = platform_information()
+    if not platform["automatic"]:
+        return []
+    return [
+        "/usr/bin/pkexec",
+        platform["package_manager"],
+        *platform["install_arguments"],
+        *platform["packages"],
+    ]
+
+
+def manual_setup_command() -> str:
+    platform = platform_information()
+    commands = []
+    if platform["manual_command"] and platform["packages"]:
+        commands.append(" ".join((*platform["manual_command"], *platform["packages"])))
+    commands.extend(
+        (
+            'sudo install -d -m 0700 -o "$USER" -g "$(id -gn)" /pdrive',
+            "pdrive-prerequisites --install-rclone",
+        )
+    )
+    return "\n".join(commands)
+
+
+def argument_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="pdrive-platform",
+        description="Read-only PDrive distribution detection and package-map adapter.",
+    )
+    actions = parser.add_mutually_exclusive_group()
+    actions.add_argument("--json", action="store_true", help="print the detected adapter as JSON")
+    actions.add_argument("--family", action="store_true", help="print the adapter family")
+    actions.add_argument("--packages", action="store_true", help="print required packages, one per line")
+    actions.add_argument("--manual-setup", action="store_true", help="print manual preparation commands")
+    return parser
+
+
+def main() -> int:
+    parser = argument_parser()
+    args = parser.parse_args()
+    if not any((args.json, args.family, args.packages, args.manual_setup)):
+        parser.print_help()
+        return 0
+    platform = platform_information()
+    if args.json:
+        print(json.dumps(platform, sort_keys=True, separators=(",", ":")))
+    elif args.family:
+        print(platform["family"])
+    elif args.packages:
+        print("\n".join(platform["packages"]))
+    elif args.manual_setup:
+        print(manual_setup_command())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

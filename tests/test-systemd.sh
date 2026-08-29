@@ -36,11 +36,11 @@ for service in pdrive-draft-recovery.service pdrive-watch.service proton-drive-u
 done
 
 declare -A expected_exec_starts=(
-    [pdrive-draft-recovery.service]='%h/.local/libexec/pdrive-draft-recovery-auto --auto'
-    [pdrive-watch.service]='%h/.local/bin/pdrive-watch --record'
-    [proton-drive-update.service]='%h/.local/libexec/proton-drive-update'
-    [rclone-proton-drive.service]='%h/.local/libexec/rclone-proton-mount'
-    [rclone-selfupdate.service]='%h/.local/libexec/rclone-selfupdate'
+    [pdrive-draft-recovery.service]='/usr/bin/env pdrive-service draft-recovery-auto'
+    [pdrive-watch.service]='/usr/bin/env pdrive-service watch-record'
+    [proton-drive-update.service]='/usr/bin/env pdrive-service proton-drive-update'
+    [rclone-proton-drive.service]='/usr/bin/env pdrive-service mount'
+    [rclone-selfupdate.service]='/usr/bin/env pdrive-service rclone-selfupdate'
 )
 declare -A expected_sources=(
     [pdrive-draft-recovery.service]='libexec/pdrive-draft-recovery-auto'
@@ -51,18 +51,20 @@ declare -A expected_sources=(
 )
 for service in "${!expected_exec_starts[@]}"; do
     grep -qFx "ExecStart=${expected_exec_starts[${service}]}" "${unit_dir}/${service}"
+    grep -qFx 'Environment=PATH=/usr/local/bin:/usr/bin:%h/.local/bin' "${unit_dir}/${service}"
     [[ -x "${project_dir}/${expected_sources[${service}]}" ]]
 done
+[[ -x "${project_dir}/bin/pdrive-service" ]]
 
 mount_unit="${unit_dir}/rclone-proton-drive.service"
 grep -qFx 'Type=notify' "${mount_unit}"
 grep -qFx 'TimeoutStartSec=infinity' "${mount_unit}"
 grep -qFx 'RestartSec=1h' "${mount_unit}"
-grep -qFx 'ExecCondition=%h/.local/libexec/pdrive-auth-failure-guard --start-allowed' "${mount_unit}"
-grep -qFx 'ExecStartPre=%h/.local/libexec/pdrive-auth-failure-guard --begin-start' "${mount_unit}"
-grep -qFx 'ExecStartPost=%h/.local/bin/pdrive-bwlimit --apply-startup' "${mount_unit}"
-grep -qFx 'ExecStartPost=%h/.local/libexec/pdrive-auth-failure-guard --mark-healthy' "${mount_unit}"
-grep -qFx 'ExecStopPost=%h/.local/libexec/pdrive-auth-failure-guard --after-service-exit' "${mount_unit}"
+grep -qFx 'ExecCondition=/usr/bin/env pdrive-service auth-start-allowed' "${mount_unit}"
+grep -qFx 'ExecStartPre=/usr/bin/env pdrive-service auth-begin-start' "${mount_unit}"
+grep -qFx 'ExecStartPost=/usr/bin/env pdrive-service bandwidth-startup' "${mount_unit}"
+grep -qFx 'ExecStartPost=/usr/bin/env pdrive-service auth-mark-healthy' "${mount_unit}"
+grep -qFx 'ExecStopPost=/usr/bin/env pdrive-service auth-after-exit' "${mount_unit}"
 [[ -x "${project_dir}/libexec/pdrive-auth-failure-guard" ]]
 if grep -Eq '^(NoNewPrivileges|PrivateDevices|PrivateMounts|ProtectHome)=' "${mount_unit}"; then
     printf 'The FUSE/Keyring mount unit gained incompatible generic sandboxing.\n' >&2
