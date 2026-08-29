@@ -84,15 +84,11 @@ fi
 read -r -p 'New Proton username or email address: ' proton_username
 read -r -s -p 'New Proton password: ' proton_password
 printf '\n'
-read -r -s -p 'Repeat password: ' proton_password_confirm
-printf '\n'
-if [[ -z "${proton_username}" || -z "${proton_password}" \
-    || "${proton_password}" != "${proton_password_confirm}" ]]; then
-    unset proton_password proton_password_confirm
-    printf 'Username is empty or passwords do not match.\n' >&2
+if [[ -z "${proton_username}" || -z "${proton_password}" ]]; then
+    unset proton_password
+    printf 'Username and password must not be empty.\n' >&2
     exit 65
 fi
-unset proton_password_confirm
 read -r -s -p 'Fresh 6-digit 2FA code (empty when disabled): ' proton_2fa
 printf '\n'
 if [[ -n "${proton_2fa}" && ! "${proton_2fa}" =~ ^[0-9]{6}$ ]]; then

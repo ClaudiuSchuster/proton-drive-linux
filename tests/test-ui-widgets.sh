@@ -616,17 +616,17 @@ while module.Gtk.events_pending():
 assert account_dialog.get_title() == "Change Proton account"
 assert account_dialog.preflight_ready
 assert "no active transfers" in account_dialog.preflight_label.get_text()
+assert account_dialog.show_password.get_label() == "Show password and 2FA code"
 assert len(
     [
         widget
         for widget in descendants(account_dialog.form)
         if isinstance(widget, module.Gtk.Entry)
     ]
-) == 4
+) == 3
 assert not account_dialog.switch_button.get_sensitive()
 account_dialog.username_entry.set_text("candidate-user")
 account_dialog.password_entry.set_text("generated-test-password")
-account_dialog.password_confirm_entry.set_text("generated-test-password")
 account_dialog.two_factor_entry.set_text("123")
 account_dialog.confirmation.set_active(True)
 assert not account_dialog.switch_button.get_sensitive()
@@ -658,6 +658,7 @@ assert german_account_dialog.get_title() == "Proton-Konto wechseln"
 assert german_account_dialog.hero_title.get_text() == "/pdrive zu einem anderen Konto verschieben"
 assert german_account_dialog.switch_button.get_label() == "Konto sicher wechseln"
 assert german_account_dialog.confirmation.get_label().startswith("Ich verstehe")
+assert german_account_dialog.show_password.get_label() == "Passwort und 2FA-Code anzeigen"
 german_account_dialog.destroy()
 module.CURRENT_LANGUAGE = "en"
 

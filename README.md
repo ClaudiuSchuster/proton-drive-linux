@@ -115,7 +115,7 @@ are restored automatically.
 <table>
   <tr>
     <td><img src="docs/assets/pdrive-account-settings.png" alt="PDrive Preferences account section with the guarded Change Proton account action"></td>
-    <td><img src="docs/assets/pdrive-account-switch.png" alt="PDrive guarded Proton account-change dialog after a successful safety preflight"></td>
+    <td><img src="docs/assets/pdrive-account-switch.png?v=0.7.7" alt="PDrive guarded Proton account-change dialog after a successful safety preflight"></td>
   </tr>
   <tr>
     <td align="center"><sub>A deliberate account action, separate from contextual reauthorization</sub></td>

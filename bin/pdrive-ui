@@ -44,7 +44,7 @@ except (ImportError, ValueError):
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.7.6"
+VERSION = "0.7.7"
 REFRESH_INTERVAL_SECONDS = 2
 REFRESH_INTERVAL_OPTIONS = (1, 2, 5, 10)
 GRAPH_WINDOW_SECONDS = 5 * 60
@@ -532,15 +532,14 @@ GERMAN_TRANSLATIONS = {
     "Proton account": "Proton-Konto",
     "Username or email": "Benutzername oder E-Mail",
     "Password": "Passwort",
-    "Repeat password": "Passwort wiederholen",
     "Current 2FA code (optional)": "Aktueller 2FA-Code (optional)",
     "Use a fresh six-digit code. Leave this empty when two-factor authentication is disabled.": "Verwende einen frischen sechsstelligen Code. Lass das Feld leer, wenn Zwei-Faktor-Authentifizierung deaktiviert ist.",
-    "Show passwords": "Passwörter anzeigen",
+    "Show password and 2FA code": "Passwort und 2FA-Code anzeigen",
     "Back": "Zurück",
     "Connect securely": "Sicher verbinden",
     "Credentials are sent through a private anonymous pipe, never through process arguments, environment variables or logs.": "Zugangsdaten werden durch eine private anonyme Pipe übertragen, niemals über Prozessargumente, Umgebungsvariablen oder Logs.",
     "Enter your Proton username or email address.": "Gib deinen Proton-Benutzernamen oder deine E-Mail-Adresse ein.",
-    "Passwords are empty or do not match.": "Die Passwörter sind leer oder stimmen nicht überein.",
+    "Enter your Proton password.": "Gib dein Proton-Passwort ein.",
     "The 2FA code must be empty or exactly six digits.": "Der 2FA-Code muss leer oder genau sechsstellig sein.",
     "Reauthorization required": "Neue Autorisierung erforderlich",
     "Proton account reauthorization is required. Automatic login retries were stopped to protect the account.": "Das Proton-Konto muss neu autorisiert werden. Automatische Loginversuche wurden zum Schutz des Kontos gestoppt.",
@@ -568,7 +567,6 @@ GERMAN_TRANSLATIONS = {
     "Checking active transfers, queued uploads and protected Dirty cache data …": "Aktive Übertragungen, eingereihte Uploads und geschützte Dirty-Cachedaten werden geprüft …",
     "New username or email": "Neuer Benutzername oder E-Mail",
     "New password": "Neues Passwort",
-    "Repeat new password": "Neues Passwort wiederholen",
     "Fresh 2FA code (optional)": "Frischer 2FA-Code (optional)",
     "Credentials travel through one anonymous pipe. They never enter process arguments, environment variables, logs, diagnostics or screenshots.": "Zugangsdaten laufen durch eine anonyme Pipe. Sie gelangen niemals in Prozessargumente, Umgebungsvariablen, Logs, Diagnosen oder Screenshots.",
     "I understand that /pdrive will show the new account and that previous cache data remains separate.": "Ich verstehe, dass /pdrive das neue Konto zeigt und bisherige Cachedaten getrennt bleiben.",
@@ -581,6 +579,7 @@ GERMAN_TRANSLATIONS = {
     "Account safety could not be verified. The current account and cache remain unchanged.": "Die Kontosicherheit konnte nicht geprüft werden. Das aktuelle Konto und der Cache bleiben unverändert.",
     "Account changes are disabled in demo mode.": "Kontowechsel sind im Demo-Modus deaktiviert.",
     "Enter the new Proton username or email address.": "Gib den neuen Proton-Benutzernamen oder die E-Mail-Adresse ein.",
+    "Enter the new Proton password.": "Gib das Passwort des neuen Proton-Kontos ein.",
     "Confirm the intentional Proton account migration.": "Bestätige den beabsichtigten Proton-Kontowechsel.",
     "Proton account changed": "Proton-Konto gewechselt",
     "/pdrive is mounted through the new account’s separate cache namespace.": "/pdrive ist über den getrennten Cache-Namensraum des neuen Kontos gemountet.",
@@ -2702,11 +2701,9 @@ class SetupWizard(Gtk.Box):
         self.username_entry = Gtk.Entry()
         self.username_entry.set_input_purpose(Gtk.InputPurpose.EMAIL)
         self.password_entry = Gtk.Entry()
-        self.password_confirm_entry = Gtk.Entry()
         self.two_factor_entry = Gtk.Entry()
         for entry in (
             self.password_entry,
-            self.password_confirm_entry,
             self.two_factor_entry,
         ):
             entry.set_visibility(False)
@@ -2717,7 +2714,6 @@ class SetupWizard(Gtk.Box):
             (
                 ("Username or email", self.username_entry),
                 ("Password", self.password_entry),
-                ("Repeat password", self.password_confirm_entry),
                 ("Current 2FA code (optional)", self.two_factor_entry),
             )
         ):
@@ -2731,8 +2727,8 @@ class SetupWizard(Gtk.Box):
         )
         two_factor_note.set_line_wrap(True)
         page.pack_start(two_factor_note, False, False, 0)
-        show_passwords = Gtk.CheckButton(label=translate("Show passwords"))
-        show_passwords.set_tooltip_text(translate("Show passwords"))
+        show_passwords = Gtk.CheckButton(label=translate("Show password and 2FA code"))
+        show_passwords.set_tooltip_text(translate("Show password and 2FA code"))
         show_passwords.connect("toggled", self.on_show_passwords)
         page.pack_start(show_passwords, False, False, 0)
         self.account_error = label("", "setup-error")
@@ -3058,7 +3054,7 @@ class SetupWizard(Gtk.Box):
     def on_show_passwords(self, button: Gtk.CheckButton) -> None:
         visible = button.get_active()
         self.password_entry.set_visibility(visible)
-        self.password_confirm_entry.set_visibility(visible)
+        self.two_factor_entry.set_visibility(visible)
 
     def show_account_error(self, message: str) -> None:
         self.account_error.set_text(translate(message))
@@ -3069,13 +3065,12 @@ class SetupWizard(Gtk.Box):
             return
         username = self.username_entry.get_text().strip()
         password = self.password_entry.get_text()
-        confirmation = self.password_confirm_entry.get_text()
         two_factor = self.two_factor_entry.get_text().strip()
         if not username:
             self.show_account_error("Enter your Proton username or email address.")
             return
-        if not password or password != confirmation:
-            self.show_account_error("Passwords are empty or do not match.")
+        if not password:
+            self.show_account_error("Enter your Proton password.")
             return
         if two_factor and not re.fullmatch(r"[0-9]{6}", two_factor):
             self.show_account_error("The 2FA code must be empty or exactly six digits.")
@@ -3085,12 +3080,11 @@ class SetupWizard(Gtk.Box):
             payload.extend(value.encode("utf-8"))
             payload.append(0)
         self.password_entry.set_text("")
-        self.password_confirm_entry.set_text("")
         self.two_factor_entry.set_text("")
         self.account_error.hide()
         self.connecting = True
         self.stack.set_visible_child_name("progress")
-        del password, confirmation, two_factor
+        del password, two_factor
         threading.Thread(target=self.connect_worker, args=(payload,), daemon=True).start()
 
     def connect_worker(self, payload: bytearray) -> None:
@@ -3241,8 +3235,8 @@ class ReauthorizationDialog(Gtk.Dialog):
         retry_note.set_line_wrap(True)
         content.pack_start(retry_note, False, False, 0)
 
-        self.show_password = Gtk.CheckButton(label=translate("Show passwords"))
-        self.show_password.set_tooltip_text(translate("Show passwords"))
+        self.show_password = Gtk.CheckButton(label=translate("Show password and 2FA code"))
+        self.show_password.set_tooltip_text(translate("Show password and 2FA code"))
         self.show_password.connect("toggled", self.on_show_password)
         content.pack_start(self.show_password, False, False, 0)
 
@@ -3511,11 +3505,9 @@ class AccountSwitchDialog(Gtk.Dialog):
         self.username_entry = Gtk.Entry()
         self.username_entry.set_input_purpose(Gtk.InputPurpose.EMAIL)
         self.password_entry = Gtk.Entry()
-        self.password_confirm_entry = Gtk.Entry()
         self.two_factor_entry = Gtk.Entry()
         for entry in (
             self.password_entry,
-            self.password_confirm_entry,
             self.two_factor_entry,
         ):
             entry.set_visibility(False)
@@ -3526,7 +3518,6 @@ class AccountSwitchDialog(Gtk.Dialog):
             (
                 ("New username or email", self.username_entry),
                 ("New password", self.password_entry),
-                ("Repeat new password", self.password_confirm_entry),
                 ("Fresh 2FA code (optional)", self.two_factor_entry),
             )
         ):
@@ -3553,8 +3544,8 @@ class AccountSwitchDialog(Gtk.Dialog):
         self.confirmation.connect("toggled", self.update_button_state)
         content.pack_start(self.confirmation, False, False, 0)
 
-        self.show_password = Gtk.CheckButton(label=translate("Show passwords"))
-        self.show_password.set_tooltip_text(translate("Show passwords"))
+        self.show_password = Gtk.CheckButton(label=translate("Show password and 2FA code"))
+        self.show_password.set_tooltip_text(translate("Show password and 2FA code"))
         self.show_password.connect("toggled", self.on_show_password)
         content.pack_start(self.show_password, False, False, 0)
 
@@ -3646,7 +3637,6 @@ class AccountSwitchDialog(Gtk.Dialog):
     def on_show_password(self, button: Gtk.CheckButton) -> None:
         visible = button.get_active()
         self.password_entry.set_visibility(visible)
-        self.password_confirm_entry.set_visibility(visible)
         self.two_factor_entry.set_visibility(visible)
 
     def credentials_valid(self) -> bool:
@@ -3654,7 +3644,6 @@ class AccountSwitchDialog(Gtk.Dialog):
         return (
             bool(self.username_entry.get_text().strip())
             and bool(self.password_entry.get_text())
-            and self.password_entry.get_text() == self.password_confirm_entry.get_text()
             and (not two_factor or bool(re.fullmatch(r"[0-9]{6}", two_factor)))
         )
 
@@ -3687,13 +3676,12 @@ class AccountSwitchDialog(Gtk.Dialog):
             return
         username = self.username_entry.get_text().strip()
         password = self.password_entry.get_text()
-        password_confirm = self.password_confirm_entry.get_text()
         two_factor = self.two_factor_entry.get_text().strip()
         if not username:
             self.show_error("Enter the new Proton username or email address.")
             return
-        if not password or password != password_confirm:
-            self.show_error("Passwords are empty or do not match.")
+        if not password:
+            self.show_error("Enter the new Proton password.")
             return
         if two_factor and not re.fullmatch(r"[0-9]{6}", two_factor):
             self.show_error("The 2FA code must be empty or exactly six digits.")
@@ -3708,9 +3696,8 @@ class AccountSwitchDialog(Gtk.Dialog):
             payload.append(0)
         self.username_entry.set_text("")
         self.password_entry.set_text("")
-        self.password_confirm_entry.set_text("")
         self.two_factor_entry.set_text("")
-        del username, password, password_confirm, two_factor
+        del username, password, two_factor
         self.begin_busy_state()
         threading.Thread(target=self.account_switch_worker, args=(payload,), daemon=True).start()
 

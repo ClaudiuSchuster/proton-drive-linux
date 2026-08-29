@@ -155,15 +155,20 @@ bandwidth_log = pathlib.Path(module.os.environ["PDRIVE_TEST_BANDWIDTH_LOG"])
 assert bandwidth_log.read_text(encoding="utf-8").splitlines() == ["4.80:12.00"]
 wizard.bandwidth_continue_button.emit("clicked")
 assert wizard.stack.get_visible_child_name() == "account"
+assert len(
+    [
+        widget
+        for widget in wizard.password_entry.get_parent().get_children()
+        if isinstance(widget, module.Gtk.Entry)
+    ]
+) == 3
 
 def submit():
     wizard.username_entry.set_text("person@example.test")
     wizard.password_entry.set_text("correct horse battery staple")
-    wizard.password_confirm_entry.set_text("correct horse battery staple")
     wizard.two_factor_entry.set_text("123456")
     wizard.on_connect(module.Gtk.Button())
     assert wizard.password_entry.get_text() == ""
-    assert wizard.password_confirm_entry.get_text() == ""
     assert wizard.two_factor_entry.get_text() == ""
 
 module.os.environ["PDRIVE_TEST_SETUP_FAIL"] = "1"
