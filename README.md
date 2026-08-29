@@ -82,12 +82,12 @@ when needed; writes remain protected in the local VFS cache until uploaded.
 ## Install
 
 The supported target is Linux Mint 22.x with Cinnamon, Nemo and a normal
-graphical login. Arch Linux and Ubuntu are the first portability targets, but
-are not called supported until their native packages and clean-desktop release
-gates pass. An Arch package candidate now builds from the shared staged install
-tree; it is not a published release yet. See the
-[distribution portability plan](docs/PORTABILITY.md) and the
-privacy-safe [real desktop release gates](docs/DESKTOP_GATES.md).
+graphical login. Arch Linux and Ubuntu are the first portability targets. The
+Arch Linux `0.8.0-1` package candidate has passed its clean Cinnamon/X11
+desktop gate and is attached to the `v0.8.0` GitHub Release for configured
+real-world review; it is not yet a generally supported Arch target. See the
+[distribution portability plan](docs/PORTABILITY.md) and the privacy-safe
+[real desktop release gates](docs/DESKTOP_GATES.md).
 
 ```bash
 git clone https://github.com/oss-singularity/proton-drive-linux.git
@@ -95,6 +95,19 @@ cd proton-drive-linux
 ./install.sh
 pdrive-ui
 ```
+
+Arch reviewers can download the `proton-drive-linux-0.8.0-1-any.pkg.tar.zst`
+asset from the [`v0.8.0` release](https://github.com/oss-singularity/proton-drive-linux/releases/tag/v0.8.0),
+verify the SHA-256 published in its release notes and install it with:
+
+```bash
+sudo pacman -U ./proton-drive-linux-0.8.0-1-any.pkg.tar.zst
+pdrive-ui
+```
+
+The native package installs immutable application files below `/usr` while
+credentials, configuration, state, rclone and every VFS cache namespace remain
+inside the user profile.
 
 The installer may request `sudo` once to create the owner-only `/pdrive`
 directory. On first launch, the setup wizard checks prerequisites, can install

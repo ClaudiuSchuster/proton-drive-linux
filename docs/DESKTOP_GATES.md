@@ -122,3 +122,13 @@ Promotion requires green repository checks, the rolling Arch container job and
 one complete clean Arch desktop record. A report from an already customized
 machine is useful additional evidence but does not replace the clean install.
 Ubuntu follows the same process with its own package and clean Ubuntu desktop.
+
+The first clean Arch record was completed for pull request
+[`#66`](https://github.com/oss-singularity/proton-drive-linux/pull/66): the
+commit-bound `0.8.0-1` package was installed on a fresh Arch Cinnamon/X11
+desktop, passed all 15 automated preflight gates, tray and Nemo interaction,
+English and German UI checks, logout/login lifecycle and package integrity.
+The gate exposed and closed a 1280x800 work-area overflow before release. The
+exact reviewed package SHA-256 is recorded in the pull request and matching
+release notes. Configured Proton-account and transfer review remains required
+before Arch is described as generally supported.
