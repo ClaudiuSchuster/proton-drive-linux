@@ -4,8 +4,10 @@
 set -euo pipefail
 umask 077
 
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+project_root="$(cd -- "$(dirname -- "${script_path}")/.." && pwd -P)"
 readonly state_dir="${HOME}/.local/state/rclone"
-readonly reauth_backend="${PDRIVE_REAUTH_BACKEND:-${HOME}/.local/libexec/reauth-rclone-proton}"
+readonly reauth_backend="${PDRIVE_REAUTH_BACKEND:-${project_root}/libexec/reauth-rclone-proton}"
 
 usage() {
     printf '%s\n' \

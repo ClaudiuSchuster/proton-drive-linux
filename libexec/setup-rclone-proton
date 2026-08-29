@@ -4,7 +4,9 @@
 set -euo pipefail
 umask 077
 
-readonly rclone_bin="${PDRIVE_RCLONE_BIN:-${HOME}/.local/bin/rclone}"
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+project_root="$(cd -- "$(dirname -- "${script_path}")/.." && pwd -P)"
+readonly rclone_bin="${PDRIVE_RCLONE_BIN:-${project_root}/bin/rclone}"
 readonly config_file="${PDRIVE_RCLONE_CONFIG:-${HOME}/.config/rclone/rclone.conf}"
 readonly config_dir="${config_file%/*}"
 readonly state_dir="${HOME}/.local/state/rclone"
@@ -205,7 +207,15 @@ printf '%s\n' \
     '' \
     "Setup complete. Proton Drive is starting at ${mount_dir}." \
     'Run pdrive-doctor and pdrive-watch for a first health check.'
-if [[ "${machine_mode}" != true ]] && command -v nemo >/dev/null 2>&1; then
-    nemo "${mount_dir}" >/dev/null 2>&1 &
-    disown || true
+if [[ "${machine_mode}" != true ]]; then
+    if command -v gio >/dev/null 2>&1; then
+        gio open "${mount_dir}" >/dev/null 2>&1 &
+        disown || true
+    elif command -v xdg-open >/dev/null 2>&1; then
+        xdg-open "${mount_dir}" >/dev/null 2>&1 &
+        disown || true
+    elif command -v nemo >/dev/null 2>&1; then
+        nemo "${mount_dir}" >/dev/null 2>&1 &
+        disown || true
+    fi
 fi

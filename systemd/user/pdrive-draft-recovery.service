@@ -1,12 +1,13 @@
 [Unit]
 Description=Guarded one-shot recovery for persistent Proton upload draft conflicts
-Documentation=file:%h/.local/share/doc/proton-drive-linux/TROUBLESHOOTING.md
+Documentation=https://github.com/oss-singularity/proton-drive-linux/blob/main/docs/TROUBLESHOOTING.md
 After=rclone-proton-drive.service
 
 [Service]
 Type=oneshot
 UMask=0077
-ExecStart=%h/.local/libexec/pdrive-draft-recovery-auto --auto
+Environment=PATH=/usr/local/bin:/usr/bin:%h/.local/bin
+ExecStart=/usr/bin/env pdrive-service draft-recovery-auto
 TimeoutStartSec=5min
 Nice=10
 IOSchedulingClass=idle

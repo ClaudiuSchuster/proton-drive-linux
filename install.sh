@@ -10,12 +10,7 @@ umask 022
 project_dir="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 bin_dir="${HOME}/.local/bin"
 libexec_dir="${HOME}/.local/libexec"
-unit_dir="${HOME}/.config/systemd/user"
-doc_dir="${HOME}/.local/share/doc/proton-drive-linux"
-doc_assets_dir="${doc_dir}/docs/assets"
-doc_icon_dir="${doc_dir}/share/icons/hicolor/scalable/apps"
 applications_dir="${HOME}/.local/share/applications"
-icons_dir="${HOME}/.local/share/icons/hicolor/scalable/apps"
 config_dir="${HOME}/.config"
 real_rclone="${libexec_dir}/rclone-bin"
 mount_dir='/pdrive'
@@ -87,7 +82,7 @@ for command_name in bash curl findmnt flock fusermount3 jq mountpoint openssl \
 done
 if (( ${#missing_commands[@]} != 0 )); then
     printf 'Missing required commands: %s\n' "${missing_commands[*]}" >&2
-    printf 'Install the packages listed in README.md, then run this installer again.\n' >&2
+    printf 'Run bin/pdrive-platform --manual-setup for this distribution, then retry.\n' >&2
     exit 69
 fi
 if ! python3 -c \
@@ -95,15 +90,17 @@ if ! python3 -c \
     >/dev/null 2>&1; then
     printf '%s\n' \
         'Missing GTK/Cairo Python bindings for PDrive Control Center.' \
-        'On Debian/Ubuntu install: python3-gi python3-gi-cairo gir1.2-gtk-3.0' >&2
+        'Debian/Ubuntu: python3-gi python3-gi-cairo gir1.2-gtk-3.0' \
+        'Arch Linux: python-gobject python-cairo gtk3' >&2
     exit 69
 fi
 if ! python3 -c \
     "import gi; gi.require_version('AyatanaAppIndicator3', '0.1'); from gi.repository import AyatanaAppIndicator3" \
     >/dev/null 2>&1; then
     printf '%s\n' \
-        'Missing Ayatana AppIndicator binding for the Cinnamon tray.' \
-        'On Debian/Ubuntu install: gir1.2-ayatanaappindicator3-0.1' >&2
+        'Missing Ayatana AppIndicator binding for the PDrive tray.' \
+        'Debian/Ubuntu: gir1.2-ayatanaappindicator3-0.1' \
+        'Arch Linux: libayatana-appindicator' >&2
     exit 69
 fi
 
@@ -130,68 +127,14 @@ if [[ ! -d "${mount_dir}" \
     exit 73
 fi
 
-mkdir -p -- "${bin_dir}" "${libexec_dir}" "${unit_dir}" "${doc_dir}" \
-    "${doc_assets_dir}" "${doc_icon_dir}" \
-    "${applications_dir}" "${icons_dir}" "${config_dir}"
+mkdir -p -- "${libexec_dir}" "${config_dir}"
 
 if ! rclone_ready "${real_rclone}"; then
     PDRIVE_REAL_RCLONE="${real_rclone}" \
         "${project_dir}/bin/pdrive-prerequisites" --install-rclone
 fi
 
-for source_file in "${project_dir}"/bin/*; do
-    [[ -f "${source_file}" ]] || continue
-    install -m 0755 "${source_file}" "${bin_dir}/$(basename -- "${source_file}")"
-done
-for source_file in "${project_dir}"/libexec/*; do
-    [[ -f "${source_file}" ]] || continue
-    install -m 0755 "${source_file}" "${libexec_dir}/$(basename -- "${source_file}")"
-done
-for source_file in "${project_dir}"/systemd/user/*; do
-    install -m 0644 "${source_file}" "${unit_dir}/$(basename -- "${source_file}")"
-done
-install -m 0644 "${project_dir}/README.md" "${doc_dir}/README.md"
-install -m 0644 "${project_dir}/docs/QUICK_START.md" "${doc_dir}/QUICK_START.md"
-install -m 0644 "${project_dir}/docs/EVERYDAY_USE.md" "${doc_dir}/EVERYDAY_USE.md"
-install -m 0644 "${project_dir}/docs/OPERATIONS.md" "${doc_dir}/OPERATIONS.md"
-install -m 0644 "${project_dir}/docs/TROUBLESHOOTING.md" "${doc_dir}/TROUBLESHOOTING.md"
-install -m 0644 "${project_dir}/docs/DEVELOPMENT.md" "${doc_dir}/DEVELOPMENT.md"
-install -m 0644 "${project_dir}/SECURITY.md" "${doc_dir}/SECURITY.md"
-install -m 0644 "${project_dir}/LICENSE" "${doc_dir}/LICENSE"
-install -m 0644 "${project_dir}/VERSION" "${doc_dir}/VERSION"
-install -m 0644 \
-    "${project_dir}/docs/assets/pdrive-control-center.png" \
-    "${doc_assets_dir}/pdrive-control-center.png"
-install -m 0644 \
-    "${project_dir}/docs/assets/pdrive-control-menu.png" \
-    "${doc_assets_dir}/pdrive-control-menu.png"
-install -m 0644 \
-    "${project_dir}/docs/assets/pdrive-transfers.png" \
-    "${doc_assets_dir}/pdrive-transfers.png"
-install -m 0644 \
-    "${project_dir}/docs/assets/pdrive-history.png" \
-    "${doc_assets_dir}/pdrive-history.png"
-install -m 0644 \
-    "${project_dir}/docs/assets/pdrive-auth-cooldown.png" \
-    "${doc_assets_dir}/pdrive-auth-cooldown.png"
-install -m 0644 \
-    "${project_dir}/docs/assets/pdrive-account-settings.png" \
-    "${doc_assets_dir}/pdrive-account-settings.png"
-install -m 0644 \
-    "${project_dir}/docs/assets/pdrive-account-switch.png" \
-    "${doc_assets_dir}/pdrive-account-switch.png"
-install -m 0644 \
-    "${project_dir}/docs/assets/pdrive-setup-wizard.png" \
-    "${doc_assets_dir}/pdrive-setup-wizard.png"
-install -m 0644 \
-    "${project_dir}/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg" \
-    "${doc_icon_dir}/io.github.claudiuschuster.PDriveControl.svg"
-install -m 0644 \
-    "${project_dir}/share/applications/io.github.claudiuschuster.PDriveControl.desktop" \
-    "${applications_dir}/io.github.claudiuschuster.PDriveControl.desktop"
-install -m 0644 \
-    "${project_dir}/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg" \
-    "${icons_dir}/io.github.claudiuschuster.PDriveControl.svg"
+"${project_dir}/packaging/install-static.sh" --layout user --destdir "${HOME}"
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "${applications_dir}" >/dev/null 2>&1 || true
 fi

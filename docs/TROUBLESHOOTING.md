@@ -16,9 +16,10 @@ API test is necessary.
 ## First-run wizard cannot continue
 
 The readiness page identifies whether commands, the current rclone backend or
-`/pdrive` still need attention. On Linux Mint, Debian and Ubuntu, **Install and
-prepare automatically** uses Polkit and may show the normal administrator
-password prompt. If package installation is unavailable or fails, expand
+`/pdrive` still need attention. On Linux Mint, Debian, Ubuntu and Arch Linux,
+**Install and prepare automatically** uses the reviewed platform adapter and
+Polkit and may show the normal administrator password prompt. If package
+installation is unavailable or fails, expand
 **Manual setup for advanced users**, run the displayed commands in a terminal,
 then select **Check again**.
 

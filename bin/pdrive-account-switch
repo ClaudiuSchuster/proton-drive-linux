@@ -4,9 +4,9 @@
 set -euo pipefail
 umask 077
 
-readonly installed_backend="${PDRIVE_ACCOUNT_SWITCH_BACKEND:-${HOME}/.local/libexec/switch-rclone-proton-account}"
-source_backend="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../libexec" && pwd)/switch-rclone-proton-account"
-readonly source_backend
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+project_root="$(cd -- "$(dirname -- "${script_path}")/.." && pwd -P)"
+readonly installed_backend="${PDRIVE_ACCOUNT_SWITCH_BACKEND:-${project_root}/libexec/switch-rclone-proton-account}"
 
 usage() {
     printf '%s\n' \
@@ -52,9 +52,6 @@ case "${1:-}" in
 esac
 
 backend="${installed_backend}"
-if [[ ! -x "${backend}" && -x "${source_backend}" ]]; then
-    backend="${source_backend}"
-fi
 if [[ ! -x "${backend}" ]]; then
     printf 'Account-switch backend is missing: %s\n' "${backend}" >&2
     exit 69

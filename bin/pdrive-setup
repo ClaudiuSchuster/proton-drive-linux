@@ -3,4 +3,6 @@
 
 set -euo pipefail
 
-exec "${HOME}/.local/libexec/setup-rclone-proton" "$@"
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+project_root="$(cd -- "$(dirname -- "${script_path}")/.." && pwd -P)"
+exec "${project_root}/libexec/setup-rclone-proton" "$@"

@@ -13,8 +13,9 @@ Cinnamon login
   -> login-unlocked GNOME Keyring
   -> user systemd
   -> rclone-proton-drive.service
-  -> ~/.local/libexec/rclone-proton-mount
-  -> ~/.local/bin/rclone (Keyring password wrapper)
+  -> pdrive-service (fixed action dispatcher)
+  -> project libexec/rclone-proton-mount
+  -> project bin/rclone (Keyring password wrapper)
   -> ~/.local/libexec/rclone-bin
   -> /pdrive (FUSE)
 ```
@@ -34,20 +35,26 @@ candidate login succeeds.
 
 ## Installed files
 
-| Path                                                                                     | Purpose                                      |
-| ---------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `/pdrive`                                                                                | Real owner-only FUSE mountpoint              |
-| `~/.local/bin/pdrive-*`                                                                  | User-facing helpers                          |
-| `~/.local/share/applications/io.github.claudiuschuster.PDriveControl.desktop`            | Cinnamon menu entry                          |
-| `~/.local/share/icons/hicolor/scalable/apps/io.github.claudiuschuster.PDriveControl.svg` | Scalable UI icon                             |
-| `~/.local/bin/rclone`                                                                    | Adds the Keyring-backed `--password-command` |
-| `~/.local/libexec/rclone-bin`                                                            | Checksum-verified PDrive rclone executable   |
-| `~/.local/libexec/rclone-proton-*`                                                       | Mount and guarded unmount implementation     |
-| `~/.config/rclone/rclone.conf`                                                           | Encrypted rclone configuration               |
-| `~/.config/pdrive-*.conf`                                                                | Strict single-purpose helper settings        |
-| `~/.cache/rclone`                                                                        | VFS data and metadata cache                  |
-| `~/.local/state/rclone`                                                                  | Logs, RC socket and watchdog state           |
-| `~/.config/systemd/user`                                                                 | User service and timers                      |
+The copy-based installer keeps immutable application files under `~/.local`.
+Native distribution packages install the same source tree under
+`/usr/lib/proton-drive-linux`, expose public commands through `/usr/bin`, and
+place user units and desktop data in the standard `/usr` locations. In both
+layouts, credentials, configuration, state, every VFS cache namespace and the
+checksum-pinned mutable rclone build remain per-user and are never owned by the
+distribution package.
+
+| Path                                                        | Purpose                                    |
+| ----------------------------------------------------------- | ------------------------------------------ |
+| `/pdrive`                                                   | Real owner-only FUSE mountpoint            |
+| `~/.local/bin` or `/usr/bin`                                | User-facing commands                       |
+| `~/.local/libexec` or `/usr/lib/proton-drive-linux/libexec` | Immutable internal helpers                 |
+| `~/.local/share/applications` or `/usr/share/applications`  | Desktop menu entry                         |
+| `~/.config/systemd/user` or `/usr/lib/systemd/user`         | User service and timers                    |
+| `~/.local/libexec/rclone-bin`                               | Checksum-verified PDrive rclone executable |
+| `~/.config/rclone/rclone.conf`                              | Encrypted rclone configuration             |
+| `~/.config/pdrive-*.conf`                                   | Strict single-purpose helper settings      |
+| `~/.cache/rclone`                                           | VFS data and metadata cache                |
+| `~/.local/state/rclone`                                     | Logs, RC socket and watchdog state         |
 
 The configuration files are parsed as data and are never sourced as shell code.
 Each helper accepts only one narrowly validated key/value form.
@@ -59,10 +66,12 @@ The RC API socket is owner-only mode `0700` (`srwx------`) under the service's
 When `~/.config/rclone/rclone.conf` is absent, PDrive Control Center opens its
 integrated first-run wizard. Its readiness page checks required commands, the
 owner-only `/pdrive` directory and the user-local rclone Proton backend. On
-Debian, Ubuntu and Linux Mint it can use Polkit to run the fixed system
-executables `/usr/bin/apt-get` and `/usr/bin/install`; project scripts always
-remain unprivileged. An expandable section provides equivalent manual commands
-for advanced users.
+Debian-family systems and Arch Linux it can use Polkit to run the fixed system
+executables `/usr/bin/apt-get` or `/usr/bin/pacman`, followed separately by
+`/usr/bin/install` for the mountpoint; project scripts always remain
+unprivileged. An expandable section provides equivalent manual commands for
+advanced users. `pdrive-platform` owns the exact distribution match and package
+map and never performs an installation itself.
 
 The next page configures connection headroom before Proton authentication:
 
@@ -129,6 +138,30 @@ safe repair when the executable was replaced by an incompatible rclone build.
 
 ## Status and diagnosis
 
+### `pdrive-desktop-gate`
+
+```bash
+pdrive-desktop-gate --markdown
+pdrive-desktop-gate --json
+pdrive-desktop-gate --configured --markdown --strict
+pdrive-desktop-gate --help
+```
+
+The preflight modes collect a versioned, privacy-safe report from the current
+graphical login. They check the distribution package map, X11 or Wayland
+session, session bus, systemd user manager, GTK/tray stack, FUSE device,
+installed desktop assets, core user units, owner-only `/pdrive` directory and
+the Control Center self-check. `--configured` additionally reads only local
+configuration, keyring availability, service, mount and `pdrive-state`
+evidence. It never calls Proton, restarts a service or writes into the mount.
+
+Without `--strict`, the report is always printed and its gate result is encoded
+inside it. `--strict` also returns a failing process status when a required
+automated check does not pass, which makes tester handoff and release review
+unambiguous. No option persists state. No argument and `--help` are action-free.
+The remaining visual, tray, file-manager and login checks are listed in
+[Real desktop release gates](DESKTOP_GATES.md).
+
 ### `pdrive-doctor`
 
 ```bash
@@ -138,9 +171,9 @@ pdrive-doctor --help
 ```
 
 The default run is local. It reads OS and rclone versions, service and mount
-state, Keyring availability, a redacted configuration summary, required Debian
-packages, timers, storage, journal messages and the rotated mount log. It does
-not log in or call Proton.
+state, Keyring availability, a redacted configuration summary, required
+distribution packages, timers, storage, journal messages and the rotated mount
+log. It does not log in or call Proton.
 
 `--online` adds exactly one directory listing bounded to 60 seconds with one
 high-level attempt and no low-level retries. Never use it while a Proton HTTP

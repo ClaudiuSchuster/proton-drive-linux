@@ -1,0 +1,90 @@
+#!/usr/bin/env bash
+# SPDX-License-Identifier: GPL-3.0-or-later
+
+set -euo pipefail
+
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+project_root="$(cd -- "$(dirname -- "${script_path}")/.." && pwd -P)"
+readonly project_root
+
+usage() {
+    printf '%s\n' \
+        'Usage: pdrive-service ACTION' \
+        '       pdrive-service --help' \
+        '' \
+        'Fixed, action-specific dispatcher used by the PDrive systemd user units.' \
+        'No option and --help are action-free.' \
+        '' \
+        'Actions: auth-start-allowed, auth-begin-start, mount, bandwidth-startup,' \
+        '         auth-mark-healthy, unmount, auth-after-exit, watch-record,' \
+        '         draft-recovery-auto, rclone-selfupdate, proton-drive-update'
+}
+
+if (( $# == 0 )); then
+    usage
+    exit 0
+fi
+if [[ "${1}" == '-h' || "${1}" == '--help' ]]; then
+    (( $# == 1 )) || { usage >&2; exit 2; }
+    usage
+    exit 0
+fi
+(( $# == 1 )) || { usage >&2; exit 2; }
+
+case "${1}" in
+    auth-start-allowed)
+        command_path="${project_root}/libexec/pdrive-auth-failure-guard"
+        command_args=(--start-allowed)
+        ;;
+    auth-begin-start)
+        command_path="${project_root}/libexec/pdrive-auth-failure-guard"
+        command_args=(--begin-start)
+        ;;
+    mount)
+        command_path="${project_root}/libexec/rclone-proton-mount"
+        command_args=()
+        ;;
+    bandwidth-startup)
+        command_path="${project_root}/bin/pdrive-bwlimit"
+        command_args=(--apply-startup)
+        ;;
+    auth-mark-healthy)
+        command_path="${project_root}/libexec/pdrive-auth-failure-guard"
+        command_args=(--mark-healthy)
+        ;;
+    unmount)
+        command_path="${project_root}/libexec/rclone-proton-unmount"
+        command_args=()
+        ;;
+    auth-after-exit)
+        command_path="${project_root}/libexec/pdrive-auth-failure-guard"
+        command_args=(--after-service-exit)
+        ;;
+    watch-record)
+        command_path="${project_root}/bin/pdrive-watch"
+        command_args=(--record)
+        ;;
+    draft-recovery-auto)
+        command_path="${project_root}/libexec/pdrive-draft-recovery-auto"
+        command_args=(--auto)
+        ;;
+    rclone-selfupdate)
+        command_path="${project_root}/libexec/rclone-selfupdate"
+        command_args=()
+        ;;
+    proton-drive-update)
+        command_path="${project_root}/libexec/proton-drive-update"
+        command_args=()
+        ;;
+    *)
+        printf 'Unknown action: %s\n\n' "${1}" >&2
+        usage >&2
+        exit 2
+        ;;
+esac
+
+if [[ ! -x "${command_path}" ]]; then
+    printf 'PDrive service helper is missing or not executable: %s\n' "${command_path}" >&2
+    exit 69
+fi
+exec "${command_path}" "${command_args[@]}"

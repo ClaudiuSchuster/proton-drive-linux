@@ -1,6 +1,6 @@
 [Unit]
 Description=Verify and refresh the pinned PDrive rclone build
-Documentation=file:%h/.local/share/doc/proton-drive-linux/OPERATIONS.md https://github.com/oss-singularity/rclone/releases
+Documentation=https://github.com/oss-singularity/proton-drive-linux/blob/main/docs/OPERATIONS.md https://github.com/oss-singularity/rclone/releases
 After=network-online.target
 Wants=network-online.target
 ConditionPathExists=%h/.local/libexec/rclone-bin
@@ -8,7 +8,8 @@ ConditionPathExists=%h/.local/libexec/rclone-bin
 [Service]
 Type=oneshot
 UMask=0077
-ExecStart=%h/.local/libexec/rclone-selfupdate
+Environment=PATH=/usr/local/bin:/usr/bin:%h/.local/bin
+ExecStart=/usr/bin/env pdrive-service rclone-selfupdate
 TimeoutStartSec=15min
 Nice=10
 IOSchedulingClass=idle

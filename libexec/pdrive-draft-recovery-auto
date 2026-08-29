@@ -22,6 +22,7 @@ from typing import Any
 
 
 HOME = pathlib.Path.home()
+PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
 STATE_DIR = pathlib.Path(os.environ.get("PDRIVE_STATE_DIR", HOME / ".local/state/rclone"))
 CONFIG_DIR = pathlib.Path(os.environ.get("PDRIVE_CONFIG_DIR", HOME / ".config"))
 
@@ -33,7 +34,7 @@ def configured_cache_dir() -> pathlib.Path:
     helper = pathlib.Path(
         os.environ.get(
             "PDRIVE_ACCOUNT_CACHE_HELPER",
-            HOME / ".local/libexec/pdrive-account-cache",
+            PROJECT_ROOT / "libexec/pdrive-account-cache",
         )
     )
     if not helper.is_file() or not os.access(helper, os.X_OK):
@@ -57,7 +58,7 @@ def configured_cache_dir() -> pathlib.Path:
 
 CACHE_DIR = configured_cache_dir()
 RC_SOCKET = pathlib.Path(os.environ.get("PDRIVE_RC_SOCKET", STATE_DIR / "pdrive-rc.sock"))
-RCLONE_BIN = pathlib.Path(os.environ.get("PDRIVE_RCLONE_BIN", HOME / ".local/bin/rclone"))
+RCLONE_BIN = pathlib.Path(os.environ.get("PDRIVE_RCLONE_BIN", PROJECT_ROOT / "bin/rclone"))
 MOUNT_LOG = pathlib.Path(os.environ.get("PDRIVE_MOUNT_LOG", STATE_DIR / "proton-mount.log"))
 DRAFT_CONFIG = CONFIG_DIR / "pdrive-draft-recovery.conf"
 METADATA_CONFIG = CONFIG_DIR / "pdrive-recovery.conf"

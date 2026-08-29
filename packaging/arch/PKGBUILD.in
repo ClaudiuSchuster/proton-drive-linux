@@ -1,0 +1,49 @@
+# SPDX-License-Identifier: GPL-3.0-or-later
+# Maintainer: OSS Singularity <https://github.com/oss-singularity>
+
+pkgname=proton-drive-linux
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc='Desktop integration and guarded rclone mount for Proton Drive'
+arch=('any')
+url='https://github.com/oss-singularity/proton-drive-linux'
+license=('GPL-3.0-or-later')
+depends=(
+  'bash'
+  'coreutils'
+  'curl'
+  'findutils'
+  'fuse3'
+  'gawk'
+  'glib2'
+  'gnome-keyring'
+  'grep'
+  'gtk3'
+  'hicolor-icon-theme'
+  'iproute2'
+  'jq'
+  'libayatana-appindicator'
+  'libnotify'
+  'libsecret'
+  'openssl'
+  'polkit'
+  'procps-ng'
+  'python'
+  'python-cairo'
+  'python-gobject'
+  'sed'
+  'systemd'
+  'util-linux'
+)
+optdepends=(
+  'nemo: intended file-manager integration'
+  'xdg-utils: fallback for opening the mounted drive'
+)
+options=('!debug' '!strip')
+source=("${pkgname}-${pkgver}.tar.gz::@SOURCE_URL@")
+sha256sums=('@SOURCE_SHA256@')
+
+package() {
+  cd "${pkgname}-${pkgver}"
+  ./packaging/install-static.sh --layout system --destdir "${pkgdir}" --prefix /usr
+}

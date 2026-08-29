@@ -95,9 +95,9 @@ systemctl --user disable --now \
     pdrive-watch.timer pdrive-draft-recovery.timer rclone-proton-drive.service \
     rclone-selfupdate.timer proton-drive-update.timer >/dev/null 2>&1 || true
 
-for file_name in pdrive-account-switch pdrive-bwlimit pdrive-cache-age pdrive-doctor pdrive-draft-recovery pdrive-network-tune pdrive-reauth \
-    pdrive-recovery pdrive-refresh pdrive-setup pdrive-state pdrive-transfers \
-    pdrive-ui pdrive-watch rclone; do
+for file_name in pdrive-account-switch pdrive-bwlimit pdrive-cache-age pdrive-desktop-gate pdrive-doctor pdrive-draft-recovery pdrive-network-tune pdrive-platform pdrive-reauth \
+    pdrive-prerequisites pdrive-recovery pdrive-refresh pdrive-setup pdrive-state pdrive-transfers \
+    pdrive-service pdrive-ui pdrive-watch rclone; do
     rm -f -- "${bin_dir}/${file_name}"
 done
 rm -f -- \
@@ -110,12 +110,13 @@ fi
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "${applications_dir}" >/dev/null 2>&1 || true
 fi
-for file_name in pdrive-account-cache pdrive-draft-recovery-auto proton-drive-update rclone-bin rclone-proton-mount \
+for file_name in pdrive-account-cache pdrive-auth-failure-guard pdrive-draft-recovery-auto proton-drive-update rclone-bin rclone-proton-mount \
     rclone-proton-unmount rclone-selfupdate reauth-rclone-proton setup-rclone-proton \
     switch-rclone-proton-account; do
     rm -f -- "${libexec_dir}/${file_name}"
 done
-for file_name in pdrive-watch.service pdrive-watch.timer \
+for file_name in pdrive-draft-recovery.service pdrive-draft-recovery.timer \
+    pdrive-watch.service pdrive-watch.timer \
     proton-drive-update.service proton-drive-update.timer \
     rclone-proton-drive.service rclone-selfupdate.service rclone-selfupdate.timer; do
     rm -f -- "${unit_dir}/${file_name}"
@@ -140,7 +141,7 @@ if [[ -d "${doc_dir}" ]]; then
     find "${doc_dir}" -mindepth 1 -maxdepth 1 -type f \
         \( -name README.md -o -name QUICK_START.md -o -name EVERYDAY_USE.md \
         -o -name OPERATIONS.md -o -name TROUBLESHOOTING.md \
-        -o -name DEVELOPMENT.md \
+        -o -name DEVELOPMENT.md -o -name PORTABILITY.md -o -name DESKTOP_GATES.md \
         -o -name SECURITY.md -o -name LICENSE -o -name VERSION \) \
         -delete
     rmdir "${doc_dir}" 2>/dev/null || true

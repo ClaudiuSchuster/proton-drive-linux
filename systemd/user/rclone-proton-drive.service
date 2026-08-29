@@ -1,6 +1,6 @@
 [Unit]
 Description=Mount Proton Drive directly at /pdrive using rclone
-Documentation=file:%h/.local/share/doc/proton-drive-linux/OPERATIONS.md https://rclone.org/protondrive/ https://rclone.org/commands/rclone_mount/
+Documentation=https://github.com/oss-singularity/proton-drive-linux/blob/main/docs/OPERATIONS.md https://rclone.org/protondrive/ https://rclone.org/commands/rclone_mount/
 Wants=network-online.target gnome-keyring-daemon.socket
 After=network-online.target gnome-keyring-daemon.socket
 ConditionPathExists=%h/.config/rclone/rclone.conf
@@ -8,13 +8,14 @@ ConditionPathExists=%h/.config/rclone/rclone.conf
 [Service]
 Type=notify
 UMask=0077
-ExecCondition=%h/.local/libexec/pdrive-auth-failure-guard --start-allowed
-ExecStartPre=%h/.local/libexec/pdrive-auth-failure-guard --begin-start
-ExecStart=%h/.local/libexec/rclone-proton-mount
-ExecStartPost=%h/.local/bin/pdrive-bwlimit --apply-startup
-ExecStartPost=%h/.local/libexec/pdrive-auth-failure-guard --mark-healthy
-ExecStop=-%h/.local/libexec/rclone-proton-unmount
-ExecStopPost=%h/.local/libexec/pdrive-auth-failure-guard --after-service-exit
+Environment=PATH=/usr/local/bin:/usr/bin:%h/.local/bin
+ExecCondition=/usr/bin/env pdrive-service auth-start-allowed
+ExecStartPre=/usr/bin/env pdrive-service auth-begin-start
+ExecStart=/usr/bin/env pdrive-service mount
+ExecStartPost=/usr/bin/env pdrive-service bandwidth-startup
+ExecStartPost=/usr/bin/env pdrive-service auth-mark-healthy
+ExecStop=-/usr/bin/env pdrive-service unmount
+ExecStopPost=/usr/bin/env pdrive-service auth-after-exit
 Restart=on-failure
 RestartSec=1h
 TimeoutStartSec=infinity

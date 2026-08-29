@@ -8,6 +8,8 @@ import argparse
 import collections
 import datetime as dt
 import html
+import importlib.machinery
+import importlib.util
 import json
 import math
 import os
@@ -43,8 +45,22 @@ except (ImportError, ValueError):
     AyatanaAppIndicator3 = None
 
 
+def load_platform_adapter() -> Any:
+    adapter_path = pathlib.Path(__file__).with_name("pdrive-platform")
+    loader = importlib.machinery.SourceFileLoader("pdrive_platform_adapter", str(adapter_path))
+    specification = importlib.util.spec_from_loader(loader.name, loader)
+    if specification is None:
+        raise ImportError(f"Cannot load platform adapter: {adapter_path}")
+    module = importlib.util.module_from_spec(specification)
+    loader.exec_module(module)
+    return module
+
+
+PLATFORM_ADAPTER = load_platform_adapter()
+
+
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.7.7"
+VERSION = "0.8.0"
 REFRESH_INTERVAL_SECONDS = 2
 REFRESH_INTERVAL_OPTIONS = (1, 2, 5, 10)
 GRAPH_WINDOW_SECONDS = 5 * 60
@@ -104,6 +120,17 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     "issues_reviewed_notices": -1,
     "issues_reviewed_at": "",
 }
+
+
+def fitted_window_height(current_height: int, overflow: float, maximum_height: int) -> int:
+    """Grow for content when possible, but always respect the work area."""
+
+    desired_height = current_height
+    if overflow > 0.5:
+        desired_height += math.ceil(overflow) + 4
+    return min(maximum_height, desired_height)
+
+
 NOTIFICATION_POLICIES = {
     "important": "Important problems and recovery actions",
     "critical": "Critical problems only",
@@ -112,18 +139,6 @@ NOTIFICATION_POLICIES = {
 }
 SUPPORTED_LANGUAGES = {"en": "English", "de": "Deutsch"}
 CURRENT_LANGUAGE = "en"
-SYSTEM_PACKAGES = (
-    "fuse3",
-    "libfuse3-3",
-    "libsecret-tools",
-    "gnome-keyring",
-    "libpam-gnome-keyring",
-    "jq",
-    "curl",
-    "openssl",
-    "iproute2",
-    "libnotify-bin",
-)
 REQUIRED_RUNTIME_COMMANDS = (
     "curl",
     "findmnt",
@@ -169,7 +184,7 @@ GERMAN_TRANSLATIONS = {
     "Invalid metadata-cache configuration": "Ungültige Metadatencache-Konfiguration",
     "Invalid upload-slot configuration": "Ungültige Uploadslot-Konfiguration",
     "A local live view of your existing rclone service": "Lokaler Live-Blick auf deinen bestehenden rclone-Dienst",
-    "Open /pdrive in Nemo": "/pdrive in Nemo öffnen",
+    "Open /pdrive in your file manager": "/pdrive im Dateimanager öffnen",
     "Open Proton Drive on the web": "Proton Drive im Web öffnen",
     "Open Proton Drive web": "Proton Drive Web öffnen",
     "Open PDrive folder": "PDrive-Ordner öffnen",
@@ -507,7 +522,7 @@ GERMAN_TRANSLATIONS = {
     "Manual setup for advanced users": "Manuelle Einrichtung für erfahrene Nutzer",
     "Automatic preparation uses your system package manager through Polkit. Project code never runs as root.": "Die automatische Vorbereitung nutzt deinen System-Paketmanager über Polkit. Projektcode läuft niemals als root.",
     "Install the listed packages yourself, create /pdrive as an owner-only directory, then install a current rclone with Proton Drive support.": "Installiere die aufgeführten Pakete selbst, erstelle /pdrive als nur für den Eigentümer zugängliches Verzeichnis und installiere danach ein aktuelles rclone mit Proton-Drive-Unterstützung.",
-    "Automatic package installation is available on Debian, Ubuntu and Linux Mint systems with Polkit.": "Die automatische Paketinstallation ist auf Debian-, Ubuntu- und Linux-Mint-Systemen mit Polkit verfügbar.",
+    "Automatic package installation is available on supported Debian-family and Arch Linux systems with Polkit.": "Die automatische Paketinstallation ist auf unterstützten Systemen der Debian-Familie und Arch-Linux-Systemen mit Polkit verfügbar.",
     "Preparing your system …": "Dein System wird vorbereitet …",
     "The package manager may ask for your administrator password.": "Der Paketmanager fragt möglicherweise nach deinem Administratorpasswort.",
     "Preparation failed": "Vorbereitung fehlgeschlagen",
@@ -515,11 +530,11 @@ GERMAN_TRANSLATIONS = {
     "Connection headroom": "Leitungsreserve",
     "Choose how much of the connection PDrive bulk file transfers may use. Proton metadata requests remain outside rclone’s file-data limiter and can use the reserved capacity.": "Wähle, wie viel der Verbindung PDrive für große Dateiübertragungen verwenden darf. Proton-Metadatenanfragen bleiben außerhalb von rclones Dateidaten-Limiter und können die reservierte Kapazität nutzen.",
     "Auto-tune (recommended)": "Auto-Tune (empfohlen)",
-    "Measure this connection against Cloudflare, then reserve 40% for responsive Nemo browsing, calls and other traffic. The bounded test transfers about 72 MB. Cloudflare receives the test requests; PDrive stores only the resulting rates locally.": "Miss diese Verbindung gegen Cloudflare und reserviere anschließend 40 % für reaktionsschnelles Browsing in Nemo, Anrufe und anderen Traffic. Der begrenzte Test überträgt etwa 72 MB. Cloudflare empfängt die Testanfragen; PDrive speichert nur die ermittelten Raten lokal.",
+    "Measure this connection against Cloudflare, then reserve 40% for responsive file-manager browsing, calls and other traffic. The bounded test transfers about 72 MB. Cloudflare receives the test requests; PDrive stores only the resulting rates locally.": "Miss diese Verbindung gegen Cloudflare und reserviere anschließend 40 % für reaktionsschnelles Browsing im Dateimanager, Anrufe und anderen Traffic. Der begrenzte Test überträgt etwa 72 MB. Cloudflare empfängt die Testanfragen; PDrive speichert nur die ermittelten Raten lokal.",
     "Manual limits": "Manuelle Limits",
     "Set separate upload and download ceilings. Leave meaningful headroom for other applications. Even a near-pause bulk limit keeps Proton metadata browsing responsive.": "Lege getrennte Obergrenzen für Upload und Download fest. Lass eine sinnvolle Reserve für andere Anwendungen. Selbst ein Datei-Limit nahe der Pause hält das Browsing von Proton-Metadaten reaktionsschnell.",
     "Unlimited bulk transfers": "Unbegrenzte Dateiübertragungen",
-    "Use the entire available connection. Nemo and other applications may become less responsive while large transfers are active.": "Nutze die gesamte verfügbare Verbindung. Nemo und andere Anwendungen können während großer Übertragungen langsamer reagieren.",
+    "Use the entire available connection. Your file manager and other applications may become less responsive while large transfers are active.": "Nutze die gesamte verfügbare Verbindung. Dein Dateimanager und andere Anwendungen können während großer Übertragungen langsamer reagieren.",
     "Configure connection": "Verbindung konfigurieren",
     "Measuring upload and download …": "Upload und Download werden gemessen …",
     "Applying bandwidth policy …": "Bandbreitenregel wird angewendet …",
@@ -686,9 +701,6 @@ def reauth_backend_path() -> str:
     configured = os.environ.get("PDRIVE_REAUTH_BACKEND")
     if configured:
         return configured
-    installed = pathlib.Path.home() / ".local/libexec/reauth-rclone-proton"
-    if installed.is_file() and os.access(installed, os.X_OK):
-        return str(installed)
     return str(pathlib.Path(__file__).resolve().parent.parent / "libexec/reauth-rclone-proton")
 
 
@@ -696,9 +708,6 @@ def account_switch_backend_path() -> str:
     configured = os.environ.get("PDRIVE_ACCOUNT_SWITCH_BACKEND")
     if configured:
         return configured
-    installed = pathlib.Path.home() / ".local/libexec/switch-rclone-proton-account"
-    if installed.is_file() and os.access(installed, os.X_OK):
-        return str(installed)
     return str(pathlib.Path(__file__).resolve().parent.parent / "libexec/switch-rclone-proton-account")
 
 
@@ -716,14 +725,13 @@ def resolve_command(environment_name: str, executable: str) -> str:
     return str(pathlib.Path(__file__).with_name(executable))
 
 
+platform_information = PLATFORM_ADAPTER.platform_information
+system_package_install_command = PLATFORM_ADAPTER.system_package_install_command
+manual_setup_command = PLATFORM_ADAPTER.manual_setup_command
+
+
 def automatic_package_install_supported() -> bool:
-    if not pathlib.Path("/usr/bin/pkexec").is_file() or not pathlib.Path("/usr/bin/apt-get").is_file():
-        return False
-    try:
-        release = pathlib.Path("/etc/os-release").read_text(encoding="utf-8").lower()
-    except OSError:
-        return False
-    return any(identifier in release for identifier in ("debian", "ubuntu", "linuxmint"))
+    return bool(platform_information()["automatic"])
 
 
 def setup_readiness() -> dict[str, Any]:
@@ -765,6 +773,7 @@ def setup_readiness() -> dict[str, Any]:
         "mount": str(mount),
         "ready": not missing_commands and rclone_ready and mount_ready,
         "automatic": automatic_package_install_supported(),
+        "platform": platform_information(),
     }
 
 
@@ -2562,12 +2571,7 @@ class SetupWizard(Gtk.Box):
         manual_note.set_line_wrap(True)
         manual_box.pack_start(manual_note, False, False, 0)
         manual_command = Gtk.Label(
-            label=(
-                "sudo apt install "
-                + " ".join(SYSTEM_PACKAGES)
-                + '\nsudo install -d -m 0700 -o "$USER" -g "$(id -gn)" /pdrive'
-                + "\npdrive-prerequisites --install-rclone"
-            ),
+            label=manual_setup_command(),
             xalign=0.0,
         )
         manual_command.set_selectable(True)
@@ -2624,7 +2628,7 @@ class SetupWizard(Gtk.Box):
         auto_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         auto_box.pack_start(self.bandwidth_auto, False, False, 0)
         auto_note = label(
-            "Measure this connection against Cloudflare, then reserve 40% for responsive Nemo browsing, calls and other traffic. The bounded test transfers about 72 MB. Cloudflare receives the test requests; PDrive stores only the resulting rates locally.",
+            "Measure this connection against Cloudflare, then reserve 40% for responsive file-manager browsing, calls and other traffic. The bounded test transfers about 72 MB. Cloudflare receives the test requests; PDrive stores only the resulting rates locally.",
             "section-subtitle",
         )
         auto_note.set_line_wrap(True)
@@ -2655,7 +2659,7 @@ class SetupWizard(Gtk.Box):
         unlimited_box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=5)
         unlimited_box.pack_start(self.bandwidth_unlimited, False, False, 0)
         unlimited_note = label(
-            "Use the entire available connection. Nemo and other applications may become less responsive while large transfers are active.",
+            "Use the entire available connection. Your file manager and other applications may become less responsive while large transfers are active.",
             "section-subtitle",
         )
         unlimited_note.set_line_wrap(True)
@@ -2828,7 +2832,7 @@ class SetupWizard(Gtk.Box):
         if not self.readiness["automatic"] and not self.readiness["ready"]:
             self.prepare_button.set_tooltip_text(
                 translate(
-                    "Automatic package installation is available on Debian, Ubuntu and Linux Mint systems with Polkit."
+                    "Automatic package installation is available on supported Debian-family and Arch Linux systems with Polkit."
                 )
             )
 
@@ -2846,16 +2850,12 @@ class SetupWizard(Gtk.Box):
         success = True
         try:
             readiness = setup_readiness()
-            system_rclone = pathlib.Path("/usr/bin/rclone").is_file() or pathlib.Path("/usr/local/bin/rclone").is_file()
-            if readiness["missing_commands"] or not system_rclone:
+            if readiness["missing_commands"]:
+                package_command = system_package_install_command()
+                if not package_command:
+                    raise RuntimeError("automatic package installation is unavailable")
                 subprocess.run(
-                    [
-                        "/usr/bin/pkexec",
-                        "/usr/bin/apt-get",
-                        "install",
-                        "-y",
-                        *SYSTEM_PACKAGES,
-                    ],
+                    package_command,
                     check=True,
                     stdout=subprocess.DEVNULL,
                     stderr=subprocess.DEVNULL,
@@ -3929,7 +3929,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
             "folder-open-symbolic",
             Gtk.IconSize.BUTTON,
         )
-        open_button.set_tooltip_text(translate("Open /pdrive in Nemo"))
+        open_button.set_tooltip_text(translate("Open /pdrive in your file manager"))
         open_button.connect("clicked", self.on_open_mount)
         header.pack_start(open_button)
 
@@ -3999,7 +3999,7 @@ class PDriveWindow(Gtk.ApplicationWindow):
         open_folder_button.add(open_folder_row)
         open_folder_button.set_halign(Gtk.Align.END)
         open_folder_button.set_margin_end(22)
-        open_folder_button.set_tooltip_text(translate("Open /pdrive in Nemo"))
+        open_folder_button.set_tooltip_text(translate("Open /pdrive in your file manager"))
         open_folder_button.connect("clicked", self.on_open_mount)
         add_css(open_folder_button, "primary-folder-action")
         set_pointer_on_hover(open_folder_button)
@@ -4738,18 +4738,17 @@ class PDriveWindow(Gtk.ApplicationWindow):
         elif self.root is not None:
             _minimum, natural = self.root.get_preferred_height()
             overflow = max(0.0, natural - self.root.get_allocated_height())
-        if overflow > 0.5:
-            width, height = self.get_size()
-            maximum_height = MAX_WINDOW_DIMENSION
-            gdk_window = self.get_window()
-            display = Gdk.Display.get_default()
-            if gdk_window is not None and display is not None:
-                monitor = display.get_monitor_at_window(gdk_window)
-                if monitor is not None:
-                    maximum_height = max(MIN_WINDOW_HEIGHT, monitor.get_workarea().height - 8)
-            target_height = min(maximum_height, height + math.ceil(overflow) + 4)
-            if target_height > height:
-                self.resize(width, target_height)
+        width, height = self.get_size()
+        maximum_height = MAX_WINDOW_DIMENSION
+        gdk_window = self.get_window()
+        display = Gdk.Display.get_default()
+        if gdk_window is not None and display is not None:
+            monitor = display.get_monitor_at_window(gdk_window)
+            if monitor is not None:
+                maximum_height = max(MIN_WINDOW_HEIGHT, monitor.get_workarea().height - 8)
+        target_height = fitted_window_height(height, overflow, maximum_height)
+        if target_height != height:
+            self.resize(width, target_height)
         self.content_fit_completed = True
         self.content_fit_source = 0
         return GLib.SOURCE_REMOVE
@@ -6980,6 +6979,11 @@ def argument_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="check GTK and the state helper without opening a window",
     )
+    parser.add_argument(
+        "--platform-info",
+        action="store_true",
+        help="print detected distribution adapter details as JSON without opening a window",
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {VERSION}")
     return parser
 
@@ -6993,6 +6997,11 @@ def main() -> int:
         parser.error("--demo-page requires --demo")
     if not args.demo and args.demo_dialog:
         parser.error("--demo-dialog requires --demo")
+    if args.platform_info:
+        if args.demo or args.background or args.check:
+            parser.error("--platform-info cannot be combined with a UI mode")
+        print(json.dumps(platform_information(), sort_keys=True, separators=(",", ":")))
+        return 0
     if args.check:
         state_command = PDriveWindow.find_state_command()
         if not pathlib.Path(state_command).is_file() and not shutil.which(state_command):

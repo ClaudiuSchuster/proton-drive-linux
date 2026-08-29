@@ -4,14 +4,16 @@
 set -euo pipefail
 umask 077
 
-readonly rclone_bin="${PDRIVE_RCLONE_BIN:-${HOME}/.local/bin/rclone}"
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+project_root="$(cd -- "$(dirname -- "${script_path}")/.." && pwd -P)"
+readonly rclone_bin="${PDRIVE_RCLONE_BIN:-${project_root}/bin/rclone}"
 readonly config_file="${PDRIVE_RCLONE_CONFIG:-${HOME}/.config/rclone/rclone.conf}"
 readonly state_dir="${PDRIVE_STATE_DIR:-${HOME}/.local/state/rclone}"
 readonly backup_dir="${PDRIVE_BACKUP_DIR:-${HOME}/.config/rclone/backups}"
 readonly mount_dir="${PDRIVE_MOUNT_DIR:-/pdrive}"
 readonly service_name='rclone-proton-drive.service'
 readonly reauth_log="${state_dir}/proton-reauth.log"
-readonly auth_guard="${PDRIVE_AUTH_GUARD:-${HOME}/.local/libexec/pdrive-auth-failure-guard}"
+readonly auth_guard="${PDRIVE_AUTH_GUARD:-${project_root}/libexec/pdrive-auth-failure-guard}"
 
 usage() {
     printf '%s\n' \

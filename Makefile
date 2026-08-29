@@ -1,13 +1,17 @@
 SHELL := /bin/bash
 .DEFAULT_GOAL := help
 
-.PHONY: help version check check-units check-display verify social-preview check-social-preview install install-with-proton-cli uninstall
+.PHONY: help version check check-platforms check-arch check-arch-package check-desktop-gate check-units check-display verify social-preview check-social-preview install install-with-proton-cli uninstall
 
 help: ## Show this action-free command overview.
 	@printf '%s\n' \
 		'PDrive developer commands' \
 		'' \
 		'  make check                    Run the portable repository test suite.' \
+		'  make check-platforms          Validate distribution detection and package maps.' \
+		'  make check-arch               Run the Arch Linux smoke test with rootless Podman.' \
+		'  make check-arch-package       Build and inspect the native Arch package.' \
+		'  make check-desktop-gate       Print the read-only real-desktop preflight report.' \
 		'  make check-units              Validate systemd user units only.' \
 		'  make check-display            Run GTK tests on the current display.' \
 		'  make verify                   Run diff hygiene and the portable suite.' \
@@ -23,6 +27,18 @@ version: ## Print the canonical project version.
 
 check: ## Run the portable repository test suite.
 	./tests/check.sh
+
+check-platforms: ## Validate distribution detection and package maps.
+	./tests/test-platforms.sh
+
+check-arch: ## Run the Arch Linux compatibility smoke test with rootless Podman.
+	./tests/run-distro-smoke.sh arch
+
+check-arch-package: ## Build and inspect the native Arch package with rootless Podman.
+	./tests/run-arch-package.sh
+
+check-desktop-gate: ## Print the read-only real-desktop preflight report.
+	./bin/pdrive-desktop-gate --markdown
 
 check-units: ## Validate systemd user units and project invariants.
 	./tests/test-systemd.sh

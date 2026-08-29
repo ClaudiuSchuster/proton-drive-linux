@@ -129,7 +129,7 @@ assert wizard.prepare_button.get_tooltip_text() in {
         "Only the user-local rclone binary is replaced; configuration, cache and mount data remain untouched."
     ),
     module.translate(
-        "Automatic package installation is available on Debian, Ubuntu and Linux Mint systems with Polkit."
+        "Automatic package installation is available on supported Debian-family and Arch Linux systems with Polkit."
     ),
 }
 rclone_fixture.write_text(safe_rclone, encoding="utf-8")

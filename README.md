@@ -5,12 +5,13 @@
   </picture>
 </p>
 
-<h1 align="center">Proton Drive Linux Mount Toolkit</h1>
+<h1 align="center">PDrive — Proton Drive for Linux</h1>
 
 <p align="center">
-  A reliable Proton Drive mount for Linux Mint Cinnamon — native file-manager
-  access, resilient uploads and a live control center, all around one rclone
-  process.
+  A careful Proton Drive mount for Linux desktops — native file-manager access,
+  resilient uploads and a live GTK control center, all around one rclone
+  process. Linux Mint is the reference platform; Arch and Ubuntu portability is
+  underway.
 </p>
 
 <p align="center">
@@ -18,6 +19,7 @@
   <a href="https://github.com/oss-singularity/proton-drive-linux/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/oss-singularity/proton-drive-linux?display_name=tag&amp;sort=semver"></a>
   <a href="LICENSE"><img alt="License GPL-3.0-or-later" src="https://img.shields.io/badge/license-GPL--3.0--or--later-6f5bd5"></a>
   <img alt="Linux Mint Cinnamon" src="https://img.shields.io/badge/Linux%20Mint-Cinnamon-75c46b">
+  <img alt="Arch and Ubuntu portability in progress" src="https://img.shields.io/badge/Arch%20%2B%20Ubuntu-in%20progress-6f5bd5">
   <img alt="rclone Proton Drive backend" src="https://img.shields.io/badge/rclone-Proton%20Drive-4f7ee8">
 </p>
 
@@ -49,9 +51,10 @@
        alt="Healthy-state PDrive Control Center menu with transfer, cache, recovery and documentation actions">
 </p>
 
-Use Proton Drive directly in Nemo at `/pdrive`. The toolkit starts the mount
-after desktop login, protects its encrypted rclone configuration with GNOME
-Keyring and provides a native GTK control center for the details that matter.
+Use Proton Drive directly in your file manager at `/pdrive`. The toolkit starts
+the mount after desktop login, protects its encrypted rclone configuration with
+GNOME Keyring and provides a native GTK control center for the details that
+matter.
 
 > [!IMPORTANT]
 > This is an independent community project, not an official Proton product.
@@ -60,7 +63,7 @@ Keyring and provides a native GTK control center for the details that matter.
 
 ## Highlights
 
-- Writable, owner-only `/pdrive` mount with a direct Nemo bookmark.
+- Writable, owner-only `/pdrive` mount with a GTK file-manager bookmark.
 - English and German GTK control center with tray support.
 - Upload and download-traffic graphs with a configurable live interval.
 - Active transfers, upload queue with a smoothed remaining-time estimate,
@@ -79,8 +82,12 @@ when needed; writes remain protected in the local VFS cache until uploaded.
 ## Install
 
 The supported target is Linux Mint 22.x with Cinnamon, Nemo and a normal
-graphical login. Other Debian/Ubuntu desktops may work but are not the primary
-test environment.
+graphical login. Arch Linux and Ubuntu are the first portability targets, but
+are not called supported until their native packages and clean-desktop release
+gates pass. An Arch package candidate now builds from the shared staged install
+tree; it is not a published release yet. See the
+[distribution portability plan](docs/PORTABILITY.md) and the
+privacy-safe [real desktop release gates](docs/DESKTOP_GATES.md).
 
 ```bash
 git clone https://github.com/oss-singularity/proton-drive-linux.git
@@ -91,9 +98,9 @@ pdrive-ui
 
 The installer may request `sudo` once to create the owner-only `/pdrive`
 directory. On first launch, the setup wizard checks prerequisites, can install
-missing Debian/Ubuntu/Mint packages through Polkit, prepares PDrive's verified
-Proton-capable rclone, offers automatic or manual connection headroom and then
-guides you through username, password and optional 2FA. Automatic tuning uses a
+missing supported distribution packages through Polkit, prepares PDrive's
+verified Proton-capable rclone, offers automatic or manual connection headroom
+and then guides you through username, password and optional 2FA. Automatic tuning uses a
 bounded Cloudflare speed test and reserves capacity for browsing and other
 applications. Credentials never appear in command arguments or environment
 variables.
@@ -197,6 +204,10 @@ recovery unless you deliberately remove them later.
   recovery.
 - [Development guide](docs/DEVELOPMENT.md) — architecture, security, testing,
   language, CI and release conventions.
+- [Distribution portability](docs/PORTABILITY.md) — support tiers, Arch/Ubuntu
+  adapters, efficient container tests and packaging gates.
+- [Real desktop release gates](docs/DESKTOP_GATES.md) — privacy-safe target
+  reports and the clean installation checklist.
 - [Security policy](SECURITY.md) — private reporting, supported versions and
   explicit trust boundaries.
 

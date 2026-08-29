@@ -61,13 +61,13 @@ header_actions = {
     if button.get_tooltip_text()
 }
 for tooltip in (
-    "Open /pdrive in Nemo",
+    "Open /pdrive in your file manager",
     "Open Proton Drive on the web",
     "Refresh now",
     "Controls",
 ):
     assert tooltip in header_actions
-for tooltip in ("Open /pdrive in Nemo", "Open Proton Drive on the web"):
+for tooltip in ("Open /pdrive in your file manager", "Open Proton Drive on the web"):
     assert header.child_get_property(header_actions[tooltip], "pack-type") == module.Gtk.PackType.START
 for tooltip in ("Refresh now", "Controls"):
     assert header.child_get_property(header_actions[tooltip], "pack-type") == module.Gtk.PackType.END
@@ -1208,6 +1208,10 @@ if display_type == "GdkBroadwayDisplay":
     assert not module.tray_supports_distinct_clicks()
 else:
     assert module.tray_supports_distinct_clicks()
+
+assert module.fitted_window_height(720, 100, module.MAX_WINDOW_DIMENSION) == 824
+assert module.fitted_window_height(812, 0, 752) == 752
+assert module.fitted_window_height(812, 100, 752) == 752
 
 
 class FixedAdjustment:

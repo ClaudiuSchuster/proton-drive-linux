@@ -3,11 +3,21 @@
 
 set -uo pipefail
 
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+project_root="$(cd -- "$(dirname -- "${script_path}")/.." && pwd -P)"
 readonly mount_dir='/pdrive'
 readonly config_file="${HOME}/.config/rclone/rclone.conf"
-readonly rclone_bin="${HOME}/.local/bin/rclone"
+readonly rclone_bin="${project_root}/bin/rclone"
 readonly rclone_real="${HOME}/.local/libexec/rclone-bin"
 readonly mount_log="${HOME}/.local/state/rclone/proton-mount.log"
+script_dir="${project_root}/bin"
+platform_helper=''
+if [[ -x "${script_dir}/pdrive-platform" ]]; then
+    platform_helper="${script_dir}/pdrive-platform"
+else
+    platform_helper="$(command -v pdrive-platform || true)"
+fi
+readonly platform_helper
 
 usage() {
     printf '%s\n' \
@@ -100,12 +110,29 @@ else
 fi
 
 section 'Required packages'
-for package in fuse3 libfuse3-3 libsecret-tools gnome-keyring libpam-gnome-keyring \
-    jq curl openssl iproute2 libnotify-bin python3-gi python3-gi-cairo \
-    gir1.2-gtk-3.0 gir1.2-ayatanaappindicator3-0.1 librsvg2-common; do
-    status="$(dpkg-query -W -f='${db:Status-Abbrev} ${Version}' "${package}" 2>/dev/null || true)"
-    printf '%-24s %s\n' "${package}" "${status:-MISSING}"
-done
+platform_family=''
+platform_packages=()
+if [[ -n "${platform_helper}" ]]; then
+    platform_family="$("${platform_helper}" --family 2>/dev/null || true)"
+    mapfile -t platform_packages < <("${platform_helper}" --packages 2>/dev/null || true)
+fi
+case "${platform_family}" in
+    debian)
+        for package in "${platform_packages[@]}"; do
+            status="$(dpkg-query -W -f='${db:Status-Abbrev} ${Version}' "${package}" 2>/dev/null || true)"
+            printf '%-34s %s\n' "${package}" "${status:-MISSING}"
+        done
+        ;;
+    arch)
+        for package in "${platform_packages[@]}"; do
+            status="$(pacman -Q -- "${package}" 2>/dev/null || true)"
+            printf '%-34s %s\n' "${package}" "${status:-MISSING}"
+        done
+        ;;
+    *)
+        printf 'No package adapter is defined for this distribution.\n'
+        ;;
+esac
 
 section 'Update timers'
 systemctl --user list-timers --all --no-pager 2>/dev/null \

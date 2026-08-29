@@ -4,6 +4,9 @@
 set -uo pipefail
 umask 077
 
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+project_root="$(cd -- "$(dirname -- "${script_path}")/.." && pwd -P)"
+
 record_mode=false
 clear_cooldown_mode=false
 restart_service_mode=false
@@ -56,7 +59,7 @@ readonly mount_dir='/pdrive'
 readonly mount_log="${HOME}/.local/state/rclone/proton-mount.log"
 readonly state_dir="${HOME}/.local/state/rclone"
 readonly rc_socket="${state_dir}/pdrive-rc.sock"
-readonly rclone_bin="${HOME}/.local/bin/rclone"
+readonly rclone_bin="${project_root}/bin/rclone"
 readonly latest_file="${state_dir}/pdrive-watch-latest.txt"
 readonly history_file="${state_dir}/pdrive-watch-history.log"
 readonly history_max_entries=512

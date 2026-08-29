@@ -3,8 +3,10 @@
 
 set -euo pipefail
 
+script_path="$(readlink -f -- "${BASH_SOURCE[0]}")"
+project_root="$(cd -- "$(dirname -- "${script_path}")/.." && pwd -P)"
 readonly rclone_bin="${HOME}/.local/libexec/rclone-bin"
-readonly prerequisite_bin="${PDRIVE_PREREQUISITES_BIN:-${HOME}/.local/bin/pdrive-prerequisites}"
+readonly prerequisite_bin="${PDRIVE_PREREQUISITES_BIN:-${project_root}/bin/pdrive-prerequisites}"
 before="$(${rclone_bin} version | head -n 1)"
 "${prerequisite_bin}" --install-rclone
 after="$(${rclone_bin} version | head -n 1)"
