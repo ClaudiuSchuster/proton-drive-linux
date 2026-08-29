@@ -120,6 +120,17 @@ DEFAULT_PREFERENCES: dict[str, Any] = {
     "issues_reviewed_notices": -1,
     "issues_reviewed_at": "",
 }
+
+
+def fitted_window_height(current_height: int, overflow: float, maximum_height: int) -> int:
+    """Grow for content when possible, but always respect the work area."""
+
+    desired_height = current_height
+    if overflow > 0.5:
+        desired_height += math.ceil(overflow) + 4
+    return min(maximum_height, desired_height)
+
+
 NOTIFICATION_POLICIES = {
     "important": "Important problems and recovery actions",
     "critical": "Critical problems only",
@@ -4727,18 +4738,17 @@ class PDriveWindow(Gtk.ApplicationWindow):
         elif self.root is not None:
             _minimum, natural = self.root.get_preferred_height()
             overflow = max(0.0, natural - self.root.get_allocated_height())
-        if overflow > 0.5:
-            width, height = self.get_size()
-            maximum_height = MAX_WINDOW_DIMENSION
-            gdk_window = self.get_window()
-            display = Gdk.Display.get_default()
-            if gdk_window is not None and display is not None:
-                monitor = display.get_monitor_at_window(gdk_window)
-                if monitor is not None:
-                    maximum_height = max(MIN_WINDOW_HEIGHT, monitor.get_workarea().height - 8)
-            target_height = min(maximum_height, height + math.ceil(overflow) + 4)
-            if target_height > height:
-                self.resize(width, target_height)
+        width, height = self.get_size()
+        maximum_height = MAX_WINDOW_DIMENSION
+        gdk_window = self.get_window()
+        display = Gdk.Display.get_default()
+        if gdk_window is not None and display is not None:
+            monitor = display.get_monitor_at_window(gdk_window)
+            if monitor is not None:
+                maximum_height = max(MIN_WINDOW_HEIGHT, monitor.get_workarea().height - 8)
+        target_height = fitted_window_height(height, overflow, maximum_height)
+        if target_height != height:
+            self.resize(width, target_height)
         self.content_fit_completed = True
         self.content_fit_source = 0
         return GLib.SOURCE_REMOVE

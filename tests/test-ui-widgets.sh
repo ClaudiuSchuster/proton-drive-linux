@@ -1209,6 +1209,10 @@ if display_type == "GdkBroadwayDisplay":
 else:
     assert module.tray_supports_distinct_clicks()
 
+assert module.fitted_window_height(720, 100, module.MAX_WINDOW_DIMENSION) == 824
+assert module.fitted_window_height(812, 0, 752) == 752
+assert module.fitted_window_height(812, 100, 752) == 752
+
 
 class FixedAdjustment:
     @staticmethod
