@@ -147,7 +147,8 @@ notify_reauthorization_required() {
 }
 
 after_service_exit() {
-    local log_offset current_size new_log terminal_state_active=false
+    local log_offset current_size new_log current_status=''
+    local fresh_two_factor=false login_rate_limited=false
 
     [[ -r "${attempt_file}" && -f "${mount_log}" ]] || return 0
     log_offset="$(awk -F= '$1 == "log_offset" && $2 ~ /^[0-9]+$/ { print $2; exit }' "${attempt_file}")"
@@ -157,18 +158,31 @@ after_service_exit() {
     (( current_size >= log_offset )) || return 0
 
     new_log="$(tail -c "+$((log_offset + 1))" -- "${mount_log}" 2>/dev/null || true)"
-    if ! grep -Fq \
+    if grep -Fq \
         "this account requires a 2FA code. Can be provided with --protondrive-2fa=000000" \
         <<< "${new_log}"; then
+        fresh_two_factor=true
+    fi
+    # Only an HTTP 429 from Proton's authentication endpoint is a login
+    # cooldown. Metadata and file-operation 429 responses remain ordinary
+    # runtime evidence and must not suppress a later healthy service start.
+    if grep -Eqi \
+        '(^|[^0-9])429([^0-9]|$)[^[:cntrl:]]*POST https://[^[:space:]]+/auth(/|[[:space:]:])' \
+        <<< "${new_log}"; then
+        login_rate_limited=true
+    fi
+    if [[ "${fresh_two_factor}" == false && "${login_rate_limited}" == false ]]; then
         return 0
     fi
 
-    if [[ -r "${auth_state_file}" ]] \
-        && grep -Eq '"status": "(rate-limited|reauthorization-required)"' \
-            "${auth_state_file}"; then
-        terminal_state_active=true
+    if [[ -r "${auth_state_file}" ]] && command -v jq >/dev/null 2>&1; then
+        current_status="$(jq -r '.status // empty' "${auth_state_file}" 2>/dev/null || true)"
     fi
-    if [[ "${terminal_state_active}" == false ]]; then
+    if [[ "${login_rate_limited}" == true && "${current_status}" != 'rate-limited' ]]; then
+        mark_rate_limited
+    elif [[ "${fresh_two_factor}" == true \
+        && "${current_status}" != 'rate-limited' \
+        && "${current_status}" != 'reauthorization-required' ]]; then
         write_auth_state 'reauthorization-required' 'two-factor-required' true
         notify_reauthorization_required
     fi

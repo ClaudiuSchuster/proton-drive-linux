@@ -83,9 +83,10 @@ when needed; writes remain protected in the local VFS cache until uploaded.
 
 The supported target is Linux Mint 22.x with Cinnamon, Nemo and a normal
 graphical login. Arch Linux and Ubuntu are the first portability targets. The
-Arch Linux `0.8.0-1` package candidate has passed its clean Cinnamon/X11
-desktop gate and is attached to the `v0.8.0` GitHub Release for configured
-real-world review; it is not yet a generally supported Arch target. See the
+Arch Linux `0.8.1-1` package candidate preserves the package baseline whose
+`0.8.0-1` build passed its clean Cinnamon/X11 desktop gate. It is attached to
+the `v0.8.1` GitHub Release for configured real-world review; Arch is not yet a
+generally supported target. See the
 [distribution portability plan](docs/PORTABILITY.md) and the privacy-safe
 [real desktop release gates](docs/DESKTOP_GATES.md).
 
@@ -96,12 +97,12 @@ cd proton-drive-linux
 pdrive-ui
 ```
 
-Arch reviewers can download the `proton-drive-linux-0.8.0-1-any.pkg.tar.zst`
-asset from the [`v0.8.0` release](https://github.com/oss-singularity/proton-drive-linux/releases/tag/v0.8.0),
+Arch reviewers can download the `proton-drive-linux-0.8.1-1-any.pkg.tar.zst`
+asset from the [`v0.8.1` release](https://github.com/oss-singularity/proton-drive-linux/releases/tag/v0.8.1),
 verify the SHA-256 published in its release notes and install it with:
 
 ```bash
-sudo pacman -U ./proton-drive-linux-0.8.0-1-any.pkg.tar.zst
+sudo pacman -U ./proton-drive-linux-0.8.1-1-any.pkg.tar.zst
 pdrive-ui
 ```
 

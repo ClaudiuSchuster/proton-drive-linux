@@ -21,7 +21,7 @@ from typing import Any
 
 
 SCHEMA_VERSION = 1
-TOOL_VERSION = "0.8.0"
+TOOL_VERSION = "0.8.1"
 RECENT_TRANSFER_WINDOW_SECONDS = 24 * 60 * 60
 RECENT_TRANSFER_LIMIT = 24
 MOUNT_LOG_TAIL_BYTES = 512 * 1024
@@ -295,14 +295,24 @@ def rc_call(
         connection.close()
 
 
-def collect_rc(*, include_vfs: bool) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
+def collect_rc(
+    *,
+    include_vfs: bool,
+    include_backend: bool,
+) -> tuple[dict[str, dict[str, Any]], dict[str, str]]:
     requests = [
         ("core/stats", None),
         ("core/transferred", None),
-        ("backend/command", {"command": "data-bandwidth", "fs": "proton:"}),
     ]
     if include_vfs:
         requests.extend([("vfs/queue", None), ("vfs/stats", None)])
+    # backend/command resolves its fs argument through rclone's backend cache.
+    # Before the mount has finished registering proton:, every poll can create
+    # another login-capable Proton backend instance. Keep startup and terminal
+    # authentication polling strictly local; query the live backend only after
+    # systemd and the FUSE mount both prove that the managed instance is ready.
+    if include_backend:
+        requests.append(("backend/command", {"command": "data-bandwidth", "fs": "proton:"}))
     payloads: dict[str, dict[str, Any]] = {}
     errors: dict[str, str] = {}
     with concurrent.futures.ThreadPoolExecutor(max_workers=len(requests)) as pool:
@@ -1345,7 +1355,15 @@ def build_state(include_capacity: bool = False) -> dict[str, Any]:
     # vfs/* returns an error and writes an ERROR line to rclone's own log while
     # the RC socket is up but the mount has not registered its VFS yet. Avoid
     # manufacturing user-visible issues during this normal startup window.
-    rc_payloads, rc_errors = collect_rc(include_vfs=mount["ready"])
+    authentication_blocked = authentication.get("status") in {
+        "rate-limited",
+        "reauthorization-required",
+    }
+    runtime_ready = bool(service.get("active") and mount["ready"] and not authentication_blocked)
+    rc_payloads, rc_errors = collect_rc(
+        include_vfs=mount["ready"],
+        include_backend=runtime_ready,
+    )
     mount_log = recent_mount_log()
     stats = rc_payloads.get("core/stats", {})
     transferred = rc_payloads.get("core/transferred", {}).get("transferred", [])

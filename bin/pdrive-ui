@@ -60,7 +60,7 @@ PLATFORM_ADAPTER = load_platform_adapter()
 
 
 APP_ID = "io.github.claudiuschuster.PDriveControl"
-VERSION = "0.8.0"
+VERSION = "0.8.1"
 REFRESH_INTERVAL_SECONDS = 2
 REFRESH_INTERVAL_OPTIONS = (1, 2, 5, 10)
 GRAPH_WINDOW_SECONDS = 5 * 60
@@ -1234,6 +1234,16 @@ window.pdrive-window {
   padding: 1px 3px;
 }
 .status-card { border-radius: 16px; padding: 13px 20px; }
+.status-action-banner .status-card { transition: 120ms ease-in-out; }
+.status-action-banner:hover .status-card,
+.status-action-banner:focus .status-card {
+  border-color: #ef7084;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.28);
+}
+.status-action-banner:active .status-card {
+  background: #3f1a22;
+  box-shadow: inset 0 2px 4px rgba(0,0,0,0.32);
+}
 .page.overview-page { padding-top: 18px; }
 .status-ready { background: #12382f; border: 1px solid #23876e; }
 .status-working { background: #153746; border: 1px solid #2e91b5; }
@@ -4173,7 +4183,68 @@ class PDriveWindow(Gtk.ApplicationWindow):
         right.pack_start(self.updated_label, False, False, 0)
         self.status_box.pack_end(right, False, False, 0)
         self.status_frame = card(self.status_box, "status-card", "status-unknown")
-        return self.status_frame
+        self.status_banner = Gtk.EventBox()
+        self.status_banner.set_visible_window(False)
+        self.status_banner.set_above_child(True)
+        self.status_banner.set_can_focus(False)
+        self.status_banner.add_events(
+            Gdk.EventMask.BUTTON_RELEASE_MASK
+            | Gdk.EventMask.ENTER_NOTIFY_MASK
+            | Gdk.EventMask.LEAVE_NOTIFY_MASK
+            | Gdk.EventMask.FOCUS_CHANGE_MASK
+        )
+        self.status_banner.connect("button-release-event", self.on_status_banner_release)
+        self.status_banner.connect("key-release-event", self.on_status_banner_key_release)
+        self.status_banner.connect("enter-notify-event", self.on_status_banner_enter)
+        self.status_banner.connect("leave-notify-event", self.on_status_banner_leave)
+        self.status_banner.add(self.status_frame)
+        self.status_banner_reauthorizes = False
+        return self.status_banner
+
+    def set_status_banner_reauthorization(self, enabled: bool) -> None:
+        self.status_banner_reauthorizes = enabled
+        self.status_banner.set_can_focus(enabled)
+        self.status_banner.set_tooltip_text(translate("Reauthorize Proton account …") if enabled else None)
+        context = self.status_banner.get_style_context()
+        if enabled:
+            context.add_class("status-action-banner")
+        else:
+            context.remove_class("status-action-banner")
+            event_window = self.status_banner.get_window()
+            if event_window is not None:
+                event_window.set_cursor(None)
+
+    def on_status_banner_release(self, _widget: Gtk.Widget, event: Gdk.EventButton) -> bool:
+        if not self.status_banner_reauthorizes or event.button != 1:
+            return False
+        self.on_reauthorize(None)
+        return True
+
+    def on_status_banner_key_release(self, _widget: Gtk.Widget, event: Gdk.EventKey) -> bool:
+        if not self.status_banner_reauthorizes:
+            return False
+        if event.keyval not in (Gdk.KEY_Return, Gdk.KEY_KP_Enter, Gdk.KEY_space):
+            return False
+        self.on_reauthorize(None)
+        return True
+
+    def on_status_banner_enter(self, _widget: Gtk.Widget, _event: Gdk.EventCrossing) -> bool:
+        if not self.status_banner_reauthorizes:
+            return False
+        event_window = self.status_banner.get_window()
+        if event_window is not None:
+            display = event_window.get_display()
+            cursor = Gdk.Cursor.new_from_name(display, "pointer")
+            if cursor is None:
+                cursor = Gdk.Cursor.new_for_display(display, Gdk.CursorType.HAND2)
+            event_window.set_cursor(cursor)
+        return False
+
+    def on_status_banner_leave(self, _widget: Gtk.Widget, _event: Gdk.EventCrossing) -> bool:
+        event_window = self.status_banner.get_window()
+        if event_window is not None:
+            event_window.set_cursor(None)
+        return False
 
     def graph_with_axes(self, graph: SpeedGraph) -> Gtk.Widget:
         overlay = Gtk.Overlay()
@@ -4984,8 +5055,18 @@ class PDriveWindow(Gtk.ApplicationWindow):
         else:
             status_title = STATUS_META.get(live_status, STATUS_META["unknown"])[1]
         self.update_status(live_status, translate(status_title), live_summary)
-        self.status_action.set_visible(reauthorization_required)
-        self.reauthorize_menu_button.set_visible(reauthorization_required)
+        if reauthorization_required:
+            # Both controls use no-show-all while inactive. Showing only the
+            # parent would leave the custom menu row's icon and label hidden.
+            for control in (self.status_action, self.reauthorize_menu_button):
+                child = control.get_child()
+                if child is not None:
+                    child.show_all()
+                control.show()
+        else:
+            self.status_action.hide()
+            self.reauthorize_menu_button.hide()
+        self.set_status_banner_reauthorization(reauthorization_required)
         issues = state.get("issues", {})
         application = self.get_application()
         if (

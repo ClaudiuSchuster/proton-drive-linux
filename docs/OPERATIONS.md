@@ -687,11 +687,12 @@ the current service start, writes mode-0600
 `~/.local/state/rclone/pdrive-auth-state.json`, cancels the pending
 `Restart=on-failure` retry and sends one notification according to the Control
 Center notification preference. It never records a username, password, TOTP,
-API URL or session token. The Overview then shows **Reauthorization required**
-with a dedicated button; only while this state is active, the same action is
-available under **hamburger menu → Reauthorize Proton account …**. Both actions
-disappear again after successful reauthorization. A rate-limit state keeps the
-action unavailable until its saved cooldown expires.
+API URL or session token. The Overview then shows **Reauthorization required**;
+the complete red banner and its dedicated button open the guided action by
+pointer or keyboard. Only while this state is active, the same action is
+available under **hamburger menu → Reauthorize Proton account …**. These actions
+disappear again after successful reauthorization. A rate-limit state keeps them
+unavailable until its saved cooldown expires.
 
 The native dialog uses the account already present in the encrypted
 configuration and requests only the current account password and optional fresh
@@ -703,13 +704,15 @@ the old configuration and the stopped retry guard intact. A successful login
 backs up and atomically replaces the encrypted configuration, clears the
 one-time code, starts `/pdrive` and changes the authentication state to ready.
 
-Only concrete HTTP 429 evidence in the private isolated-login log activates the
-rate-limit state; generic login rejection and HTTP 422 do not. PDrive stores a
-credential-free `retry_after` timestamp with a conservative one-hour cooldown,
-shows it in the Overview, turns the dialog into a Close-only explanation and
-blocks the hamburger-menu and direct-service-start bypasses. When the timestamp
-expires, the normalized state automatically offers reauthorization again. A
-successful isolated login clears either terminal state immediately.
+Only concrete HTTP 429 evidence from Proton's authentication endpoint in the
+current service-start log or the private isolated-login log activates the
+rate-limit state; metadata 429 responses, generic login rejection and HTTP 422
+do not. PDrive stores a credential-free `retry_after` timestamp with a
+conservative one-hour cooldown, shows it in the Overview, turns the dialog into
+a Close-only explanation and blocks the hamburger-menu and direct-service-start
+bypasses. When the timestamp expires, the normalized state automatically offers
+reauthorization again. A successful isolated login clears either terminal state
+immediately.
 
 The equivalent terminal fallback remains:
 

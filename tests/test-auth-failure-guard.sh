@@ -105,6 +105,40 @@ grep -qF 'PDrive needs reauthorization' "${events}"
 run_guard --mark-healthy
 run_guard --start-allowed
 
+ready_state="$(sha256sum "${state_dir}/pdrive-auth-state.json")"
+service_stop_count="$(grep -c '^systemctl:' "${events}")"
+run_guard --begin-start
+printf '%s\n' \
+    "2026/08/27 02:23:17 ERROR : proton drive root link ID 'redacted': 429 GET https://drive-api.proton.me/core/v4/users: Too many requests (Status=429)" \
+    >> "${mount_log}"
+run_guard --after-service-exit
+[[ "$(sha256sum "${state_dir}/pdrive-auth-state.json")" == "${ready_state}" ]]
+[[ "$(grep -c '^systemctl:' "${events}")" == "${service_stop_count}" ]]
+
+rate_limit_started="$(date +%s)"
+run_guard --begin-start
+printf '%s\n' \
+    "2026/08/27 02:23:18 ERROR : proton drive root link ID 'redacted': 429 GET https://drive-api.proton.me/core/v4/users: Too many requests (Status=429)" \
+    "2026/08/27 02:23:19 ERROR : rc: backend command: this account requires a 2FA code. Can be provided with --protondrive-2fa=000000" \
+    "2026/08/27 02:23:20 CRITICAL: Failed to create file system: 429 POST https://drive-api.proton.me/auth/v4: Too many requests (Code=2011, Status=429)" \
+    >> "${mount_log}"
+notification_count="$(grep -c '^notify-send:' "${events}")"
+run_guard --after-service-exit
+jq -e '
+  .status == "rate-limited"
+  and .reason == "login-rate-limited"
+  and .restart_suppressed == true
+  and (.retry_after | type == "string")
+' "${state_dir}/pdrive-auth-state.json" >/dev/null
+retry_epoch="$(date --date="$(jq -r .retry_after "${state_dir}/pdrive-auth-state.json")" +%s)"
+(( retry_epoch >= rate_limit_started + 119 ))
+(( retry_epoch <= rate_limit_started + 121 ))
+[[ "$(grep -c '^notify-send:' "${events}")" == "${notification_count}" ]]
+rate_limited_state="$(sha256sum "${state_dir}/pdrive-auth-state.json")"
+run_guard --after-service-exit
+[[ "$(sha256sum "${state_dir}/pdrive-auth-state.json")" == "${rate_limited_state}" ]]
+run_guard --mark-healthy
+
 rate_limit_started="$(date +%s)"
 run_guard --mark-rate-limited
 jq -e '
