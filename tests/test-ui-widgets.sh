@@ -573,6 +573,27 @@ assert window.status_action.get_visible()
 assert window.status_action.get_sensitive()
 assert window.status_action.get_tooltip_text() == "Reauthorize Proton account …"
 assert window.reauthorize_menu_button.get_visible()
+assert all(
+    widget.get_visible()
+    for widget in descendants(window.reauthorize_menu_button)
+    if isinstance(widget, (module.Gtk.Image, module.Gtk.Label))
+)
+assert window.status_banner.get_can_focus()
+assert window.status_banner.get_tooltip_text() == "Reauthorize Proton account …"
+original_on_reauthorize = window.on_reauthorize
+banner_activations = []
+window.on_reauthorize = lambda _button: banner_activations.append("activated")
+assert window.on_status_banner_release(
+    window.status_banner,
+    type("PointerEvent", (), {"button": 1})(),
+)
+assert banner_activations == ["activated"]
+assert window.on_status_banner_key_release(
+    window.status_banner,
+    type("KeyEvent", (), {"keyval": module.Gdk.KEY_Return})(),
+)
+assert banner_activations == ["activated", "activated"]
+window.on_reauthorize = original_on_reauthorize
 assert window.queue_card.value.get_text() == "–"
 assert window.queue_card.detail.get_text() == "Reauthorization needed"
 assert "local cache data remains protected" in window.live_summary.get_text()
@@ -685,6 +706,8 @@ assert window.status_title.get_text() == "Login temporarily paused"
 assert "Try again after" in window.status_summary.get_text()
 assert not window.status_action.get_visible()
 assert not window.reauthorize_menu_button.get_visible()
+assert not window.status_banner.get_can_focus()
+assert window.status_banner.get_tooltip_text() is None
 assert window.queue_card.value.get_text() == "–"
 
 window.apply_state(module.demo_state())

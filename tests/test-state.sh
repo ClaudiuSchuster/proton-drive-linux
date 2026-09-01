@@ -55,6 +55,7 @@ printf '%s\n' \
     'for argument in "$@"; do' \
     '  case "${argument}" in core/*|vfs/*|backend/*) endpoint="${argument}" ;; esac' \
     'done' \
+    'if [[ -n "${PDRIVE_TEST_RC_LOG:-}" ]]; then printf "%s\\n" "${endpoint}" >> "${PDRIVE_TEST_RC_LOG}"; fi' \
     'if [[ "${PDRIVE_TEST_NO_VFS:-}" == 1 && "${endpoint}" == vfs/* ]]; then exit 99; fi' \
     'case "${endpoint}" in' \
     '  core/stats)' \
@@ -457,6 +458,8 @@ jq -e '
 ' "${finalizing_json}" >/dev/null
 
 startup_json="${test_root}/startup.json"
+startup_rc_log="${test_root}/startup-rc.log"
+: > "${startup_rc_log}"
 HOME="${test_home}" \
 PATH="${fake_bin}:/usr/bin:/bin" \
 PDRIVE_STATE_DIR="${state_dir}" \
@@ -465,6 +468,7 @@ PDRIVE_MOUNT_DIR="${test_root}/mount" \
 PDRIVE_RC_SOCKET="${state_dir}/pdrive-rc.sock" \
 PDRIVE_RCLONE_BIN="${fake_bin}/rclone-bin" \
 PDRIVE_RC_TRANSPORT=cli \
+PDRIVE_TEST_RC_LOG="${startup_rc_log}" \
 PDRIVE_TEST_NO_MOUNT=1 \
 PDRIVE_TEST_NO_VFS=1 \
     "${project_dir}/bin/pdrive-state" --compact > "${startup_json}"
@@ -476,6 +480,12 @@ jq -e '
     and .vfs.available == false
     and ([.health.components[].component | select(startswith("vfs/"))] | length) == 0
 ' "${startup_json}" >/dev/null
+grep -qFx 'core/stats' "${startup_rc_log}"
+grep -qFx 'core/transferred' "${startup_rc_log}"
+if grep -qFx 'backend/command' "${startup_rc_log}"; then
+    printf 'Startup state polling initialized the Proton backend.\n' >&2
+    exit 1
+fi
 
 cat > "${state_dir}/pdrive-auth-state.json" <<'EOF'
 {
