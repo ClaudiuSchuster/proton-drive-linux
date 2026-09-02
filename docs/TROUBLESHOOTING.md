@@ -675,6 +675,10 @@ lines. The live VFS queue and Dirty count are the authoritative current state.
 
 ## Reporting an issue
 
+Open a [PDrive GitHub issue](https://github.com/oss-singularity/proton-drive-linux/issues).
+The rclone forum is for broader community discussion and upstream coordination,
+not PDrive-specific support.
+
 Include:
 
 - distribution, desktop and rclone version;
