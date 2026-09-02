@@ -228,6 +228,19 @@ recovery unless you deliberately remove them later.
 Contributions are welcome. Run `make check` before opening a pull request; both
 Functional checks and Super-Linter are intended to be required checks.
 
+## Community and support
+
+- [PDrive — Proton Drive at home on Linux](https://forum.rclone.org/t/pdrive-proton-drive-at-home-on-linux/54205)
+  — project introduction, screenshots and broader rclone-community feedback.
+- [Proton Drive x rclone](https://forum.rclone.org/t/proton-drive-x-rclone/53609/24)
+  — Proton backend coordination and OSS Singularity's stewardship offer.
+- [GitHub Issues](https://github.com/oss-singularity/proton-drive-linux/issues)
+  — PDrive-specific support, bug reports and feature requests.
+
+Please use GitHub Issues for PDrive support. The rclone forum threads are for
+broader community discussion and upstream coordination rather than third-party
+support.
+
 ## Limitations
 
 - Proton and rclone backend behavior can change independently of this project.
