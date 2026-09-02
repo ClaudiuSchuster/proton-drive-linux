@@ -12,7 +12,7 @@ upload. Detailed maintenance belongs in [Operations](OPERATIONS.md), not here.
 
 The supported target is Linux Mint 22.x with Cinnamon, Nemo and a graphical
 login. Arch Linux and Ubuntu are active portability targets. The Arch Linux
-`0.8.1-1` candidate preserves the package baseline whose `0.8.0-1` build passed
+`0.8.2-1` candidate preserves the package baseline whose `0.8.0-1` build passed
 its clean Cinnamon/X11 desktop gate. It is ready for configured real-world
 review, but Arch is not yet a generally supported release target; see
 [Distribution portability](PORTABILITY.md).
@@ -25,12 +25,12 @@ pdrive-ui
 ```
 
 For the reviewed Arch candidate, download
-`proton-drive-linux-0.8.1-1-any.pkg.tar.zst` from the
-[`v0.8.1` release](https://github.com/oss-singularity/proton-drive-linux/releases/tag/v0.8.1),
+`proton-drive-linux-0.8.2-1-any.pkg.tar.zst` from the
+[`v0.8.2` release](https://github.com/oss-singularity/proton-drive-linux/releases/tag/v0.8.2),
 verify its published SHA-256 and replace the source-install commands above with:
 
 ```bash
-sudo pacman -U ./proton-drive-linux-0.8.1-1-any.pkg.tar.zst
+sudo pacman -U ./proton-drive-linux-0.8.2-1-any.pkg.tar.zst
 pdrive-ui
 ```
 
